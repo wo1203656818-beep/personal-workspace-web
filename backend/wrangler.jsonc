@@ -1,0 +1,78 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-workspace-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "personal-workspace-db",
+      "database_id": "64bf9acc-be96-412b-95cd-8e09e526c4b0",
+      "migrations_dir": "./drizzle"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "02dc4011044a4d24b0aa7a5cdac2612a"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "STORAGE",
+      "bucket_name": "personal-workspace-storage"
+    }
+  ],
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  "dev": {
+    "port": 65404
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  "env": {
+    "staging": {
+      "name": "personal-workspace-api-staging",
+      "vars": {
+        "ENVIRONMENT": "staging"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "personal-workspace-db-staging",
+          "migrations_dir": "./drizzle"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "STORAGE",
+          "bucket_name": "personal-workspace-storage-staging"
+        }
+      ]
+    }
+  }
+}

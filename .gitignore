@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+frontend/dist/
+backend/dist/
+*.tsbuildinfo
+
+# Local environment
+.env
+.env.local
+.env.production
+backend/.dev.vars
+infrastructure/terraform/terraform.tfvars
+infrastructure/terraform/.terraform/
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.*
+infrastructure/terraform/tfplan
+infrastructure/terraform/.terraform.lock.hcl
+
+# Cloudflare local state
+.wrangler/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tooling / IDE caches
+.trae/
+.workbuddy/
+
+# Local test helper with live endpoint references
+test-subtask.ps1
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

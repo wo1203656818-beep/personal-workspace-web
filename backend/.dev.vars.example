@@ -1,0 +1,12 @@
+# 后端本地开发环境变量模板
+# 复制为 .dev.vars 并填入真实值
+# 密码哈希用 npm run hash-password <password> 生成
+#
+# JWT_SECRET: JWT 签名密钥，至少 32 字符，也用于 token AES-GCM 加密派生
+# PASSWORD_HASH: 用 npm run hash-password 生成，格式 pbkdf2$<iter>$<salt>$<hash>
+# MS_CLIENT_ID / MS_CLIENT_SECRET / MS_TENANT_ID: 微软 Azure 应用注册凭据（不用 MS Todo 可留空）
+JWT_SECRET=your-jwt-secret-min-32-chars-random-string
+PASSWORD_HASH=pbkdf2$100000$<salt_hex>$<hash_hex>
+MS_CLIENT_ID=
+MS_CLIENT_SECRET=
+MS_TENANT_ID=

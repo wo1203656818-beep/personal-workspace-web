@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784701809283,
+      "tag": "0000_acoustic_typhoid_mary",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784711462218,
+      "tag": "0001_wakeful_doomsday",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784722009772,
+      "tag": "0002_clever_lizard",
+      "breakpoints": true
+    }
+  ]
+}

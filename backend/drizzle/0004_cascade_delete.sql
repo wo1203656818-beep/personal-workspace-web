@@ -1,0 +1,47 @@
+-- 重建 tasks 表，将 list_id 外键改 ON DELETE CASCADE
+-- SQLite 不支持 ALTER TABLE 改外键，需重建表
+-- 列顺序与 0000+0002 后的实际顺序一致（ms_todo_deleted_at 在末尾）
+-- 注意：D1 远程不支持 SQL BEGIN TRANSACTION，故省略显式事务
+
+PRAGMA foreign_keys=off;
+
+ALTER TABLE tasks RENAME TO tasks_old;
+
+CREATE TABLE `tasks` (
+	`id` text PRIMARY KEY NOT NULL,
+	`list_id` text NOT NULL,
+	`title` text NOT NULL,
+	`note` text DEFAULT '',
+	`is_completed` integer DEFAULT false,
+	`is_important` integer DEFAULT false,
+	`is_my_day` integer DEFAULT false,
+	`my_day_date` text,
+	`due_date` text,
+	`reminder` text,
+	`recurrence` text,
+	`sort_order` integer DEFAULT 0,
+	`ms_todo_id` text,
+	`ms_todo_list_id` text,
+	`last_synced_at` text,
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
+	`ms_todo_deleted_at` text,
+	FOREIGN KEY (`list_id`) REFERENCES `task_lists`(`id`) ON UPDATE no action ON DELETE cascade
+);
+
+INSERT INTO `tasks` (
+	`id`, `list_id`, `title`, `note`, `is_completed`, `is_important`, `is_my_day`,
+	`my_day_date`, `due_date`, `reminder`, `recurrence`, `sort_order`,
+	`ms_todo_id`, `ms_todo_list_id`, `last_synced_at`,
+	`created_at`, `updated_at`, `ms_todo_deleted_at`
+)
+SELECT
+	`id`, `list_id`, `title`, `note`, `is_completed`, `is_important`, `is_my_day`,
+	`my_day_date`, `due_date`, `reminder`, `recurrence`, `sort_order`,
+	`ms_todo_id`, `ms_todo_list_id`, `last_synced_at`,
+	`created_at`, `updated_at`, `ms_todo_deleted_at`
+FROM tasks_old;
+
+DROP TABLE tasks_old;
+
+PRAGMA foreign_keys=on;

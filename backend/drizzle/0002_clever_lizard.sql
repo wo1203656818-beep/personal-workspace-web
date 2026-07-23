@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `ms_todo_deleted_at` text;

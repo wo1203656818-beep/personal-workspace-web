@@ -1,0 +1,12 @@
+{
+  "name": "工作台",
+  "short_name": "工作台",
+  "description": "个人全能工作台 - 任务/笔记/知识库/分析",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
