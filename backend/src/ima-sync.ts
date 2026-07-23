@@ -208,6 +208,26 @@ export function hasUnprocessedImages(content: string): boolean {
   return /!\[[^\]]*\]\(https?:\/\/[^)]+\)|<img[^>]+src=["']https?:\/\/[^"']+["']/i.test(content)
 }
 
+// 解码 HTML 实体（IMA 返回的 Markdown 中图片签名 URL 常被 HTML 转义，
+// 例如 &amp; → &）。若不解码直接 fetch，COS 会因签名含 &amp; 非法而拒绝（403）。
+export function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&amp;/g, '&')
+    .replace(/&#38;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+}
+
+// 归一化图片 URL：先反转义 Markdown 转义（\& → &），再解码 HTML 实体（&amp; → &）
+function normalizeImageUrl(imageUrl: string): string {
+  return decodeHtmlEntities(imageUrl.replace(/\\(.)/g, '$1'))
+}
+
 // 用 URL pathname 生成确定性 hash 作为 R2 key 标识
 async function hashToId(pathname: string): Promise<string> {
   const data = new TextEncoder().encode(pathname)
@@ -257,11 +277,13 @@ export async function downloadImaMediaToR2(env: Env, mediaId: string): Promise<s
  * 用 pathname 的 hash 作为永久 key，已存在则跳过。
  */
 export async function downloadUrlToR2(env: Env, imageUrl: string): Promise<string | null> {
+  // 归一化：反转义 \& 并解码 HTML 实体（&amp; → &），否则 COS 会因签名非法拒绝
+  const downloadUrl = normalizeImageUrl(imageUrl)
   let pathname: string
   try {
-    pathname = new URL(imageUrl).pathname
+    pathname = new URL(downloadUrl).pathname
   } catch {
-    pathname = imageUrl
+    pathname = downloadUrl
   }
   const mediaId = await hashToId(pathname)
   const r2Key = `ima/attachments/${mediaId}`
@@ -270,31 +292,30 @@ export async function downloadUrlToR2(env: Env, imageUrl: string): Promise<strin
     if (exists) return r2Key
   } catch { /* ignore */ }
 
-  // 反转义 Markdown 转义字符（\& → &）再下载
-  const downloadUrl = imageUrl.replace(/\\(.)/g, '$1')
-  try {
-    // 腾讯云 COS/CDN 图片通常校验 Referer，裸 fetch 会 403
-    // 带 Referer + UA 提高成功率
-    const res = await fetch(downloadUrl, {
-      headers: {
-        'Referer': 'https://ima.qq.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/*,*/*;q=0.8',
-      },
-    })
-    if (!res.ok) {
-      console.warn('[ima] image download failed:', res.status, downloadUrl.slice(0, 80))
-      return null
+  // 腾讯云 COS 图片通常有防盗链：部分桶要求带 Referer，部分桶又禁止外域 Referer。
+  // 依次尝试多种请求头组合，最大化下载成功率（任一成功即返回）。
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  const strategies: Record<string, string>[] = [
+    { 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
+    { 'Referer': 'https://ima.qq.com/', 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
+    { 'Referer': 'https://ima.qq.com', 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
+  ]
+  for (let i = 0; i < strategies.length; i++) {
+    try {
+      const res = await fetch(downloadUrl, { headers: strategies[i] })
+      if (res.ok) {
+        const buf = await res.arrayBuffer()
+        const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
+        await env.STORAGE.put(r2Key, buf, { httpMetadata: { contentType }, customMetadata: { sourcePath: pathname } })
+        console.log('[ima] image downloaded (strategy ' + i + '):', mediaId, contentType, buf.byteLength)
+        return r2Key
+      }
+      console.warn('[ima] image download failed (strategy ' + i + '):', res.status, downloadUrl.slice(0, 80))
+    } catch (e) {
+      console.error('[ima] downloadUrlToR2 fetch error (strategy ' + i + '):', mediaId, e)
     }
-    const buf = await res.arrayBuffer()
-    const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
-    await env.STORAGE.put(r2Key, buf, { httpMetadata: { contentType }, customMetadata: { sourcePath: pathname } })
-    console.log('[ima] image downloaded:', mediaId, contentType, buf.byteLength)
-    return r2Key
-  } catch (e) {
-    console.error('[ima] downloadUrlToR2 failed:', mediaId, e)
-    return null
   }
+  return null
 }
 
 /**
@@ -313,10 +334,17 @@ export async function processNoteContentMedia(env: Env, content: string): Promis
   // 处理 http 图片 URL — 用 split/join 避免正则转义问题
   for (const url of imageUrls) {
     const r2Key = await downloadUrlToR2(env, url)
-    if (!r2Key) continue
-    const mediaId = r2Key.split('/').pop()!
-    const localUrl = `/api/ima/media-file/${mediaId}`
-    processed = processed.split(url).join(localUrl)
+    if (r2Key) {
+      const mediaId = r2Key.split('/').pop()!
+      const localUrl = `/api/ima/media-file/${mediaId}`
+      processed = processed.split(url).join(localUrl)
+    } else {
+      // 下载失败（Worker 在 Cloudflare 境外，fetch 国内腾讯云 COS 易失败/被拒）：
+      // 保留原始 IMA URL，但彻底清理转义（\& → &、&amp; → &），
+      // 让浏览器能直连国内 CDN 渲染（签名有效期内有效）。否则残留转义会让 <img src> 失效。
+      const clean = normalizeImageUrl(url)
+      if (clean !== url) processed = processed.split(url).join(clean)
+    }
   }
 
   // 处理 media_id 引用
