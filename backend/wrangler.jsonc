@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "personal-workspace-db",
-      "database_id": "64bf9acc-be96-412b-95cd-8e09e526c4b0",
+      "database_id": "YOUR_D1_DATABASE_ID",
       "migrations_dir": "./drizzle"
     }
   ],
@@ -21,7 +21,7 @@
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      "id": "02dc4011044a4d24b0aa7a5cdac2612a"
+      "id": "YOUR_KV_NAMESPACE_ID"
     }
   ],
 
