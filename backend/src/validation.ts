@@ -90,7 +90,31 @@ export const aiTestSchema = z.object({
   model: z.string().optional(),
 })
 
-// 解析辅助：失败时抛出 ZodError，由调用方 catch 返回 422
-export function parseBody<T>(schema: z.ZodSchema<T>, data: unknown): T {
-  return schema.parse(data)
-}
+// AI 配置（多条目）
+export const aiConfigCreateSchema = z.object({
+  name: z.string().min(1, '名称不能为空'),
+  type: z.enum(['cloudflare', 'openai']),
+  baseUrl: z.string().optional().default(''),
+  apiKey: z.string().optional().default(''),
+  model: z.string().optional().default(''),
+  isDefault: z.boolean().optional().default(false),
+})
+
+export const aiConfigUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  type: z.enum(['cloudflare', 'openai']).optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+  isDefault: z.boolean().optional(),
+})
+
+export const aiConfigTestSchema = z.object({
+  id: z.string().optional(),
+  type: z.enum(['cloudflare', 'openai']).optional(),
+  baseUrl: z.string().optional().default(''),
+  apiKey: z.string().optional().default(''),
+  model: z.string().optional().default(''),
+})
+
+

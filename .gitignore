@@ -21,6 +21,14 @@ infrastructure/terraform/.terraform.lock.hcl
 
 # Cloudflare local state
 .wrangler/
+backend/.wrangler-local/
+
+# Temp / scratch
+.tmp/
+backend/tmp/
+proxy_patch.cjs
+backend/proxy_patch.cjs
+backend/test-serving-and-download.ts
 
 # Editor
 .vscode/

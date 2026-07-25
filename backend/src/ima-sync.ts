@@ -3,6 +3,7 @@ import * as schema from './schema'
 import { eq, notInArray, inArray, like } from 'drizzle-orm'
 import { decrypt } from './crypto-utils'
 import type { Env } from './types'
+import { marked } from 'marked'
 
 /**
  * 腾讯 IMA OpenAPI 同步模块
@@ -63,7 +64,7 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
     .onConflictDoUpdate({ target: schema.settings.key, set: { value, updatedAt: new Date().toISOString() } })
 }
 
-// 通用 IMA API 调用
+// 通用 IMA API 调用（无重试 — 防止 cron 同步期间子请求数超过 1000 上限）
 async function imaPost(apiPath: string, body: any, creds: ImaCredentials): Promise<any> {
   const res = await fetch(`${IMA_BASE_URL}/${apiPath}`, {
     method: 'POST',
@@ -74,7 +75,13 @@ async function imaPost(apiPath: string, body: any, creds: ImaCredentials): Promi
     },
     body: JSON.stringify(body),
   })
-  const data = await res.json() as any
+  const text = await res.text()
+  let data: any
+  try {
+    data = JSON.parse(text)
+  } catch {
+    throw new Error(`IMA 响应非 JSON (HTTP ${res.status}): ${text.slice(0, 200)}`)
+  }
   if (data.code !== 0) {
     throw new Error(`IMA API 错误 [${data.code}]: ${data.msg || '未知错误'}`)
   }
@@ -164,52 +171,7 @@ export async function getNoteContent(env: Env, noteId: string): Promise<string> 
   })
 }
 
-// 从笔记内容中提取 IMA media_id 引用（Markdown 图片/链接、HTML img/a 中既非 http 也非相对路径的 token）
-const MARKDOWN_MEDIA_REGEX = /!\[[^\]]*\]\(([^)\s]+)\)|\[[^\]]*\]\(([^)\s]+)\)/g
-const HTML_IMG_REGEX = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
-const HTML_LINK_REGEX = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi
-const URL_LIKE_REGEX = /^(https?:\/\/|\.\/|\/|#|mailto:|tel:|data:)/i
-
-function maybeMediaRef(ref: string): boolean {
-  if (!ref || ref.length < 3) return false
-  if (URL_LIKE_REGEX.test(ref)) return false
-  if (ref.startsWith('(') || ref.includes('\n')) return false
-  return true
-}
-
-export function extractMediaRefs(content: string): string[] {
-  const refs = new Set<string>()
-  const add = (raw: string) => {
-    const ref = raw.trim()
-    if (maybeMediaRef(ref)) refs.add(ref)
-  }
-  let m: RegExpExecArray | null
-  while ((m = MARKDOWN_MEDIA_REGEX.exec(content)) !== null) add(m[1] || m[2] || '')
-  while ((m = HTML_IMG_REGEX.exec(content)) !== null) add(m[1] || '')
-  while ((m = HTML_LINK_REGEX.exec(content)) !== null) add(m[1] || '')
-  return Array.from(refs)
-}
-
-// 提取 Markdown/HTML 中的 http 图片 URL（IMA 返回的图片是带签名参数的临时 URL）
-const IMAGE_URL_REGEX = /!\[[^\]]*\]\((https?:\/\/[^)]+)\)|<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi
-
-export function extractImageUrls(content: string): string[] {
-  const urls = new Set<string>()
-  let m: RegExpExecArray | null
-  while ((m = IMAGE_URL_REGEX.exec(content)) !== null) {
-    const url = (m[1] || m[2] || '').trim()
-    if (url) urls.add(url)
-  }
-  return Array.from(urls)
-}
-
-// 检查内容中是否还有未处理的 http 图片 URL（用于增量同步判断）
-export function hasUnprocessedImages(content: string): boolean {
-  return /!\[[^\]]*\]\(https?:\/\/[^)]+\)|<img[^>]+src=["']https?:\/\/[^"']+["']/i.test(content)
-}
-
-// 解码 HTML 实体（IMA 返回的 Markdown 中图片签名 URL 常被 HTML 转义，
-// 例如 &amp; → &）。若不解码直接 fetch，COS 会因签名含 &amp; 非法而拒绝（403）。
+// 解码 HTML 实体（IMA 返回的 Markdown 中常含 &amp; 等转义）
 export function decodeHtmlEntities(input: string): string {
   return input
     .replace(/&amp;/g, '&')
@@ -223,172 +185,141 @@ export function decodeHtmlEntities(input: string): string {
     .replace(/&nbsp;/g, ' ')
 }
 
-// 归一化图片 URL：先反转义 Markdown 转义（\& → &），再解码 HTML 实体（&amp; → &）
-function normalizeImageUrl(imageUrl: string): string {
-  return decodeHtmlEntities(imageUrl.replace(/\\(.)/g, '$1'))
-}
-
-// 用 URL pathname 生成确定性 hash 作为 R2 key 标识
-async function hashToId(pathname: string): Promise<string> {
-  const data = new TextEncoder().encode(pathname)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32)
+/**
+ * 仅做轻量归一化（反转义 \\&、解码 &amp; 等 HTML 实体），不下载图片。
+ */
+export function normalizeNoteContent(content: string): string {
+  return decodeHtmlEntities(content.replace(/\\(.)/g, '$1'))
 }
 
 /**
- * 下载 IMA media_id 媒体文件到 R2（用于非 URL 类型的 media_id 引用）。
+ * 带 Referer 降级的 fetch，用于 KB 文件下载。
+ * 腾讯云 COS 有时要求/禁止特定 Referer，依次尝试多种策略。
  */
-export async function downloadImaMediaToR2(env: Env, mediaId: string): Promise<string | null> {
-  const r2Key = `ima/attachments/${mediaId}`
-  try {
-    const exists = await env.STORAGE.head(r2Key)
-    if (exists) return r2Key
-  } catch { /* ignore */ }
-
-  try {
-    const mediaInfo = await getMediaInfo(env, mediaId)
-    const urlInfo = mediaInfo.url_info
-    const downloadUrl = urlInfo?.url
-    if (!downloadUrl) {
-      console.warn('[ima] media no download url:', mediaId)
-      return null
-    }
-    const fetchHeaders: Record<string, string> = {}
-    if (urlInfo.headers && typeof urlInfo.headers === 'object') {
-      for (const [k, v] of Object.entries(urlInfo.headers)) fetchHeaders[k] = String(v)
-    }
-    const fileRes = await fetch(downloadUrl, { headers: fetchHeaders })
-    if (!fileRes.ok) {
-      console.warn('[ima] media download failed:', mediaId, fileRes.status)
-      return null
-    }
-    const buf = await fileRes.arrayBuffer()
-    const contentType = fileRes.headers.get('Content-Type') || 'application/octet-stream'
-    await env.STORAGE.put(r2Key, buf, { httpMetadata: { contentType }, customMetadata: { mediaId } })
-    return r2Key
-  } catch (e) {
-    console.error('[ima] downloadImaMediaToR2 failed:', mediaId, e)
-    return null
-  }
-}
-
-/**
- * 下载图片 URL 到 R2。IMA 返回的图片 URL 带签名参数会过期，
- * 用 pathname 的 hash 作为永久 key，已存在则跳过。
- */
-export async function downloadUrlToR2(env: Env, imageUrl: string): Promise<string | null> {
-  // 归一化：反转义 \& 并解码 HTML 实体（&amp; → &），否则 COS 会因签名非法拒绝
-  const downloadUrl = normalizeImageUrl(imageUrl)
-  let pathname: string
-  try {
-    pathname = new URL(downloadUrl).pathname
-  } catch {
-    pathname = downloadUrl
-  }
-  const mediaId = await hashToId(pathname)
-  const r2Key = `ima/attachments/${mediaId}`
-  try {
-    const exists = await env.STORAGE.head(r2Key)
-    if (exists) return r2Key
-  } catch { /* ignore */ }
-
-  // 腾讯云 COS 图片通常有防盗链：部分桶要求带 Referer，部分桶又禁止外域 Referer。
-  // 依次尝试多种请求头组合，最大化下载成功率（任一成功即返回）。
+export async function fetchWithImaFallbacks(downloadUrl: string, extraHeaders?: Record<string, string>): Promise<Response | null> {
   const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  const baseHeaders: Record<string, string> = { 'User-Agent': UA, ...(extraHeaders || {}) }
   const strategies: Record<string, string>[] = [
-    { 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
-    { 'Referer': 'https://ima.qq.com/', 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
-    { 'Referer': 'https://ima.qq.com', 'Accept': 'image/*,*/*;q=0.8', 'User-Agent': UA },
+    { ...baseHeaders },
+    { ...baseHeaders, Referer: 'https://ima.qq.com/' },
+    { ...baseHeaders, Referer: 'https://ima.qq.com' },
   ]
-  for (let i = 0; i < strategies.length; i++) {
+  for (const headers of strategies) {
     try {
-      const res = await fetch(downloadUrl, { headers: strategies[i] })
-      if (res.ok) {
-        const buf = await res.arrayBuffer()
-        const contentType = res.headers.get('Content-Type') || 'application/octet-stream'
-        await env.STORAGE.put(r2Key, buf, { httpMetadata: { contentType }, customMetadata: { sourcePath: pathname } })
-        console.log('[ima] image downloaded (strategy ' + i + '):', mediaId, contentType, buf.byteLength)
-        return r2Key
-      }
-      console.warn('[ima] image download failed (strategy ' + i + '):', res.status, downloadUrl.slice(0, 80))
-    } catch (e) {
-      console.error('[ima] downloadUrlToR2 fetch error (strategy ' + i + '):', mediaId, e)
-    }
+      const res = await fetch(downloadUrl, { headers })
+      if (res.ok) return res
+    } catch { /* try next strategy */ }
   }
   return null
 }
 
 /**
- * 处理笔记内容中的所有媒体引用：
- * 1. http 图片 URL → 下载到 R2，替换为本地 /api/ima/media-file/{hash}
- * 2. media_id 引用 → 通过 getMediaInfo 下载，替换为本地路径
+ * 清洗 Markdown：去除所有图片和附件引用，替换为占位标记。
+ * - ![alt](url) → [图片]
+ * - <img src="..."> → [图片]
+ * - [text](media-id) 或 [text](/api/ima/...) → [附件: text]
+ * - <a href="..."> 附件链接 → [附件: text]
+ * - <figure>/<figcaption> 等包裹标签 → 仅保留内容
  */
-export async function processNoteContentMedia(env: Env, content: string): Promise<string> {
-  const imageUrls = extractImageUrls(content)
-  const mediaIdRefs = extractMediaRefs(content)
-  if (imageUrls.length === 0 && mediaIdRefs.length === 0) return content
-
-  console.log('[ima] processNoteContentMedia: urls=', imageUrls.length, 'mediaIds=', mediaIdRefs.length)
-  let processed = content
-
-  // 处理 http 图片 URL — 用 split/join 避免正则转义问题
-  for (const url of imageUrls) {
-    const r2Key = await downloadUrlToR2(env, url)
-    if (r2Key) {
-      const mediaId = r2Key.split('/').pop()!
-      const localUrl = `/api/ima/media-file/${mediaId}`
-      processed = processed.split(url).join(localUrl)
-    } else {
-      // 下载失败（Worker 在 Cloudflare 境外，fetch 国内腾讯云 COS 易失败/被拒）：
-      // 保留原始 IMA URL，但彻底清理转义（\& → &、&amp; → &），
-      // 让浏览器能直连国内 CDN 渲染（签名有效期内有效）。否则残留转义会让 <img src> 失效。
-      const clean = normalizeImageUrl(url)
-      if (clean !== url) processed = processed.split(url).join(clean)
-    }
-  }
-
-  // 处理 media_id 引用
-  for (const mediaId of mediaIdRefs) {
-    const r2Key = await downloadImaMediaToR2(env, mediaId)
-    if (!r2Key) continue
-    const localUrl = `/api/ima/media-file/${mediaId}`
-    const escaped = mediaId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    processed = processed.replace(
-      new RegExp(`(!\\[[^\\]]*\\]\\()${escaped}(\\)|\\[[^\\]]*\\]\\()${escaped}(\\))`, 'g'),
-      (_m, imgP, imgS, linkP, linkS) => imgP ? `${imgP}${localUrl}${imgS}` : `${linkP}${localUrl}${linkS}`,
-    )
-    processed = processed.replace(new RegExp(`(<img[^>]+src=["'])${escaped}(["'][^>]*>)`, 'gi'), `$1${localUrl}$2`)
-    processed = processed.replace(new RegExp(`(<a[^>]+href=["'])${escaped}(["'][^>]*>)`, 'gi'), `$1${localUrl}$2`)
-  }
-  return processed
+export function stripImagesAndAttachments(md: string): string {
+  let result = md
+  // 1. Markdown 图片 ![alt](url)
+  result = result.replace(/!\[[^\]]*\]\([^)]+\)/g, '[图片]')
+  // 2. HTML <img ...> 标签
+  result = result.replace(/<img[^>]*>/gi, '[图片]')
+  // 3. Markdown 附件链接 [text](media-id 或 /api/ima/...) — 非 http/https 的引用
+  result = result.replace(/\[([^\]]+)\]\((?!https?:\/\/|mailto:|tel:|#)[^)]+\)/g, '[附件: $1]')
+  // 4. HTML <a> 附件链接（非 http/https href）
+  result = result.replace(/<a[^>]+href=["'](?!https?:\/\/|mailto:|tel:|#)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi, '[附件: $1]')
+  // 5. <figure>/<figcaption> 包裹标签 → 仅保留内容
+  result = result.replace(/<figure[^>]*>/gi, '')
+  result = result.replace(/<\/figure>/gi, '')
+  result = result.replace(/<figcaption[^>]*>/gi, '')
+  result = result.replace(/<\/figcaption>/gi, '')
+  // 6. 清理多余空行（连续 3 个以上换行压缩为 2 个）
+  result = result.replace(/\n{3,}/g, '\n\n')
+  return result.trim()
 }
 
 /**
- * 清理笔记内容引用的 R2 附件（删除笔记时调用，避免孤岛数据）。
- * 共享附件保护：删前扫描所有其他笔记，若附件仍被引用则保留，避免误删。
+ * 将干净 Markdown 转为轻量纯净 HTML（无样式、无 class）。
+ * 用于前端展示阅读，替代客户端 ReactMarkdown 渲染。
  */
-export async function cleanupAttachments(env: Env, content: string): Promise<void> {
-  const regex = /\/api\/ima\/media-file\/([^\s)"'\]]+)/g
-  const ids = new Set<string>()
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(content)) !== null) ids.add(m[1])
-  if (ids.size === 0) return
-  const db = drizzle(env.DB, { schema })
-  // 拉取所有笔记的 content（当前笔记此时仍在 DB 中，删除 endpoint 先清附件再删 D1）
-  const allNotes = await db.select({ content: schema.imaNotes.content }).from(schema.imaNotes)
-  for (const id of ids) {
-    const refPattern = `/api/ima/media-file/${id}`
-    // refCount 包含当前笔记；若 >1 说明其他笔记也引用，保留附件避免误删
-    const refCount = allNotes.filter(n => (n.content || '').includes(refPattern)).length
-    if (refCount > 1) {
-      console.log('[ima] 保留共享附件（被 ' + refCount + ' 条笔记引用）:', id)
-      continue
-    }
-    try {
-      await env.STORAGE.delete(`ima/attachments/${id}`)
-      console.log('[ima] cleanup attachment:', id)
-    } catch { /* ignore */ }
+export function markdownToCleanHtml(md: string): string {
+  const raw = marked.parse(md) as string
+  // 移除 <img> 标签（以防 stripImagesAndAttachments 遗漏的 HTML img）
+  return raw.replace(/<img[^>]*>/gi, '[图片]')
+}
+
+function inferFileTypeFromName(name?: string | null): string | null {
+  const raw = (name || '').trim().toLowerCase()
+  if (!raw) return null
+  const clean = raw.split('?')[0].split('#')[0]
+  const ext = clean.includes('.') ? clean.split('.').pop() || '' : ''
+  const map: Record<string, string> = {
+    pdf: 'pdf',
+    docx: 'docx',
+    doc: 'docx',
+    xlsx: 'xlsx',
+    xls: 'xlsx',
+    md: 'md',
+    markdown: 'md',
+    txt: 'txt',
+    html: 'html',
+    htm: 'html',
+    png: 'image',
+    jpg: 'image',
+    jpeg: 'image',
+    gif: 'image',
+    webp: 'image',
+    bmp: 'image',
+    svg: 'image',
+    mp3: 'audio',
+    wav: 'audio',
+    m4a: 'audio',
+    ogg: 'audio',
+    aac: 'audio',
+    flac: 'audio',
+    xmind: 'xmind',
+    ppt: 'ppt',
+    pptx: 'ppt',
   }
+  return map[ext] || null
+}
+
+function inferFileTypeFromContentType(contentType?: string | null): string | null {
+  const ct = (contentType || '').toLowerCase()
+  if (!ct) return null
+  if (ct.includes('pdf')) return 'pdf'
+  if (ct.includes('word') || ct.includes('officedocument.wordprocessingml')) return 'docx'
+  if (ct.includes('sheet') || ct.includes('excel') || ct.includes('officedocument.spreadsheetml')) return 'xlsx'
+  if (ct.startsWith('image/')) return 'image'
+  if (ct.startsWith('audio/')) return 'audio'
+  if (ct.includes('markdown')) return 'md'
+  if (ct.startsWith('text/plain')) return 'txt'
+  if (ct.includes('html')) return 'html'
+  return null
+}
+
+function inferKbFileType(args: {
+  mediaType?: number
+  title?: string | null
+  downloadUrl?: string | null
+  contentType?: string | null
+  currentType?: string | null
+}): string {
+  const { mediaType, title, downloadUrl, contentType, currentType } = args
+  const typeMap: Record<number, string> = {
+    1: 'pdf', 2: 'web', 3: 'docx', 4: 'ppt', 5: 'xlsx',
+    6: 'web', 7: 'md', 9: 'image', 11: 'note', 12: 'session',
+    13: 'txt', 14: 'xmind', 15: 'audio', 20: 'html',
+  }
+  return typeMap[mediaType || 0]
+    || inferFileTypeFromName(title)
+    || inferFileTypeFromName(downloadUrl)
+    || inferFileTypeFromContentType(contentType)
+    || currentType
+    || 'unknown'
 }
 
 /**
@@ -436,13 +367,30 @@ export async function appendNote(env: Env, noteId: string, content: string): Pro
  * 同步笔记到本地 D1（增量：首次全量，后续按 updated_at 过滤）
  * 拉取所有笔记本 → 用户自建文件夹递归拉取笔记 + 根目录笔记 → 笔记内容
  * 按 note_id 去重；settings 表存 ima_notes_synced_at 记录上次同步时间
+ *
+ * 性能策略（避免 HTTP 30s 超时）：
+ * - 前置批量查询：一次性 SELECT 全部本地笔记进 Map，代替每条 SELECT
+ * - 墙钟预算 MAX_WALL_MS=18000（给 HTTP 端点 12s 缓冲），每 5 条检查一次
+ * - 子请求预算 MAX_NOTE_CONTENT_FETCHES=60，超预算的笔记等下次 cron
+ * - DB 写入批量：collect dirty rows，每 50 条 db.batch 一次
+ * - 同步期不下载图片附件，仅发 Queue；超预算返回 partial=true 让前端提示
  */
-export async function syncNotes(env: Env): Promise<{ synced: number }> {
+export async function syncNotes(env: Env): Promise<{ synced: number; partial?: boolean; skipped?: number }> {
   const db = drizzle(env.DB, { schema })
   let syncedCount = 0
+  let skippedCount = 0
+  let partial = false
+
+  // 墙钟预算：HTTP Worker 30s 硬限制，留 12s 缓冲给网络往返和响应序列化
+  const t0 = Date.now()
+  const MAX_WALL_MS = 18_000
+  // 子请求预算：每条笔记内容拉取最多 6 次 IMA POST（含重试+格式降级）
+  const MAX_NOTE_CONTENT_FETCHES = 60
+  let contentFetches = 0
 
   // 读取上次同步时间（增量过滤）
   const lastSyncedAt = await getSetting(env, 'ima_notes_synced_at')
+  const lastSyncedMs = lastSyncedAt ? new Date(lastSyncedAt).getTime() : 0
 
   // 1. 拉取所有笔记本
   const folders = await listNotebooks(env)
@@ -476,106 +424,121 @@ export async function syncNotes(env: Env): Promise<{ synced: number }> {
     console.error('[ima] listNotes root failed:', e)
   }
 
-  // 4. 逐条同步笔记内容（增量过滤：updated_at > lastSyncedAt）
+  // 前置批量查询：一次性拉全部本地笔记进 Map，代替每条 SELECT（N→1 次 D1 往返）
+  const localRows = await db.select({
+    id: schema.imaNotes.id,
+    content: schema.imaNotes.content,
+    updatedAt: schema.imaNotes.updatedAt,
+  }).from(schema.imaNotes).where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
+  const localMap = new Map<string, { content: string; updatedAt: string | null }>()
+  for (const r of localRows) localMap.set(r.id, { content: r.content || '', updatedAt: r.updatedAt })
+
+  // 收集 dirty rows 做批量写入
+  const upserts: Array<{ id: string; title: string; content: string; contentHtml: string; isUpdate: boolean }> = []
+  const FLUSH_THRESHOLD = 50
+  const flushUpserts = async () => {
+    if (upserts.length === 0) return
+    // 分发为 update/insert 两条 batch（D1 batch 不支持 onConflict）
+    const updates = upserts.filter(u => u.isUpdate)
+    const inserts = upserts.filter(u => !u.isUpdate)
+    const stmts: any[] = []
+    for (const u of updates) {
+      stmts.push(db.update(schema.imaNotes)
+        .set({ title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi', updatedAt: new Date().toISOString() })
+        .where(eq(schema.imaNotes.id, u.id)))
+    }
+    for (const u of inserts) {
+      stmts.push(db.insert(schema.imaNotes)
+        .values({ id: u.id, title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi' }))
+    }
+    if (stmts.length > 0) await db.batch(stmts as any)
+    upserts.length = 0
+  }
+
+  // 4. 逐条同步笔记内容（增量过滤 + 墙钟/子请求预算）
+  let noteIdx = 0
   for (const note of allNotesMap.values()) {
+    noteIdx++
     const noteId = note.note_id
     const title = note.title || '无标题'
     const noteUpdatedAt = note.updated_at || note.update_time
 
-    // 检查是否已存在
-    const existing = await db.select().from(schema.imaNotes)
-      .where(eq(schema.imaNotes.id, noteId))
+    const local = localMap.get(noteId)
+    const oldContent = local?.content || ''
 
-    // 增量过滤：若笔记未更新且内容里已无未处理的媒体引用/图片 URL，则跳过
-    const oldContent = existing.length > 0 ? (existing[0].content || '') : ''
-    const hasUnprocessedMedia = oldContent && (extractMediaRefs(oldContent).length > 0 || hasUnprocessedImages(oldContent))
-    if (lastSyncedAt && noteUpdatedAt && new Date(noteUpdatedAt) <= new Date(lastSyncedAt) && !hasUnprocessedMedia) {
+    // 增量过滤：仅当笔记在 IMA 端有更新时重新拉取
+    const noteUpdatedMs = noteUpdatedAt ? new Date(noteUpdatedAt).getTime() : 0
+    if (lastSyncedMs && noteUpdatedMs && noteUpdatedMs <= lastSyncedMs) {
       continue
     }
 
+    // 墙钟预算检查（每 5 条检查一次，减少 Date.now() 调用）
+    if (noteIdx % 5 === 0 && Date.now() - t0 > MAX_WALL_MS) {
+      console.warn(`[ima] syncNotes 墙钟预算耗尽 (已处理 ${noteIdx}/${allNotesMap.size})，剩余笔记下次同步`)
+      partial = true
+      skippedCount = allNotesMap.size - noteIdx + 1
+      break
+    }
+    // 子请求预算检查
+    if (contentFetches >= MAX_NOTE_CONTENT_FETCHES) {
+      console.warn(`[ima] syncNotes 子请求预算耗尽 (${contentFetches})，剩余笔记下次同步`)
+      partial = true
+      skippedCount = allNotesMap.size - noteIdx + 1
+      break
+    }
+
     // 拉取笔记内容；失败时保留已有内容，避免用占位文本覆盖真实数据
-    let content = existing.length > 0 ? existing[0].content : ''
+    let content = oldContent
     try {
+      contentFetches++
       content = await getNoteContent(env, noteId)
     } catch {
       // 拉取失败时保留旧内容
     }
 
-    // 下载正文中的图片/附件到 R2，并把引用替换为本地可访问链接
-    try {
-      content = await processNoteContentMedia(env, content)
-    } catch (e) {
-      console.error('[ima] processNoteContentMedia failed:', noteId, e)
-    }
-
+    // 轻量归一化（解码 &amp; 等转义）
+    content = normalizeNoteContent(content)
     if (!content) content = '（内容获取失败）'
 
-    if (existing.length > 0) {
-      // 更新
-      await db.update(schema.imaNotes)
-        .set({
-          title,
-          content,
-          sourceFile: 'ima_openapi',
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.imaNotes.id, noteId))
-    } else {
-      // 新增
-      await db.insert(schema.imaNotes).values({
-        id: noteId,
-        title,
-        content,
-        sourceFile: 'ima_openapi',
-      })
-    }
+    // 清洗：去除图片/附件引用，替换为占位标记
+    const cleanMd = stripImagesAndAttachments(content)
+    // 生成轻量 HTML 用于前端展示
+    const contentHtml = markdownToCleanHtml(cleanMd)
+
+    upserts.push({ id: noteId, title, content: cleanMd, contentHtml, isUpdate: !!local })
+    if (upserts.length >= FLUSH_THRESHOLD) await flushUpserts()
+
     syncedCount++
   }
+  // flush 剩余
+  await flushUpserts()
 
-  // 5. 清理 IMA 端已删除的本地笔记（仅根目录和所有文件夹都拉取成功时执行，确保快照完整）
-  if (rootFetchOk && allFoldersFetchedOk) {
+  // 仅根目录和所有文件夹都拉取成功 + 本次非 partial 时执行删除同步，确保快照完整
+  // partial 时跳过删除，避免把"未拉取到"的笔记误删
+  if (rootFetchOk && allFoldersFetchedOk && !partial) {
     const imaNoteIds = Array.from(allNotesMap.keys())
-    const localImaNotes = await db.select({ id: schema.imaNotes.id, content: schema.imaNotes.content }).from(schema.imaNotes)
+    const localImaNotes = await db.select({ id: schema.imaNotes.id }).from(schema.imaNotes)
       .where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
     const toDelete = localImaNotes.filter((n) => !imaNoteIds.includes(n.id))
-    if (toDelete.length > 0) {
-      // 先清理每条笔记引用的 R2 附件
-      for (const n of toDelete) {
-        await cleanupAttachments(env, n.content || '')
-      }
-      if (imaNoteIds.length > 0) {
-        await db.delete(schema.imaNotes).where(notInArray(schema.imaNotes.id, imaNoteIds))
-      } else {
-        await db.delete(schema.imaNotes).where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
-      }
+    // 安全检查：仅当 IMA 端确实有笔记时才执行删除
+    // 若 imaNoteIds 为空（API 返回空列表/凭证问题等），跳过删除，防止误删全部本地数据
+    if (toDelete.length > 0 && imaNoteIds.length > 0) {
+      await db.delete(schema.imaNotes).where(notInArray(schema.imaNotes.id, imaNoteIds))
       syncedCount -= toDelete.length
+    } else if (toDelete.length > 0 && imaNoteIds.length === 0) {
+      console.warn('[ima] syncNotes: IMA 返回空笔记列表但本地有笔记，跳过删除以保护数据')
     }
   }
 
-  // 更新同步时间戳
-  await setSetting(env, 'ima_notes_synced_at', new Date().toISOString())
+  // 更新同步时间戳（partial 时不更新，让下次同步继续拉取剩余笔记）
+  if (!partial) {
+    await setSetting(env, 'ima_notes_synced_at', new Date().toISOString())
+  }
 
-  return { synced: syncedCount }
+  return { synced: syncedCount, partial, skipped: skippedCount }
 }
 
 // ========== 知识库同步 ==========
-
-/**
- * 搜索知识库列表
- * POST /openapi/wiki/v1/search_knowledge_base
- */
-export async function searchKnowledgeBases(env: Env, query: string) {
-  const creds = await getCredentials(env)
-  if (!creds) throw new Error('未配置 IMA 凭证')
-
-  const data = await imaPost('openapi/wiki/v1/search_knowledge_base', {
-    query,
-    cursor: '',
-    limit: 20,
-  }, creds)
-
-  return data.info_list || []
-}
 
 /**
  * 获取可添加的知识库列表
@@ -602,21 +565,6 @@ export async function listAddableKnowledgeBases(env: Env) {
   }
 
   return bases
-}
-
-/**
- * 获取知识库信息
- * POST /openapi/wiki/v1/get_knowledge_base
- */
-export async function getKnowledgeBaseInfo(env: Env, kbIds: string[]) {
-  const creds = await getCredentials(env)
-  if (!creds) throw new Error('未配置 IMA 凭证')
-
-  const data = await imaPost('openapi/wiki/v1/get_knowledge_base', {
-    ids: kbIds,
-  }, creds)
-
-  return data.infos || {}
 }
 
 /**
@@ -661,23 +609,6 @@ export async function getMediaInfo(env: Env, mediaId: string) {
 }
 
 /**
- * 搜索知识库内容
- * POST /openapi/wiki/v1/search_knowledge
- */
-export async function searchKnowledge(env: Env, kbId: string, query: string) {
-  const creds = await getCredentials(env)
-  if (!creds) throw new Error('未配置 IMA 凭证')
-
-  const data = await imaPost('openapi/wiki/v1/search_knowledge', {
-    query,
-    cursor: '',
-    knowledge_base_id: kbId,
-  }, creds)
-
-  return data.info_list || []
-}
-
-/**
  * 分页拉取单个知识库下所有内容（处理 next_cursor）
  */
 async function fetchAllKbItems(env: Env, kbId: string): Promise<any[]> {
@@ -702,6 +633,7 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
   const db = drizzle(env.DB, { schema })
   let syncedCount = 0
   const allFetchedMediaIds = new Set<string>()
+  let allBasesFetchedOk = true
 
   // 读取上次同步时间（增量过滤）
   const lastSyncedAt = await getSetting(env, 'ima_kb_synced_at')
@@ -709,9 +641,20 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
   // 获取可访问的知识库列表
   const bases = await listAddableKnowledgeBases(env)
 
+  // 子请求预算：整个 KB 同步最多消耗 ~400 个子请求（留给笔记同步剩余预算）
+  const MAX_KB_BUDGET = 80
+  let kbBudget = MAX_KB_BUDGET
+
   for (const base of bases) {
     // 浏览知识库内容（分页拉取）
-    const knowledgeList = await fetchAllKbItems(env, base.id)
+    let knowledgeList: any[]
+    try {
+      knowledgeList = await fetchAllKbItems(env, base.id)
+    } catch (e) {
+      allBasesFetchedOk = false
+      console.error('[ima] fetchAllKbItems failed for base:', base.id, e)
+      continue
+    }
 
     for (const item of knowledgeList) {
       const mediaId = item.media_id
@@ -729,25 +672,29 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
         .where(eq(schema.kbDocuments.id, mediaId))
 
       // 获取媒体信息确定文件类型 + 下载 URL
+      if (kbBudget <= 0) {
+        console.log('[ima] KB budget exhausted, skipping remaining items')
+        break // 跳出最内层循环
+      }
+      kbBudget--
       let mediaType = 0
-      let fileType = 'unknown'
-      let r2Key: string | null = null
-      let fileSize: number | null = null
+      let fileType = existing[0]?.fileType || 'unknown'
+      let r2Key: string | null = existing[0]?.r2Key || null
+      let fileSize: number | null = existing[0]?.fileSize ?? null
       // 文本类文件（md/txt/html）下载后提取文本写入 content 字段，供 DocViewer 直接渲染
-      let textContent: string | null = null
+      let textContent: string | null = existing[0]?.content ?? null
+      let downloadFailed = false
 
       try {
-        const mediaInfo = await getMediaInfo(env, mediaId)
+        const mediaInfo = await retryWithBackoff(() => getMediaInfo(env, mediaId), 2, 800)
         mediaType = mediaInfo.media_type || 0
-        // MediaType 枚举（ima-skills 1.1.8）：
-        // 1=PDF, 2=网页, 3=Word, 4=PPT, 5=Excel, 6=公众号, 7=Markdown,
-        // 9=图片, 11=笔记, 12=AI会话, 13=TXT, 14=Xmind, 15=录音, 20=HTML文件
-        const typeMap: Record<number, string> = {
-          1: 'pdf', 2: 'web', 3: 'docx', 4: 'ppt', 5: 'xlsx',
-          6: 'web', 7: 'md', 9: 'image', 11: 'note', 12: 'session',
-          13: 'txt', 14: 'xmind', 15: 'audio', 20: 'html',
-        }
-        fileType = typeMap[mediaType] || 'unknown'
+        const urlInfo = mediaInfo.url_info
+        fileType = inferKbFileType({
+          mediaType,
+          title: item.title,
+          downloadUrl: urlInfo?.url,
+          currentType: fileType,
+        })
 
         // 笔记类型(11) 和 AI 会话类型(12) 走 notebook_ext_info / session_info，无独立文件可下载
         if (mediaType === 11 || mediaType === 12) {
@@ -755,21 +702,24 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
           fileSize = null
         } else {
           // 从 url_info 拿临时下载 URL
-          const urlInfo = mediaInfo.url_info
           const downloadUrl = urlInfo?.url
           if (downloadUrl) {
             // 构造请求头（如 IMA 要求 Authorization 等）；同时补 Referer 兜底
-            const fetchHeaders: Record<string, string> = {
-              'Referer': 'https://ima.qq.com/',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
+            const fetchHeaders: Record<string, string> = {}
             if (urlInfo.headers && typeof urlInfo.headers === 'object') {
               for (const [k, v] of Object.entries(urlInfo.headers)) {
                 fetchHeaders[k] = String(v)
               }
             }
-            const fileRes = await fetch(downloadUrl, { headers: fetchHeaders })
-            if (fileRes.ok) {
+            const fileRes = await fetchWithImaFallbacks(downloadUrl, fetchHeaders)
+            if (fileRes) {
+              fileType = inferKbFileType({
+                mediaType,
+                title: item.title,
+                downloadUrl,
+                contentType: fileRes.headers.get('Content-Type'),
+                currentType: fileType,
+              })
               const buf = await fileRes.arrayBuffer()
               // 按文件类型选扩展名（补全 ppt 键，避免落到 bin）
               const extMap: Record<string, string> = {
@@ -794,26 +744,35 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
                 }
               }
             } else {
-              // 下载失败：标记不可用
-              fileType = 'unavailable'
+              downloadFailed = true
             }
           } else {
-            // 无下载 URL：标记不可用
-            fileType = 'unavailable'
+            downloadFailed = true
           }
         }
       } catch (e) {
         console.error('[ima] getMediaInfo/download failed:', mediaId, e)
-        fileType = 'unavailable'
+        downloadFailed = true
       }
 
+      // 已支持的文件类型集合：用于保护已有文档的已知类型不被降级
+      const SUPPORTED_TYPES = new Set([
+        'pdf', 'docx', 'xlsx', 'image', 'txt', 'html', 'audio',
+        'md', 'ppt', 'web', 'note', 'session', 'xmind',
+      ])
+
       if (existing.length > 0) {
+        // 已有文档 re-sync：保护旧的已知类型不被降级为 unknown/unavailable
+        const oldType = existing[0].fileType
+        if (oldType && SUPPORTED_TYPES.has(oldType) && !SUPPORTED_TYPES.has(fileType)) {
+          fileType = oldType
+        }
         const oldR2Key = existing[0].r2Key
         await db.update(schema.kbDocuments)
           .set({
             title: item.title || '无标题',
             fileType,
-            content: textContent ?? existing[0].content,
+            content: textContent ?? '',
             r2Key: r2Key ?? undefined,
             fileSize: fileSize ?? undefined,
             updatedAt: new Date().toISOString(),
@@ -826,6 +785,13 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
           }
         }
       } else {
+        // 新文档：下载失败时仅当类型推断也失败才标 unavailable
+        if (downloadFailed && !SUPPORTED_TYPES.has(fileType)) {
+          fileType = 'unavailable'
+          r2Key = null
+          fileSize = null
+          textContent = null
+        }
         await db.insert(schema.kbDocuments).values({
           id: mediaId,
           title: item.title || '无标题',
@@ -840,7 +806,7 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
   }
 
   // 清理 IMA 端已删除的本地知识库文档及 R2 文件（所有 base 都拉取成功才执行）
-  if (allFetchedMediaIds.size > 0) {
+  if (allBasesFetchedOk && allFetchedMediaIds.size > 0) {
     const imaDocs = await db.select({ id: schema.kbDocuments.id, r2Key: schema.kbDocuments.r2Key }).from(schema.kbDocuments)
       .where(like(schema.kbDocuments.r2Key, 'ima/%'))
     const ids = imaDocs.map((d) => d.id)
@@ -857,6 +823,8 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
       await db.delete(schema.kbDocuments).where(inArray(schema.kbDocuments.id, toDeleteIds))
       syncedCount -= toDeleteIds.length
     }
+  } else if (!allBasesFetchedOk) {
+    console.warn('[ima] syncKnowledgeBase: 部分知识库拉取失败，跳过清理以保护数据')
   }
 
   // 更新同步时间戳

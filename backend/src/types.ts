@@ -12,6 +12,7 @@ export interface Env {
   MS_CLIENT_SECRET?: string
   MS_TENANT_ID?: string
   ALLOWED_ORIGIN?: string
+  MCP_TOKEN?: string
 }
 
 // AI 聊天消息类型

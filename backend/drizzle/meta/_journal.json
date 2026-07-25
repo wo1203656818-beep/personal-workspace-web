@@ -22,6 +22,62 @@
       "when": 1784722009772,
       "tag": "0002_clever_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784750000000,
+      "tag": "0003_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784760000000,
+      "tag": "0004_cascade_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1784800000000,
+      "tag": "0005_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784810000000,
+      "tag": "0006_add_content_html",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784820000000,
+      "tag": "0007_kv_cache_and_embedding_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1784830000000,
+      "tag": "0008_ai_configs",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784915052000,
+      "tag": "0009_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784921639747,
+      "tag": "0010_whole_mattie_franklin",
+      "breakpoints": true
     }
   ]
 }

@@ -14,7 +14,8 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
-      staleTime: 30_000, // 30 秒内不重复请求
+      staleTime: 2 * 60 * 1000, // 2 分钟内不重复请求
+      gcTime: 10 * 60 * 1000, // 缓存保留 10 分钟
     },
   },
 })

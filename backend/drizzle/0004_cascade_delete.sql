@@ -44,4 +44,21 @@ FROM tasks_old;
 
 DROP TABLE tasks_old;
 
+-- 重建 subtasks，修正被 RENAME 自动改写的外键（tasks -> tasks_old）
+-- SQLite 在 ALTER TABLE ... RENAME 时会自动把其他表里的 REFERENCES "tasks" 改写为
+-- "tasks_old"，而上面已 DROP tasks_old，故需在此把 subtasks 外键指回新的 tasks。
+CREATE TABLE IF NOT EXISTS `subtasks_new` (
+  `id` text PRIMARY KEY NOT NULL,
+  `task_id` text NOT NULL,
+  `title` text NOT NULL,
+  `is_completed` integer DEFAULT false,
+  `sort_order` integer DEFAULT 0,
+  `created_at` text DEFAULT (datetime('now')),
+  FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+INSERT INTO `subtasks_new` (`id`, `task_id`, `title`, `is_completed`, `sort_order`, `created_at`)
+SELECT `id`, `task_id`, `title`, `is_completed`, `sort_order`, `created_at` FROM `subtasks`;
+DROP TABLE `subtasks`;
+ALTER TABLE `subtasks_new` RENAME TO `subtasks`;
+
 PRAGMA foreign_keys=on;

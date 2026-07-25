@@ -137,15 +137,3 @@ export async function encryptSettings(secret: string, settings: Record<string, s
   return result
 }
 
-/**
- * 解密 settings 对象中的敏感键值
- * 返回新对象，敏感键的值被解密为明文
- * 若值不以 enc$ 开头则视为明文直接返回（向后兼容）
- */
-export async function decryptSettings(secret: string, settings: Record<string, string>): Promise<Record<string, string>> {
-  const result: Record<string, string> = {}
-  for (const [key, value] of Object.entries(settings)) {
-    result[key] = isSensitiveKey(key) ? await decrypt(secret, value) : value
-  }
-  return result
-}

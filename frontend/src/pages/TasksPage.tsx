@@ -4,11 +4,11 @@ import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { HTTPError } from 'ky'
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvided } from '@hello-pangea/dnd'
-import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronRight, Bell, CheckSquare, FileText, type LucideIcon } from 'lucide-react'
+import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, type LucideIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
-import { tasksApi, subtasksApi, aiApi, taskListsApi, type Task, type TaskList, type Subtask } from '@/lib/api'
+import { tasksApi, subtasksApi, aiApi, taskListsApi, settingsApi, type Task, type TaskList, type Subtask } from '@/lib/api'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,7 +28,12 @@ import {
 } from '@/components/ui/select'
 import { Calendar as CalendarPicker } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
+import { parseStoredTime, formatCST } from '@/lib/datetime'
 import { PageSkeleton } from '@/components/PageSkeleton'
+import { EmptyState } from '@/components/EmptyState'
+import { Sheet, SheetContent, SheetHeader } from '@/components/ui/sheet'
+import { useIsMobile } from '@/hooks/use-mobile'
+import { useSwipeGesture } from '@/hooks/use-swipe-gesture'
 
 const viewConfig: Record<string, { title: string; icon: LucideIcon; color: string; iconBg: string; tabActiveClass: string }> = {
   myday: { title: '我的一天', icon: Sun, color: 'text-blue-500', iconBg: 'bg-gradient-to-br from-blue-500 to-blue-400', tabActiveClass: 'bg-blue-500/15 text-blue-600 dark:text-blue-400' },
@@ -40,7 +45,8 @@ const viewConfig: Record<string, { title: string; icon: LucideIcon; color: strin
 
 // 将 ISO 时间字符串转为 datetime-local input 所需格式 (yyyy-MM-ddTHH:mm)
 function toDatetimeLocal(iso: string) {
-  return format(new Date(iso), "yyyy-MM-dd'T'HH:mm")
+  const d = parseStoredTime(iso)
+  return d ? format(d, "yyyy-MM-dd'T'HH:mm") : ''
 }
 
 export function TasksPage() {
@@ -56,10 +62,40 @@ export function TasksPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [createListOpen, setCreateListOpen] = useState(false)
   const [newListName, setNewListName] = useState('')
+  // 自然语言添加任务（一句话录入）
+  const [nlOpen, setNlOpen] = useState(false)
+  const [nlText, setNlText] = useState('')
+  const [nlParsed, setNlParsed] = useState<{ title: string; dueDate: string | null; listName: string | null; note: string | null; listId: string | null } | null>(null)
   // 新建任务时目标列表选择（空则用当前列表视图或第一个列表）
   const [newTaskListId, setNewTaskListId] = useState<string>('')
+  const [digestExpanded, setDigestExpanded] = useState(true)
+  const [suggestedList, setSuggestedList] = useState<{ listId: string; listName: string } | null>(null)
   const pendingDeleteRef = useRef<Task | null>(null)
   const newTaskInputRef = useRef<HTMLInputElement>(null)
+
+  // MS Todo 手动同步（就近反馈）
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(feedbackTimerRef.current), [])
+
+  const syncMsTodoMutation = useMutation({
+    mutationFn: () => settingsApi.msTodoSync(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['taskLists'] })
+      const msg = data.ok
+        ? `同步完成${data?.synced != null ? ` · ${data.synced} 条` : ''}`
+        : `同步失败${data?.error ? `: ${data.error}` : ''}`
+      setSyncFeedback({ type: data.ok ? 'success' : 'error', message: msg })
+      clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = setTimeout(() => setSyncFeedback(null), 3000)
+    },
+    onError: (err: Error) => {
+      setSyncFeedback({ type: 'error', message: `同步失败: ${err.message}` })
+      clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = setTimeout(() => setSyncFeedback(null), 3000)
+    },
+  })
 
   // B11: 读取 ?new=1 参数自动聚焦新建输入框
   useEffect(() => {
@@ -67,6 +103,22 @@ export function TasksPage() {
       newTaskInputRef.current?.focus()
     }
   }, [searchParams])
+
+  // P0-2: 全局快捷键 N 新建任务
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const tag = (e.target as HTMLElement).tagName
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault()
+          newTaskInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          setTimeout(() => newTaskInputRef.current?.focus(), 300)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // 判断当前视图
   const isListView = view === 'list' && listId && listId !== 'all'
@@ -96,13 +148,99 @@ export function TasksPage() {
       if (isListView) return tasksApi.byList(listId!)
       return tasksApi.list()
     },
+    staleTime: 2 * 60 * 1000,
   })
 
   // 获取任务列表名称（列表视图时）
   const { data: lists = [] } = useQuery({
     queryKey: ['taskLists'],
     queryFn: taskListsApi.list,
+    staleTime: 2 * 60 * 1000,
   })
+
+  // 每日简报（仅在我的一天视图拉取）
+  const { data: digestData, isLoading: digestLoading } = useQuery<{ digest: string; cached?: boolean }>({
+    queryKey: ['aiDigest'],
+    queryFn: aiApi.digest,
+    enabled: currentView === 'myday',
+    staleTime: 60 * 60 * 1000, // 1 小时内不自动重新请求
+  })
+  const regenerateDigestMutation = useMutation({
+    mutationFn: aiApi.digest,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aiDigest'] })
+      toast.success('已重新生成简报')
+    },
+    onError: (err: Error) => toast.error(`生成失败: ${err.message}`),
+  })
+
+  // AI 优先级建议（仅我的一天视图）
+  const { data: priorityData, isLoading: priorityLoading } = useQuery<{ suggestions: { taskId: string; reason: string }[]; cached?: boolean }>({
+    queryKey: ['aiPriority'],
+    queryFn: aiApi.prioritySuggestions,
+    enabled: currentView === 'myday',
+    staleTime: 60 * 60 * 1000,
+  })
+  const regeneratePriorityMutation = useMutation({
+    mutationFn: aiApi.prioritySuggestions,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aiPriority'] })
+      toast.success('已重新生成优先级建议')
+    },
+    onError: (err: Error) => toast.error(`生成失败: ${err.message}`),
+  })
+
+  // 自然语言解析任务
+  const parseTaskMutation = useMutation({
+    mutationFn: (text: string) => aiApi.parseTask(text),
+    onSuccess: (d) => setNlParsed(d.task),
+    onError: (e: Error) => toast.error('解析失败: ' + e.message),
+  })
+
+  // 从解析结果创建任务
+  const createFromNlMutation = useMutation({
+    mutationFn: async (task: NonNullable<typeof nlParsed>) => {
+      const listId = task.listId || newTaskListId || lists[0]?.id
+      if (!listId) throw new Error('没有可用的任务列表')
+      await tasksApi.create({ listId, title: task.title, dueDate: task.dueDate ?? undefined, note: task.note ?? undefined })
+    },
+    onSuccess: () => {
+      toast.success('已创建任务')
+      setNlOpen(false)
+      setNlText('')
+      setNlParsed(null)
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['taskLists'] })
+    },
+    onError: (e: Error) => toast.error('创建失败: ' + e.message),
+  })
+
+  // AI 列表推荐：根据输入标题自动建议目标列表
+  const suggestListMutation = useMutation({
+    mutationFn: (title: string) => aiApi.suggestList(title),
+    onSuccess: (data) => {
+      if (data.listId && data.listName) {
+        setSuggestedList({ listId: data.listId, listName: data.listName })
+      } else {
+        setSuggestedList(null)
+      }
+    },
+    onError: () => setSuggestedList(null),
+  })
+
+  // 输入标题变化时防抖请求列表推荐
+  useEffect(() => {
+    if (!newTaskTitle.trim() || lists.length === 0) {
+      setSuggestedList(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      if (newTaskTitle.trim().length >= 3) {
+        suggestListMutation.mutate(newTaskTitle.trim())
+      }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [newTaskTitle, lists.length])
 
   const currentList = lists.find(l => l.id === listId)
   const config = viewConfig[currentView]
@@ -267,7 +405,7 @@ export function TasksPage() {
     <div className="flex h-full flex-col">
       {/* 标题栏 */}
       <div className="border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className={cn('icon-badge size-9 md:size-10', isSearchView || isListView ? 'bg-gradient-to-br from-slate-400 to-slate-300' : config?.iconBg)}>
             <Icon className="size-5" />
           </div>
@@ -277,7 +415,35 @@ export function TasksPage() {
               {completedCount}/{tasks.length} 已完成
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => syncMsTodoMutation.mutate()}
+              disabled={syncMsTodoMutation.isPending}
+              className="gap-2 rounded-lg"
+            >
+              <RefreshCw className={`size-4 ${syncMsTodoMutation.isPending ? 'animate-spin' : ''}`} />
+              同步 MS Todo
+            </Button>
+            {syncFeedback && (
+              <div
+                className={cn(
+                  'flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs',
+                  syncFeedback.type === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                )}
+                onClick={syncFeedback.type === 'error' ? () => syncMsTodoMutation.mutate() : undefined}
+              >
+                {syncFeedback.type === 'success' ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+                {syncFeedback.message}
+              </div>
+            )}
+            <Button variant="outline" size="sm" className="gap-1 rounded-lg" onClick={() => setNlOpen(true)}>
+              <Sparkles className="size-4" />
+              AI 添加
+            </Button>
             {isListsOverview && (
               <Button variant="outline" size="sm" className="gap-1 rounded-lg" onClick={() => setCreateListOpen(true)}>
                 <Plus className="size-4" />
@@ -307,7 +473,7 @@ export function TasksPage() {
       {/* 添加任务（搜索/列表总览视图隐藏） */}
       {!isSearchView && !isListsOverview && (
         <div className="border-b px-4 py-3 md:px-6">
-          <div className="surface-card flex items-center gap-2 transition-all focus-within:ring-2 focus-within:ring-primary/20">
+          <div className="surface-card flex flex-wrap items-center gap-2 transition-all focus-within:ring-2 focus-within:ring-primary/20">
             <div className="ml-1 flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Plus className="size-4" />
             </div>
@@ -321,13 +487,16 @@ export function TasksPage() {
                 }
               }}
               placeholder="添加任务..."
-              className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+              className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
             />
             {/* 列表选择器：非列表视图下可选目标列表；列表视图下显示当前列表名 */}
             {lists.length > 0 && (
               <Select
                 value={newTaskListId || (isListView ? listId! : lists[0]?.id || '')}
-                onValueChange={(v) => setNewTaskListId(v)}
+                onValueChange={(v) => {
+                  setNewTaskListId(v)
+                  setSuggestedList(null)
+                }}
               >
                 <SelectTrigger className="h-8 w-auto shrink-0 gap-1 rounded-lg border-none bg-muted/50 text-xs">
                   <ListTodo className="size-3.5 text-muted-foreground" />
@@ -340,13 +509,119 @@ export function TasksPage() {
                 </SelectContent>
               </Select>
             )}
+            {/* AI 列表推荐 */}
+            {suggestedList && !isListView && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNewTaskListId(suggestedList.listId)
+                  setSuggestedList(null)
+                }}
+                className="mr-1 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/20"
+              >
+                <Sparkles className="size-3" />
+                推荐：{suggestedList.listName}
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {/* 任务列表 */}
-      <ScrollArea className="flex-1">
-        <div className="px-2 py-2 md:px-4">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="px-2 pb-24 pt-2 md:px-4 md:pb-2">
+          {/* 每日简报（仅我的一天视图） */}
+          {currentView === 'myday' && (digestLoading || digestData?.digest) && (
+            <div className="mb-3 rounded-2xl border bg-gradient-to-r from-blue-500/5 to-violet-500/5 p-3 md:p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+                  <Sparkles className="size-4" />
+                  今日简报
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => regenerateDigestMutation.mutate()}
+                    disabled={regenerateDigestMutation.isPending || digestLoading}
+                    title="重新生成"
+                  >
+                    <RefreshCw className={`size-3.5 ${regenerateDigestMutation.isPending || digestLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    onClick={() => setDigestExpanded(v => !v)}
+                  >
+                    {digestExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                  </Button>
+                </div>
+              </div>
+              {digestExpanded && (
+                <div className="mt-2">
+                  {digestLoading && !digestData ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <RefreshCw className="size-3.5 animate-spin" /> 正在生成今日简报...
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-relaxed text-foreground/90">{(digestData as { digest?: string } | undefined)?.digest}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI 优先级建议（仅我的一天视图） */}
+          {currentView === 'myday' && (priorityLoading || (priorityData?.suggestions && priorityData.suggestions.length > 0)) && (
+            <div className="mb-3 rounded-2xl border bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-3 md:p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                  <Star className="size-4" />
+                  AI 优先级建议
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={() => regeneratePriorityMutation.mutate()}
+                  disabled={regeneratePriorityMutation.isPending || priorityLoading}
+                  title="重新生成"
+                >
+                  <RefreshCw className={`size-3.5 ${regeneratePriorityMutation.isPending || priorityLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+              <div className="mt-2 space-y-2">
+                {priorityLoading && !priorityData ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <RefreshCw className="size-3.5 animate-spin" /> 正在分析任务优先级...
+                  </div>
+                ) : (
+                  priorityData?.suggestions.map((s, idx) => {
+                    const task = tasks.find(t => t.id === s.taskId)
+                    if (!task) return null
+                    return (
+                      <div
+                        key={s.taskId}
+                        onClick={() => setSelectedTaskId(s.taskId)}
+                        className="flex cursor-pointer items-start gap-2 rounded-xl bg-background/60 p-2 hover:bg-background"
+                      >
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-xs font-medium text-amber-600 dark:text-amber-400">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{task.title}</p>
+                          <p className="text-xs text-muted-foreground">{s.reason}</p>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
           {isLoading ? (
             <PageSkeleton />
           ) : isListsOverview ? (
@@ -363,15 +638,11 @@ export function TasksPage() {
               onDeleteList={(listId) => deleteListMutation.mutate(listId)}
             />
           ) : activeTasks.length === 0 && (!showCompleted || completedTasks.length === 0) ? (
-            <div className="empty-state">
-              <div className={cn('icon-badge mb-4 size-16', isSearchView || isListView ? 'bg-gradient-to-br from-slate-400 to-slate-300' : config?.iconBg)}>
-                <Icon className="size-8" />
-              </div>
-              <p className="text-base font-medium">{isSearchView ? '未找到匹配的任务' : '暂无任务'}</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                {isSearchView ? '尝试更换关键词' : '在上方输入框添加第一个任务，开启高效的一天'}
-              </p>
-            </div>
+            <EmptyState
+              icon={Icon}
+              title={isSearchView ? '未找到匹配的任务' : '暂无任务'}
+              description={isSearchView ? '尝试更换关键词' : '在上方输入框添加第一个任务，开启高效的一天'}
+            />
           ) : (
             <>
               <DragDropContext onDragEnd={onDragEnd}>
@@ -431,6 +702,20 @@ export function TasksPage() {
         </div>
       </ScrollArea>
 
+      {/* P0-2: 移动端 FAB 悬浮按钮 — 快速创建任务 */}
+      {!isSearchView && !isListsOverview && (
+        <Button
+          size="icon"
+          className="fixed bottom-6 right-6 z-40 size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 md:hidden"
+          onClick={() => {
+            newTaskInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            setTimeout(() => newTaskInputRef.current?.focus(), 300)
+          }}
+        >
+          <Plus className="size-6" />
+        </Button>
+      )}
+
       {/* 任务详情弹窗 */}
       <TaskDetailDialog
         taskId={selectedTaskId}
@@ -485,6 +770,43 @@ export function TasksPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 自然语言添加任务 */}
+      <Dialog open={nlOpen} onOpenChange={(open) => { setNlOpen(open); if (!open) { setNlText(''); setNlParsed(null) } }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="size-4 text-primary" /> 用一句话添加任务
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              value={nlText}
+              onChange={(e) => setNlText(e.target.value)}
+              placeholder="例如：明天下午3点提醒我给客户发方案，归类到工作"
+              className="min-h-[80px]"
+            />
+            <Button onClick={() => parseTaskMutation.mutate(nlText)} disabled={parseTaskMutation.isPending || !nlText.trim()} className="gap-2">
+              {parseTaskMutation.isPending ? '解析中...' : '解析'}
+            </Button>
+
+            {nlParsed && (
+              <div className="rounded-xl bg-muted/30 p-3 text-sm space-y-1">
+                <p><span className="text-muted-foreground">标题：</span>{nlParsed.title}</p>
+                {nlParsed.dueDate && <p><span className="text-muted-foreground">时间：</span>{nlParsed.dueDate}</p>}
+                {nlParsed.listName && <p><span className="text-muted-foreground">列表：</span>{nlParsed.listName}</p>}
+                {nlParsed.note && <p><span className="text-muted-foreground">备注：</span>{nlParsed.note}</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setNlOpen(false); setNlText(''); setNlParsed(null) }}>取消</Button>
+            <Button onClick={() => createFromNlMutation.mutate(nlParsed!)} disabled={createFromNlMutation.isPending || !nlParsed}>
+              {createFromNlMutation.isPending ? '创建中...' : '创建任务'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -511,6 +833,13 @@ function TaskRow({
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState(task.title)
   const editInputRef = useRef<HTMLInputElement>(null)
+
+  // P2-14: 移动端手势 — 左滑删除，右滑完成
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: () => onDelete(),
+    onSwipeRight: () => onToggleComplete(),
+    threshold: 80,
+  })
 
   // 拉取子任务（用于显示数量 badge + 展开时渲染）
   const { data: subtasks = [] } = useQuery<Subtask[]>({
@@ -557,15 +886,24 @@ function TaskRow({
   })()
 
   return (
-    <div
-      ref={provided?.innerRef}
-      {...(provided?.draggableProps ?? {})}
-      {...(provided?.dragHandleProps ?? {})}
-      className={cn(
-        'group relative overflow-hidden rounded-xl border bg-card transition-all duration-200 hover:bg-accent/30 hover:shadow-sm',
-        task.isImportant && !task.isCompleted && 'before:content-[""] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-yellow-400'
-      )}
-      onClick={onSelect}
+    <div className="relative overflow-hidden rounded-xl">
+      {/* P2-14: 滑动操作提示 (CSS hover/focus 时显示) */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-4 opacity-0 transition-opacity md:hidden">
+        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">完成</span>
+      </div>
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-end px-4 opacity-0 transition-opacity md:hidden">
+        <span className="rounded-full bg-destructive/20 px-3 py-1 text-xs font-medium text-destructive">删除</span>
+      </div>
+      <div
+        ref={provided?.innerRef}
+        {...(provided?.draggableProps ?? {})}
+        {...(provided?.dragHandleProps ?? {})}
+        {...swipeHandlers}
+        className={cn(
+          'group relative overflow-hidden rounded-xl border bg-card transition-all duration-200 hover:bg-accent/30 hover:shadow-sm',
+          task.isImportant && !task.isCompleted && 'before:content-[""] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-yellow-400'
+        )}
+        onClick={onSelect}
     >
       <div className="flex items-center gap-3 px-3 py-3">
         <Checkbox
@@ -620,7 +958,7 @@ function TaskRow({
         {task.dueDate && (
           <Badge variant={isOverdue ? 'destructive' : 'secondary'} className="gap-1">
             <Calendar className="size-3" />
-            {new Date(task.dueDate).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+            {formatCST(task.dueDate, 'cnDate')}
           </Badge>
         )}
         <Button
@@ -656,6 +994,7 @@ function TaskRow({
           )}
         </div>
       )}
+    </div>
     </div>
   )
 }
@@ -712,13 +1051,11 @@ function ListsOverview({
 }) {
   if (!tasksByList || tasksByList.length === 0) {
     return (
-      <div className="empty-state">
-        <div className="icon-badge mb-4 size-16 bg-gradient-to-br from-slate-400 to-slate-300">
-          <ListTodo className="size-8" />
-        </div>
-        <p className="text-base font-medium">暂无任务列表</p>
-        <p className="mt-1 max-w-xs text-sm text-muted-foreground">点击右上角「新建列表」开始整理任务</p>
-      </div>
+      <EmptyState
+        icon={ListTodo}
+        title="暂无任务列表"
+        description="点击右上角「新建列表」开始整理任务"
+      />
     )
   }
 
@@ -805,6 +1142,7 @@ function TaskDetailDialog({
   onDelete: (id: string) => void
   lists?: TaskList[]
 }) {
+  const isMobile = useIsMobile()
   const queryClient = useQueryClient()
   const [newSubtask, setNewSubtask] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -894,12 +1232,10 @@ function TaskDetailDialog({
       let detail = err.message
       if (err instanceof HTTPError) {
         try {
-          const text = await err.response.clone().text()
-          console.error('[aiBreakdown] raw response:', text)
-          const body = JSON.parse(text) as { error?: string; detail?: string }
+          const body = await err.response.json() as { error?: string; detail?: string }
           detail = body.detail || body.error || err.message
         } catch {
-          // ignore parse error
+          // ignore
         }
       }
       toast.error(`AI 拆解失败: ${detail}`)
@@ -909,226 +1245,263 @@ function TaskDetailDialog({
 
   if (!task) return null
 
-  const dueDate = task.dueDate ? new Date(task.dueDate) : undefined
-  const reminder = task.reminder ? new Date(task.reminder) : undefined
+  const dueDate = task.dueDate ? parseStoredTime(task.dueDate) ?? undefined : undefined
+  const reminder = task.reminder ? parseStoredTime(task.reminder) ?? undefined : undefined
+
+  const detailHeaderNode = (
+    <div className="flex items-start gap-2 pr-1">
+      <DialogTitle className="flex-1 text-lg leading-snug">{task.title}</DialogTitle>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0 -mr-1"
+        onClick={() =>
+          updateDetailMutation.mutate({ id: taskId!, data: { isImportant: !task.isImportant } })
+        }
+      >
+        <Star className={cn('size-4', task.isImportant && 'fill-yellow-400 text-yellow-400')} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-8 shrink-0"
+        onClick={onClose}
+        title="关闭"
+      >
+        <X className="size-4" />
+        <span className="sr-only">关闭</span>
+      </Button>
+    </div>
+  )
+
+  const detailBody = (maxH: string) => (
+    <ScrollArea className={cn('px-6 py-5', maxH)}>
+        <div className="space-y-5">
+          {/* 子任务 */}
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <CheckSquare className="size-4" /> 子任务
+            </div>
+            <div className="space-y-1">
+              {subtasks.map((st: Subtask) => (
+                <div key={st.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent">
+                  <Checkbox
+                    checked={st.isCompleted}
+                    onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
+                  />
+                  <span className={cn('flex-1 text-sm', st.isCompleted && 'line-through text-muted-foreground')}>
+                    {st.title}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 opacity-0 group-hover:opacity-100"
+                    onClick={() => deleteSubtaskMutation.mutate(st.id)}
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              ))}
+              {subtasks.length === 0 && (
+                <p className="px-2 py-1 text-xs text-muted-foreground">暂无子任务，点击 AI 拆解可自动生成</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Plus className="size-4 text-muted-foreground" />
+              <Input
+                value={newSubtask}
+                onChange={(e) => setNewSubtask(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newSubtask.trim()) {
+                    addSubtaskMutation.mutate(newSubtask.trim())
+                  }
+                }}
+                placeholder="添加子步骤..."
+                className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
+              />
+            </div>
+          </div>
+
+          {/* 日程 */}
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Calendar className="size-4" /> 日程
+            </div>
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Calendar className="size-4" />
+                  {dueDate ? format(dueDate, 'yyyy-MM-dd') : '设置截止日期'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarPicker
+                  mode="single"
+                  selected={dueDate}
+                  onSelect={(date) => {
+                    if (date) {
+                      updateDetailMutation.mutate({
+                        id: task.id,
+                        data: { dueDate: format(date, 'yyyy-MM-dd') },
+                      })
+                    }
+                    setDatePickerOpen(false)
+                  }}
+                  locale={zhCN}
+                />
+                {dueDate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => {
+                      updateDetailMutation.mutate({ id: task.id, data: { dueDate: null } })
+                      setDatePickerOpen(false)
+                    }}
+                  >
+                    清除日期
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            <Popover open={reminderPickerOpen} onOpenChange={setReminderPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Bell className="size-4" />
+                  {reminder ? format(reminder, 'yyyy-MM-dd HH:mm') : '设置提醒'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3" align="start">
+                <Input
+                  type="datetime-local"
+                  defaultValue={reminder ? toDatetimeLocal(task.reminder || '') : ''}
+                  onBlur={(e) => {
+                    if (e.target.value) {
+                      updateDetailMutation.mutate({
+                        id: task.id,
+                        data: { reminder: new Date(e.target.value).toISOString() },
+                      })
+                    }
+                  }}
+                />
+                {reminder && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 w-full"
+                    onClick={() => {
+                      updateDetailMutation.mutate({ id: task.id, data: { reminder: null } })
+                      setReminderPickerOpen(false)
+                    }}
+                  >
+                    清除提醒
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* 备注 */}
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <FileText className="size-4" /> 备注
+            </div>
+            <Textarea
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="添加备注..."
+              onBlur={() => {
+                if (noteDraft !== (task.note || '')) {
+                  updateDetailMutation.mutate({ id: task.id, data: { note: noteDraft } })
+                }
+              }}
+              className="min-h-[100px] resize-none bg-transparent"
+            />
+          </div>
+
+          {/* 操作 */}
+          <div className="space-y-1 rounded-xl bg-muted/30 p-2">
+            {lists.length > 1 && (
+              <div className="flex items-center gap-2 px-3 py-2">
+                <ListTodo className="size-4 shrink-0 text-muted-foreground" />
+                <Select
+                  value={task.listId}
+                  onValueChange={(v) => {
+                    if (v !== task.listId) {
+                      updateDetailMutation.mutate({ id: task.id, data: { listId: v } })
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 flex-1 gap-1 rounded-lg text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lists.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={() => aiBreakdownMutation.mutate()}
+              disabled={aiLoading}
+            >
+              <Sparkles className="size-4 text-purple-500" />
+              {aiLoading ? 'AI 拆解中...' : 'AI 拆解子任务'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={() => myDayMutation.mutate({ id: taskId!, add: !task.isMyDay })}
+            >
+              <Sun className={cn('size-4', task.isMyDay && 'text-orange-400')} />
+              {task.isMyDay ? '移出我的一天' : '添加到我的一天'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10"
+              onClick={() => onDelete(task.id)}
+            >
+              <Trash2 className="size-4" />
+              删除任务
+            </Button>
+          </div>
+        </div>
+      </ScrollArea>
+  )
+
+  if (isMobile) {
+    return (
+      <Sheet open={!!taskId} onOpenChange={(open) => !open && onClose()}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="max-h-[88vh] rounded-t-2xl p-0"
+        >
+          <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
+          <SheetHeader className="flex flex-row items-start gap-2 border-b px-5 py-4 text-left">
+            {detailHeaderNode}
+          </SheetHeader>
+          {detailBody('max-h-[calc(88vh-6.5rem)]')}
+        </SheetContent>
+      </Sheet>
+    )
+  }
 
   return (
     <Dialog open={!!taskId} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[80vh] max-w-xl w-[calc(100%-2rem)] gap-0 overflow-hidden rounded-2xl border bg-card p-0 shadow-2xl">
-        <DialogHeader className="border-b px-6 py-5">
-          <div className="flex items-start gap-3 pr-8">
-            <DialogTitle className="flex-1 text-lg leading-snug">{task.title}</DialogTitle>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0 -mr-2"
-              onClick={() =>
-                updateDetailMutation.mutate({ id: taskId!, data: { isImportant: !task.isImportant } })
-              }
-            >
-              <Star className={cn('size-4', task.isImportant && 'fill-yellow-400 text-yellow-400')} />
-            </Button>
-          </div>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[82vh] gap-0 overflow-hidden p-0"
+      >
+        <DialogHeader className="border-b px-6 py-4 text-left">
+          {detailHeaderNode}
         </DialogHeader>
-
-        <ScrollArea className="max-h-[calc(80vh-4.5rem)] px-6 py-5">
-          <div className="space-y-5">
-            {/* 子任务 */}
-            <div className="space-y-3 rounded-xl bg-muted/30 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <CheckSquare className="size-4" /> 子任务
-              </div>
-              <div className="space-y-1">
-                {subtasks.map((st: Subtask) => (
-                  <div key={st.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent">
-                    <Checkbox
-                      checked={st.isCompleted}
-                      onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
-                    />
-                    <span className={cn('flex-1 text-sm', st.isCompleted && 'line-through text-muted-foreground')}>
-                      {st.title}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 opacity-0 group-hover:opacity-100"
-                      onClick={() => deleteSubtaskMutation.mutate(st.id)}
-                    >
-                      <X className="size-3" />
-                    </Button>
-                  </div>
-                ))}
-                {subtasks.length === 0 && (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">暂无子任务，点击 AI 拆解可自动生成</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <Plus className="size-4 text-muted-foreground" />
-                <Input
-                  value={newSubtask}
-                  onChange={(e) => setNewSubtask(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newSubtask.trim()) {
-                      addSubtaskMutation.mutate(newSubtask.trim())
-                    }
-                  }}
-                  placeholder="添加子步骤..."
-                  className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
-                />
-              </div>
-            </div>
-
-            {/* 日程 */}
-            <div className="space-y-3 rounded-xl bg-muted/30 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <Calendar className="size-4" /> 日程
-              </div>
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start gap-2">
-                    <Calendar className="size-4" />
-                    {dueDate ? format(dueDate, 'yyyy-MM-dd') : '设置截止日期'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <CalendarPicker
-                    mode="single"
-                    selected={dueDate}
-                    onSelect={(date) => {
-                      if (date) {
-                        updateDetailMutation.mutate({
-                          id: task.id,
-                          data: { dueDate: format(date, 'yyyy-MM-dd') },
-                        })
-                      }
-                      setDatePickerOpen(false)
-                    }}
-                    locale={zhCN}
-                  />
-                  {dueDate && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => {
-                        updateDetailMutation.mutate({ id: task.id, data: { dueDate: null } })
-                        setDatePickerOpen(false)
-                      }}
-                    >
-                      清除日期
-                    </Button>
-                  )}
-                </PopoverContent>
-              </Popover>
-
-              <Popover open={reminderPickerOpen} onOpenChange={setReminderPickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start gap-2">
-                    <Bell className="size-4" />
-                    {reminder ? format(reminder, 'yyyy-MM-dd HH:mm') : '设置提醒'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-3" align="start">
-                  <Input
-                    type="datetime-local"
-                    defaultValue={reminder ? toDatetimeLocal(task.reminder || '') : ''}
-                    onBlur={(e) => {
-                      if (e.target.value) {
-                        updateDetailMutation.mutate({
-                          id: task.id,
-                          data: { reminder: new Date(e.target.value).toISOString() },
-                        })
-                      }
-                    }}
-                  />
-                  {reminder && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2 w-full"
-                      onClick={() => {
-                        updateDetailMutation.mutate({ id: task.id, data: { reminder: null } })
-                        setReminderPickerOpen(false)
-                      }}
-                    >
-                      清除提醒
-                    </Button>
-                  )}
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* 备注 */}
-            <div className="space-y-3 rounded-xl bg-muted/30 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <FileText className="size-4" /> 备注
-              </div>
-              <Textarea
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder="添加备注..."
-                onBlur={() => {
-                  if (noteDraft !== (task.note || '')) {
-                    updateDetailMutation.mutate({ id: task.id, data: { note: noteDraft } })
-                  }
-                }}
-                className="min-h-[100px] resize-none bg-transparent"
-              />
-            </div>
-
-            {/* 操作 */}
-            <div className="space-y-1 rounded-xl bg-muted/30 p-2">
-              {/* 移动到列表：让任务在不同列表间转移，弥补拖拽仅限同列表排序的限制 */}
-              {lists.length > 1 && (
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <ListTodo className="size-4 shrink-0 text-muted-foreground" />
-                  <Select
-                    value={task.listId}
-                    onValueChange={(v) => {
-                      if (v !== task.listId) {
-                        updateDetailMutation.mutate({ id: task.id, data: { listId: v } })
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-8 flex-1 gap-1 rounded-lg text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {lists.map((l) => (
-                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-2"
-                onClick={() => aiBreakdownMutation.mutate()}
-                disabled={aiLoading}
-              >
-                <Sparkles className="size-4 text-purple-500" />
-                {aiLoading ? 'AI 拆解中...' : 'AI 拆解子任务'}
-              </Button>
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-2"
-                onClick={() => myDayMutation.mutate({ id: taskId!, add: !task.isMyDay })}
-              >
-                <Sun className={cn('size-4', task.isMyDay && 'text-orange-400')} />
-                {task.isMyDay ? '移出我的一天' : '添加到我的一天'}
-              </Button>
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10"
-                onClick={() => onDelete(task.id)}
-              >
-                <Trash2 className="size-4" />
-                删除任务
-              </Button>
-            </div>
-          </div>
-        </ScrollArea>
+        {detailBody('max-h-[calc(82vh-5.5rem)]')}
       </DialogContent>
     </Dialog>
   )

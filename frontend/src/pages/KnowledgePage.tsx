@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'sonner'
-import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, type LucideIcon } from 'lucide-react'
+import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, CheckCircle2, AlertCircle, Sparkles, type LucideIcon } from 'lucide-react'
 import { kbApi, imaApi, type KbDocument } from '@/lib/api'
+import { extractDocumentText } from '@/lib/doc-extract'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -12,8 +13,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { PageSkeleton, DetailSkeleton } from '@/components/PageSkeleton'
-import { DocViewer } from '@/components/DocViewer'
+import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
+
+// DocViewer 依赖 pdfjs/xlsx/docx-preview，体积大，按需懒加载
+const DocViewer = lazy(() => import('@/components/DocViewer').then((m) => ({ default: m.DocViewer })))
 
 const fileTypeIcon: Record<string, LucideIcon> = {
   pdf: File,
@@ -86,6 +90,9 @@ export function KnowledgePage() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [summary, setSummary] = useState<string | null>(null)
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState<string | null>(null)
 
   const trimmedQuery = searchQuery.trim()
 
@@ -93,23 +100,36 @@ export function KnowledgePage() {
     queryKey: ['kb'],
     queryFn: kbApi.list,
     enabled: trimmedQuery.length === 0,
+    staleTime: 2 * 60 * 1000,
   })
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['kb', 'search', trimmedQuery],
     queryFn: () => kbApi.search(trimmedQuery),
     enabled: trimmedQuery.length > 0,
+    staleTime: 2 * 60 * 1000,
   })
 
   const { data: selectedDoc, isLoading: selectedDocLoading } = useQuery({
     queryKey: ['kbDoc', id],
     queryFn: () => kbApi.get(id!),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000,
   })
 
-  // R2 文件上传（react-dropzone）
+  // 切换文档时重置 AI 状态
+  useEffect(() => {
+    setSummary(null)
+    setQuestion('')
+    setAnswer(null)
+  }, [id])
+
+  // R2 文件上传（react-dropzone）：PDF/DOCX/TXT/MD 先在前端提取正文
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => kbApi.upload(file, undefined, setUploadProgress),
+    mutationFn: async (file: File) => {
+      const content = await extractDocumentText(file)
+      return kbApi.upload(file, undefined, setUploadProgress, content || undefined)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['kb'] })
       toast.success('上传成功')
@@ -128,14 +148,39 @@ export function KnowledgePage() {
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   })
 
-  // IMA 知识库同步
+  // AI 总结文档
+  const summaryMutation = useMutation({
+    mutationFn: (docId: string) => kbApi.summary(docId),
+    onSuccess: (data) => setSummary(data.summary),
+    onError: (err: Error) => toast.error(`总结失败: ${err.message}`),
+  })
+
+  // 向文档提问
+  const askMutation = useMutation({
+    mutationFn: ({ docId, q }: { docId: string; q: string }) => kbApi.ask(docId, q),
+    onSuccess: (data) => setAnswer(data.answer),
+    onError: (err: Error) => toast.error(`问答失败: ${err.message}`),
+  })
+
+  // IMA 知识库同步（就近反馈）
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(feedbackTimerRef.current), [])
+
   const syncImaMutation = useMutation({
     mutationFn: () => imaApi.syncKb(),
-    onSuccess: (data: { ok: boolean; synced?: number; error?: string }) => {
+    onSuccess: (data: { ok: boolean; synced?: number; partial?: boolean; skipped?: number; error?: string }) => {
       queryClient.invalidateQueries({ queryKey: ['kb'] })
-      toast.success(`IMA 同步成功${data?.synced != null ? ` · ${data.synced} 条` : ''}`)
+      const msg = data.partial
+        ? `部分同步${data?.synced != null ? ` · ${data.synced} 条` : ''}，剩余 ${data.skipped ?? 0} 条`
+        : `同步完成${data?.synced != null ? ` · ${data.synced} 条` : ''}`
+      setSyncFeedback({ type: 'success', message: msg })
+      clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = setTimeout(() => setSyncFeedback(null), 3000)
     },
-    onError: (err: Error) => toast.error(`IMA 同步失败: ${err.message}`),
+    onError: (err: Error) => {
+      setSyncFeedback({ type: 'error', message: `同步失败: ${err.message}` })
+    },
   })
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
@@ -159,6 +204,7 @@ export function KnowledgePage() {
   if (id && selectedDoc) {
     const Icon = fileTypeIcon[selectedDoc.fileType || ''] || File
     const hasBinary = !!selectedDoc.r2Key
+    const hasContent = !!selectedDoc.content?.trim()
 
     // 带 auth 头触发下载（避免裸 a href 401）
     const handleDownload = async () => {
@@ -177,6 +223,13 @@ export function KnowledgePage() {
       }
     }
 
+    const handleAsk = (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!question.trim() || !id) return
+      setAnswer(null)
+      askMutation.mutate({ docId: id, q: question.trim() })
+    }
+
     return (
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
@@ -191,6 +244,18 @@ export function KnowledgePage() {
           {selectedDoc.r2Key && (
             <Badge variant="outline" className="rounded-lg text-xs">R2</Badge>
           )}
+          {hasContent && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2 rounded-lg"
+              onClick={() => summaryMutation.mutate(selectedDoc.id)}
+              disabled={summaryMutation.isPending}
+            >
+              <Sparkles className={`size-4 ${summaryMutation.isPending ? 'animate-spin' : ''}`} />
+              AI 总结
+            </Button>
+          )}
           {hasBinary && (
             <Button size="sm" variant="outline" className="gap-2 rounded-lg" onClick={handleDownload}>
               <Download className="size-4" />
@@ -199,15 +264,55 @@ export function KnowledgePage() {
           )}
         </div>
         <ScrollArea className="flex-1">
-          <div className="p-4 md:p-6">
+          <div className="space-y-4 p-4 md:p-6">
+            {/* AI 总结 */}
+            {summary && (
+              <div className="surface-card overflow-x-hidden border-l-4 border-l-violet-500">
+                <div className="flex items-center gap-2 text-sm font-medium text-violet-600 dark:text-violet-400">
+                  <Sparkles className="size-4" />
+                  AI 总结
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{summary}</p>
+              </div>
+            )}
+
+            {/* 向文档提问 */}
+            {hasContent && (
+              <div className="surface-card overflow-x-hidden">
+                <form onSubmit={handleAsk} className="flex items-center gap-2">
+                  <Input
+                    placeholder="向文档提问..."
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    className="rounded-xl"
+                    disabled={askMutation.isPending}
+                  />
+                  <Button type="submit" disabled={askMutation.isPending || !question.trim()} className="rounded-lg gap-1 shrink-0">
+                    {askMutation.isPending ? <RefreshCw className="size-4 animate-spin" /> : <MessagesSquare className="size-4" />}
+                    提问
+                  </Button>
+                </form>
+                {answer && (
+                  <div className="mt-3 rounded-xl bg-muted/50 p-3 text-sm leading-relaxed">
+                    <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Sparkles className="size-3" /> 回答
+                    </span>
+                    <p className="whitespace-pre-wrap">{answer}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="surface-card overflow-x-hidden">
-              <DocViewer
-                fileType={selectedDoc.fileType || ''}
-                content={selectedDoc.content ?? undefined}
-                r2Key={selectedDoc.r2Key ?? undefined}
-                title={selectedDoc.title}
-                docId={hasBinary ? selectedDoc.id : undefined}
-              />
+              <Suspense fallback={<DetailSkeleton />}>
+                <DocViewer
+                  fileType={selectedDoc.fileType || ''}
+                  content={selectedDoc.content ?? undefined}
+                  r2Key={selectedDoc.r2Key ?? undefined}
+                  title={selectedDoc.title}
+                  docId={hasBinary ? selectedDoc.id : undefined}
+                />
+              </Suspense>
             </div>
           </div>
         </ScrollArea>
@@ -227,7 +332,7 @@ export function KnowledgePage() {
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">沉淀文档、资料与灵感</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -238,6 +343,21 @@ export function KnowledgePage() {
             <RefreshCw className={`size-4 ${syncImaMutation.isPending ? 'animate-spin' : ''}`} />
             IMA 同步
           </Button>
+          {syncFeedback && (
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs transition-opacity ${
+                syncFeedback.type === 'success'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-destructive cursor-pointer hover:underline'
+              }`}
+              onClick={syncFeedback.type === 'error' ? () => syncImaMutation.mutate() : undefined}
+            >
+              {syncFeedback.type === 'success'
+                ? <CheckCircle2 className="size-3.5" />
+                : <AlertCircle className="size-3.5" />}
+              {syncFeedback.message}
+            </span>
+          )}
           <Button size="sm" onClick={open} disabled={uploadMutation.isPending} className="rounded-lg gap-1">
             <File className="size-4" /> 上传
           </Button>
@@ -299,15 +419,12 @@ export function KnowledgePage() {
         ) : (
         <div className="grid gap-3 p-2 md:grid-cols-2 md:p-4">
           {filteredDocs.length === 0 ? (
-            <div className="empty-state col-span-full">
-              <div className="icon-badge mb-4 size-16 bg-gradient-to-br from-emerald-500 to-teal-400">
-                <BookOpen className="size-8" />
-              </div>
-              <p className="text-base font-medium">{trimmedQuery || typeFilter !== 'all' ? '未找到匹配的文档' : '暂无文档'}</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                {trimmedQuery || typeFilter !== 'all' ? '尝试更换筛选条件' : '拖拽文件到上方区域，或点击「IMA 同步」添加文档'}
-              </p>
-            </div>
+            <EmptyState
+              icon={BookOpen}
+              title={trimmedQuery || typeFilter !== 'all' ? '未找到匹配的文档' : '暂无文档'}
+              description={trimmedQuery || typeFilter !== 'all' ? '尝试更换筛选条件' : '拖拽文件到上方区域，或点击「IMA 同步」添加文档'}
+              className="col-span-full"
+            />
           ) : (
             filteredDocs.map((doc: KbDocument) => {
               const Icon = fileTypeIcon[doc.fileType || ''] || File
@@ -316,7 +433,7 @@ export function KnowledgePage() {
               return (
                 <div
                   key={doc.id}
-                  className="group surface-card card-hover flex cursor-pointer items-center gap-3"
+                  className="group surface-card flex cursor-pointer items-center gap-3 transition-colors hover:bg-accent/50"
                   onClick={() => navigate(`/knowledge/${doc.id}`)}
                 >
                   <div className={cn('icon-badge size-10', colorClass)}>

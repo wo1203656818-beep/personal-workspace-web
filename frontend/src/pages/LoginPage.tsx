@@ -5,12 +5,14 @@ import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Spotlight } from '@/components/effects/Spotlight'
-import { Meteors } from '@/components/effects/Meteors'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+
 
 export function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [errorKey, setErrorKey] = useState(0)
@@ -23,7 +25,6 @@ export function LoginPage() {
     setError('')
     const result = await login(password)
     if (result.success) {
-      // 登录成功后优先跳回原页面，无记录则回首页
       const redirect = sessionStorage.getItem('redirect-after-login')
       if (redirect) {
         sessionStorage.removeItem('redirect-after-login')
@@ -39,24 +40,20 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
-      {/* Linear 风背景特效：聚光 + 流星点缀 */}
-      <Spotlight className="pointer-events-none absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <Meteors number={12} />
-      </div>
-
-      <div className="relative w-full max-w-sm space-y-6">
+    <div className="dark relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-slate-950 via-violet-950/70 to-slate-950 px-4 py-8">
+      <div className="relative w-full max-w-md space-y-6">
         {/* 品牌 Logo */}
-        <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-lg shadow-primary/20">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-lg shadow-primary/20 backdrop-blur-sm">
             <LayoutDashboard className="size-12" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
-          <p className="text-sm text-muted-foreground">个人全能工作台</p>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
+            <p className="text-sm text-muted-foreground">个人全能工作台</p>
+          </div>
         </div>
 
-        <Card className="glass border-border/60">
+        <Card className="glass border-border/60 shadow-xl">
           <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="relative">
@@ -66,12 +63,12 @@ export function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
-                  className="h-11 pr-10"
+                  className="h-11 rounded-lg pr-10 transition-shadow focus:shadow-sm"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex size-7 items-center justify-center text-muted-foreground hover:text-foreground"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                   aria-label={showPassword ? '隐藏密码' : '显示密码'}
                   tabIndex={-1}
                 >
@@ -86,8 +83,22 @@ export function LoginPage() {
                   {error}
                 </p>
               )}
-              <Button type="submit" className="w-full h-11" disabled={loading || !password}>
-                {loading ? '登录中...' : '进入'}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(v) => setRememberMe(v === true)}
+                />
+                <Label htmlFor="remember-me" className="text-sm text-muted-foreground cursor-pointer">
+                  记住我（30天免登录）
+                </Label>
+              </div>
+              <Button
+                type="submit"
+                className="h-11 w-full rounded-lg"
+                disabled={loading || !password}
+              >
+                {loading ? '登录中...' : '进入工作台'}
               </Button>
             </form>
           </CardContent>

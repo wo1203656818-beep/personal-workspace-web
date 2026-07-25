@@ -50,7 +50,7 @@ if (-not $SkipInfra) {
 Write-Host "==> 安装后端依赖" -ForegroundColor Cyan
 Push-Location "$Root\backend"
 try {
-  npm ci
+  pnpm install
 }
 finally {
   Pop-Location
@@ -59,8 +59,8 @@ finally {
 Write-Host "==> 安装前端依赖并构建" -ForegroundColor Cyan
 Push-Location "$Root\frontend"
 try {
-  npm ci
-  npm run build
+  pnpm install
+  pnpm build
 }
 finally {
   Pop-Location
@@ -91,7 +91,9 @@ if (-not $SkipSecrets) {
   Write-Host "==> 设置 Worker secrets（按提示输入，输入不会回显）" -ForegroundColor Cyan
   Push-Location "$Root\backend"
   try {
-    $secrets = @("JWT_SECRET", "PASSWORD_HASH", "MS_CLIENT_SECRET")
+    # 密码已迁移到 D1 settings 表，不再通过 env secret 管理
+    # 部署后请运行：pnpm seed-password --remote
+    $secrets = @("JWT_SECRET", "MS_CLIENT_SECRET")
     foreach ($s in $secrets) {
       Write-Host "设置 $s" -ForegroundColor Yellow
       npx wrangler secret put $s

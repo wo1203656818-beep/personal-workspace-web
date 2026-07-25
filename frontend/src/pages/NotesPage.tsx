@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import { useUndo } from '@/lib/use-undo'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, Save, ChevronDown, Bold, Italic, Heading, Link as LinkIcon, List } from 'lucide-react'
-import { notesApi, imaApi, type Note } from '@/lib/api'
+import { FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, Save, ChevronDown, Bold, Italic, Heading, Link as LinkIcon, List, Sparkles, Columns2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type Note } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { formatCST } from '@/lib/datetime'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,11 +14,27 @@ import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { DetailSkeleton } from '@/components/PageSkeleton'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
-import rehypeRaw from 'rehype-raw'
+import { EmptyState } from '@/components/EmptyState'
+import { useIsMobile } from '@/hooks/use-mobile'
+
+// Markdown 渲染包体积大，按页面懒加载
+const MarkdownPreview = lazy(async () => {
+  const [{ default: ReactMarkdown }, { default: remarkGfm }, { default: rehypeHighlight }, { default: rehypeRaw }] = await Promise.all([
+    import('react-markdown'),
+    import('remark-gfm'),
+    import('rehype-highlight'),
+    import('rehype-raw'),
+  ])
+  return {
+    default: ({ content }: { content: string }) => (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
+        {content}
+      </ReactMarkdown>
+    ),
+  }
+})
 
 // 将标题文本转为锚点 id
 function slugify(text: string): string {
@@ -46,16 +63,37 @@ function extractToc(content: string): { level: number; text: string; slug: strin
   return items
 }
 
+function NotePageContent({ note }: { note: Note }) {
+  const isIma = note.sourceFile === 'ima_openapi'
+  if (isIma && note.contentHtml) {
+    return (
+      <div
+        className="break-words rounded-xl bg-muted/30 p-4 sm:p-6 prose prose-sm dark:prose-invert max-w-none [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full"
+        dangerouslySetInnerHTML={{ __html: note.contentHtml }}
+      />
+    )
+  }
+  return (
+    <div className="break-words rounded-xl bg-muted/30 p-4 sm:p-6 prose prose-sm dark:prose-invert max-w-none [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full">
+      <Suspense fallback={<div className="text-muted-foreground">加载预览中…</div>}>
+        <MarkdownPreview content={note.content} />
+      </Suspense>
+    </div>
+  )
+}
+
 export function NotesPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { push: pushUndo } = useUndo()
+  const isMobile = useIsMobile()
   const [showImport, setShowImport] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [editableContent, setEditableContent] = useState('')
   const [appendContent, setAppendContent] = useState('')
   const [activeTab, setActiveTab] = useState('edit')
+  const [splitView, setSplitView] = useState(false)
   const [editableTitle, setEditableTitle] = useState('')
   const [showMobileToc, setShowMobileToc] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
@@ -64,18 +102,64 @@ export function NotesPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pendingDeleteNoteRef = useRef<Note | null>(null)
 
+  // AI 辅助：总结 / 要点 / 转任务
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiAction, setAiAction] = useState<'summary' | 'points' | 'to-task'>('summary')
+  const [aiResult, setAiResult] = useState('')
+  const parsedAiTasks = useMemo(
+    () => aiResult.split('\n').map((s) => s.replace(/^[-*\d.\s、]+/, '').trim()).filter(Boolean).filter((t) => t.length < 200),
+    [aiResult]
+  )
+
+  const noteAiMutation = useMutation({
+    mutationFn: (action: 'summary' | 'points' | 'to-task') => aiApi.noteSummary(id!, action),
+    onSuccess: (data) => {
+      setAiResult(data.result || '')
+      setAiOpen(true)
+    },
+    onError: (e: Error) => toast.error('AI 请求失败: ' + e.message),
+  })
+
+  const createFromAiMutation = useMutation({
+    mutationFn: async (lines: string[]) => {
+      const lists = await taskListsApi.list()
+      const listId = lists[0]?.id
+      if (!listId) throw new Error('没有可用的任务列表')
+      let n = 0
+      for (const title of lines) {
+        await tasksApi.create({ listId, title })
+        n++
+      }
+      return n
+    },
+    onSuccess: (n) => {
+      toast.success(`已创建 ${n} 个任务`)
+      setAiOpen(false)
+      queryClient.invalidateQueries({ queryKey: ['taskLists'] })
+    },
+    onError: (e: Error) => toast.error('创建失败: ' + e.message),
+  })
+
+  const handleAi = (action: 'summary' | 'points' | 'to-task') => {
+    if (!selectedNote) return
+    setAiAction(action)
+    noteAiMutation.mutate(action)
+  }
+
   const trimmedQuery = searchQuery.trim()
 
   const { data: notes = [] } = useQuery({
     queryKey: ['notes'],
     queryFn: notesApi.list,
     enabled: trimmedQuery.length === 0,
+    staleTime: 2 * 60 * 1000,
   })
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['notes', 'search', trimmedQuery],
     queryFn: () => notesApi.search(trimmedQuery),
     enabled: trimmedQuery.length > 0,
+    staleTime: 2 * 60 * 1000,
   })
 
   const displayedNotes = useMemo(() => {
@@ -87,6 +171,7 @@ export function NotesPage() {
     queryKey: ['note', id],
     queryFn: () => notesApi.get(id!),
     enabled: !!id,
+    staleTime: 2 * 60 * 1000,
   })
 
   // 进入详情页时把 selectedNote.content 同步到可编辑 state
@@ -111,14 +196,25 @@ export function NotesPage() {
     })
   }, [tocItems, activeTab, editableContent])
 
-  // IMA 笔记同步
+  // IMA 笔记同步（就近反馈）
+  const [imaSyncFeedback, setImaSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const imaFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(imaFeedbackTimerRef.current), [])
+
   const syncImaMutation = useMutation({
     mutationFn: () => imaApi.syncNotes(),
-    onSuccess: (data: { ok: boolean; synced?: number; error?: string }) => {
+    onSuccess: (data: { ok: boolean; synced?: number; partial?: boolean; skipped?: number; error?: string }) => {
       queryClient.invalidateQueries({ queryKey: ['notes'] })
-      toast.success(`IMA 同步成功${data?.synced != null ? ` · ${data.synced} 条` : ''}`)
+      const msg = data.partial
+        ? `部分同步${data?.synced != null ? ` · ${data.synced} 条` : ''}，剩余 ${data.skipped ?? 0} 条`
+        : `同步完成${data?.synced != null ? ` · ${data.synced} 条` : ''}`
+      setImaSyncFeedback({ type: 'success', message: msg })
+      clearTimeout(imaFeedbackTimerRef.current)
+      imaFeedbackTimerRef.current = setTimeout(() => setImaSyncFeedback(null), 3000)
     },
-    onError: (err: Error) => toast.error(`IMA 同步失败: ${err.message}`),
+    onError: (err: Error) => {
+      setImaSyncFeedback({ type: 'error', message: `同步失败: ${err.message}` })
+    },
   })
 
   // 删除笔记（支持撤销恢复）
@@ -338,7 +434,8 @@ export function NotesPage() {
 
   if (id && selectedNote) {
     return (
-      <div className="flex h-full flex-col">
+      <>
+        <div className="flex h-full flex-col">
         <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
           <Button variant="ghost" size="icon" className="rounded-lg" onClick={() => navigate('/notes')}>
             <ArrowLeft className="size-4" />
@@ -371,6 +468,17 @@ export function NotesPage() {
               ? (appendContent.trim() ? '追加*' : '追加')
               : (isDirty ? '保存*' : '保存')}
           </Button>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => handleAi('summary')} disabled={noteAiMutation.isPending} className="gap-1 rounded-lg">
+              <Sparkles className="size-3.5" /> 总结
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAi('points')} disabled={noteAiMutation.isPending} className="rounded-lg">
+              要点
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAi('to-task')} disabled={noteAiMutation.isPending} className="rounded-lg">
+              转任务
+            </Button>
+          </div>
         </div>
         <div className="flex flex-1 overflow-hidden">
           <ScrollArea className="flex-1">
@@ -412,11 +520,24 @@ export function NotesPage() {
                   )}
                 </div>
               )}
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList>
-                  <TabsTrigger value="edit">编辑</TabsTrigger>
-                  <TabsTrigger value="preview">预览</TabsTrigger>
-                </TabsList>
+              <Tabs value={splitView ? 'split' : activeTab} onValueChange={(v) => { if (v !== 'split') { setSplitView(false); setActiveTab(v) } }}>
+                <div className="flex items-center gap-2">
+                  <TabsList>
+                    <TabsTrigger value="edit">编辑</TabsTrigger>
+                    <TabsTrigger value="preview">预览</TabsTrigger>
+                  </TabsList>
+                  {!isMobile && (
+                    <Button
+                      variant={splitView ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="h-9 gap-1.5 text-xs"
+                      onClick={() => setSplitView(!splitView)}
+                    >
+                      <Columns2 className="size-3.5" />
+                      {splitView ? '关闭分屏' : '分屏预览'}
+                    </Button>
+                  )}
+                </div>
                 <TabsContent value="edit" className="mt-4">
                   {selectedNote?.sourceFile !== 'ima_openapi' && (
                   <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-muted/30 p-1.5">
@@ -511,16 +632,54 @@ export function NotesPage() {
                 </TabsContent>
                 <TabsContent value="preview" className="mt-4">
                   <div className="w-full overflow-x-hidden">
-                    <div
-                      ref={previewRef}
-                      className="break-words rounded-xl bg-muted/30 p-4 sm:p-6 prose prose-sm dark:prose-invert max-w-none [&_img]:mx-auto [&_img]:max-h-[70vh] [&_img]:max-w-full [&_img]:object-contain [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full"
-                    >
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight, rehypeRaw]}>
-                        {editableContent}
-                      </ReactMarkdown>
-                    </div>
+                    {selectedNote && <NotePageContent note={selectedNote} />}
                   </div>
                 </TabsContent>
+                {/* P0-3: 分屏预览模式 — 桌面端左右并列编辑+预览 */}
+                {splitView && (
+                  <div className="mt-4 flex gap-4">
+                    <div className="flex-1 min-w-0 space-y-3">
+                      {selectedNote?.sourceFile !== 'ima_openapi' && (
+                      <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-muted/30 p-1.5">
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => insertMarkdown('bold')} title="粗体">
+                          <Bold className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => insertMarkdown('italic')} title="斜体">
+                          <Italic className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => insertMarkdown('heading')} title="标题">
+                          <Heading className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => insertMarkdown('link')} title="链接">
+                          <LinkIcon className="size-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => insertMarkdown('list')} title="列表">
+                          <List className="size-4" />
+                        </Button>
+                      </div>
+                      )}
+                      <div className="rounded-xl bg-muted/30 p-4">
+                        <Textarea
+                          ref={textareaRef}
+                          className="min-h-[60vh] border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
+                          value={editableContent}
+                          onChange={(e) => setEditableContent(e.target.value)}
+                          placeholder="在此编辑 Markdown 内容..."
+                        />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="sticky top-4">
+                        <div
+                          ref={previewRef}
+                          className="max-h-[75vh] overflow-auto"
+                        >
+                          {selectedNote && <NotePageContent note={selectedNote} />}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </Tabs>
             </div>
           </ScrollArea>
@@ -555,6 +714,37 @@ export function NotesPage() {
           )}
         </div>
       </div>
+
+      {/* AI 辅助结果弹窗 */}
+      <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="size-4 text-primary" />
+              {aiAction === 'summary' ? '笔记总结' : aiAction === 'points' ? '关键要点' : '可转任务'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl bg-muted/30 p-4 text-sm leading-relaxed">
+            {aiResult || '（暂无内容）'}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            {aiAction === 'to-task' ? (
+              <Button
+                disabled={createFromAiMutation.isPending || parsedAiTasks.length === 0}
+                onClick={() => createFromAiMutation.mutate(parsedAiTasks)}
+                className="gap-2"
+              >
+                {createFromAiMutation.isPending ? '创建中...' : `创建 ${parsedAiTasks.length} 个任务`}
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => navigator.clipboard?.writeText(aiResult)} className="gap-2">
+                复制
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      </>
     )
   }
 
@@ -570,7 +760,7 @@ export function NotesPage() {
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">记录想法、知识与灵感</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -581,6 +771,21 @@ export function NotesPage() {
             <RefreshCw className={`size-4 ${syncImaMutation.isPending ? 'animate-spin' : ''}`} />
             IMA 同步
           </Button>
+          {imaSyncFeedback && (
+            <span
+              className={`inline-flex items-center gap-1.5 text-xs transition-opacity ${
+                imaSyncFeedback.type === 'success'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-destructive cursor-pointer hover:underline'
+              }`}
+              onClick={imaSyncFeedback.type === 'error' ? () => syncImaMutation.mutate() : undefined}
+            >
+              {imaSyncFeedback.type === 'success'
+                ? <CheckCircle2 className="size-3.5" />
+                : <AlertCircle className="size-3.5" />}
+              {imaSyncFeedback.message}
+            </span>
+          )}
           <Button size="sm" onClick={() => setShowImport(!showImport)} className="rounded-lg gap-1">
             <Plus className="size-4" /> 导入
           </Button>
@@ -604,15 +809,11 @@ export function NotesPage() {
       <ScrollArea className="flex-1">
         <div className="space-y-1 p-2 md:p-4">
           {(!displayedNotes || displayedNotes.length === 0) ? (
-            <div className="empty-state">
-              <div className="icon-badge mb-4 size-16 bg-gradient-to-br from-primary to-primary/80">
-                <FileText className="size-8" />
-              </div>
-              <p className="text-base font-medium">{trimmedQuery ? '未找到匹配的笔记' : '暂无笔记'}</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                {trimmedQuery ? '尝试更换关键词' : '点击「IMA 同步」拉取笔记，或「导入」本地 Markdown'}
-              </p>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title={trimmedQuery ? '未找到匹配的笔记' : '暂无笔记'}
+              description={trimmedQuery ? '尝试更换关键词' : '点击「IMA 同步」拉取笔记，或「导入」本地 Markdown'}
+            />
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {(displayedNotes || []).map((note: Note) => {
@@ -620,7 +821,7 @@ export function NotesPage() {
                 return (
                   <div
                     key={note.id}
-                    className="group surface-card card-hover flex cursor-pointer flex-col gap-3"
+                    className="group surface-card flex cursor-pointer flex-col gap-3 transition-colors hover:bg-accent/50"
                     onClick={() => navigate(`/notes/${note.id}`)}
                   >
                     <div className="flex items-start gap-3">
@@ -642,7 +843,7 @@ export function NotesPage() {
                           {isIma ? 'IMA' : '本地'}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {note.importedAt ? new Date(note.importedAt).toLocaleDateString('zh-CN') : ''}
+                          {note.importedAt ? formatCST(note.importedAt, 'date') : ''}
                         </span>
                       </div>
                       <Button

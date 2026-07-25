@@ -1,4 +1,4 @@
-CREATE TABLE `coin_flips` (
+CREATE TABLE IF NOT EXISTS `coin_flips` (
 	`id` text PRIMARY KEY NOT NULL,
 	`result` text NOT NULL,
 	`entropy_source` text NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE `coin_flips` (
 	`created_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
-CREATE TABLE `ima_notes` (
+CREATE TABLE IF NOT EXISTS `ima_notes` (
 	`id` text PRIMARY KEY NOT NULL,
 	`title` text NOT NULL,
 	`content` text NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE `ima_notes` (
 	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
-CREATE TABLE `kb_documents` (
+CREATE TABLE IF NOT EXISTS `kb_documents` (
 	`id` text PRIMARY KEY NOT NULL,
 	`title` text NOT NULL,
 	`content` text,
@@ -27,13 +27,13 @@ CREATE TABLE `kb_documents` (
 	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
-CREATE TABLE `settings` (
+CREATE TABLE IF NOT EXISTS `settings` (
 	`key` text PRIMARY KEY NOT NULL,
 	`value` text NOT NULL,
 	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
-CREATE TABLE `subtasks` (
+CREATE TABLE IF NOT EXISTS `subtasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`task_id` text NOT NULL,
 	`title` text NOT NULL,
@@ -43,7 +43,7 @@ CREATE TABLE `subtasks` (
 	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE TABLE `task_lists` (
+CREATE TABLE IF NOT EXISTS `task_lists` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`color` text DEFAULT '#2563EB',
@@ -53,7 +53,7 @@ CREATE TABLE `task_lists` (
 	`updated_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
-CREATE TABLE `tasks` (
+CREATE TABLE IF NOT EXISTS `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
 	`list_id` text NOT NULL,
 	`title` text NOT NULL,

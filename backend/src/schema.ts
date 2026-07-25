@@ -50,6 +50,7 @@ export const imaNotes = sqliteTable('ima_notes', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   content: text('content').notNull(),
+  contentHtml: text('content_html'),
   sourceFile: text('source_file'),
   importedAt: text('imported_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
@@ -82,4 +83,90 @@ export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// AI 配置（支持多条，可自由设置默认）
+export const aiConfigs = sqliteTable('ai_configs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  type: text('type').notNull(), // 'cloudflare' | 'openai'
+  baseUrl: text('base_url'),
+  apiKey: text('api_key'), // 加密存储（enc$ 前缀），Cloudflare 类型可为空
+  model: text('model'),
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// 向量嵌入（跨模块语义检索用；个人量级，暴力余弦即可，不引外部向量库）
+export const embeddings = sqliteTable('embeddings', {
+  id: text('id').primaryKey(),
+  targetType: text('target_type').notNull(), // 'note' | 'task' | 'subtask' | 'kb'
+  targetId: text('target_id').notNull(),
+  model: text('model').notNull(),
+  vector: text('vector').notNull(), // JSON 数组
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// KV 缓存（AI 搜索结果等短时缓存）
+export const kvCache = sqliteTable('kv_cache', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  expiresAt: integer('expires_at').notNull(), // Unix 时间戳（毫秒）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 答案之书
+export const answerBookDraws = sqliteTable('answer_book_draws', {
+  id: text('id').primaryKey(),
+  result: text('result').notNull(),
+  entropySource: text('entropy_source').notNull(),
+  rawValue: integer('raw_value'),
+  interpretation: text('interpretation'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 每日一签
+export const dailyFortunes = sqliteTable('daily_fortunes', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(), // yyyy-MM-dd 北京日期
+  result: text('result').notNull(),
+  entropySource: text('entropy_source').notNull(),
+  rawValue: integer('raw_value'),
+  interpretation: text('interpretation'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 同步日志
+export const syncLogs = sqliteTable('sync_logs', {
+  id: text('id').primaryKey(),
+  source: text('source').notNull(), // ms_todo | ima_notes | ima_kb
+  status: text('status').notNull(), // success | partial | error
+  synced: integer('synced').default(0),
+  failed: integer('failed').default(0),
+  skipped: integer('skipped').default(0),
+  message: text('message'),
+  details: text('details'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// ============ AI 聊天记录（持久化）============
+// 会话表：一条会话 = 一段连续对话
+export const chatSessions = sqliteTable('chat_sessions', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull().default('新对话'),
+  tags: text('tags'), // JSON 数组，如 ["工作","重要"]，可空
+  pinned: integer('pinned').default(0), // 0/1 置顶（固定到顶部）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// 消息表：会话内的单条消息（含助手调用的工具信息，便于回放）
+export const chatMessages = sqliteTable('chat_messages', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  content: text('content').notNull().default(''),
+  toolCalls: text('tool_calls'), // JSON：助手本次调用的工具 [{name, args}]
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
 })

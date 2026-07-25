@@ -91,15 +91,6 @@ async function getMsCredentials(env: Env) {
   if (!clientId || !clientSecret || !accountType) {
     throw new Error('微软同步未配置：请在设置页填写 MS Client ID / Account Type / Client Secret，或在 wrangler secret 设置')
   }
-  // 诊断日志：输出实际使用的凭据信息（脱敏）
-  console.log('[ms-todo] credentials debug:', {
-    clientIdLen: clientId.length,
-    clientIdPrefix: clientId.slice(0, 8),
-    clientSecretLen: clientSecret.length,
-    clientSecretPrefix: clientSecret.slice(0, 4),
-    clientSecretSuffix: clientSecret.slice(-4),
-    accountType,
-  })
   return { clientId, clientSecret, accountType }
 }
 
@@ -700,6 +691,10 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
         for (const sub of localSubtasks) {
           if (!finalTitles.has(sub.title)) {
             await db.delete(schema.subtasks).where(eq(schema.subtasks.id, sub.id))
+            // 同步清理子任务嵌入向量，避免孤儿数据
+            await db.delete(schema.embeddings)
+              .where(and(eq(schema.embeddings.targetType, 'subtask'), eq(schema.embeddings.targetId, sub.id)))
+              .catch(() => {})
           }
         }
       } catch (e) {

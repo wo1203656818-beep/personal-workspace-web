@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import {
-  BarChart3, FileText, Loader2, Sparkles, TrendingUp,
+import { BarChart3, FileText, Loader2, Sparkles, TrendingUp,
   CheckCircle2, ListTodo, Star, BookOpen, Quote, ChevronDown, ChevronUp,
 } from 'lucide-react'
+import { EmptyState } from '@/components/EmptyState'
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -14,6 +14,7 @@ import { ActivityCalendar } from 'react-activity-calendar'
 import { toast } from 'sonner'
 import { aiApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -59,12 +60,16 @@ function countToLevel(count: number): number {
 export function AnalysisPage() {
   const [enabled, setEnabled] = useState(false)
   const [range, setRange] = useState('all')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
   const [currentReport, setCurrentReport] = useState<{ report: string; week: string } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  const effectiveRange = range === 'custom' && customStart && customEnd ? `custom:${customStart}:${customEnd}` : range
+
   const { data, isFetching } = useQuery({
-    queryKey: ['analysis', range],
-    queryFn: (): Promise<{ analysis: string; stats: AnalysisStats }> => aiApi.analysis(range),
+    queryKey: ['analysis', effectiveRange],
+    queryFn: (): Promise<{ analysis: string; stats: AnalysisStats }> => aiApi.analysis(effectiveRange),
     enabled,
   })
 
@@ -140,8 +145,18 @@ export function AnalysisPage() {
               <SelectItem value="7d">近 7 天</SelectItem>
               <SelectItem value="30d">近 30 天</SelectItem>
               <SelectItem value="all">全部</SelectItem>
+              <SelectItem value="custom">自定义范围</SelectItem>
             </SelectContent>
           </Select>
+          {range === 'custom' && (
+            <div className="flex items-center gap-1.5">
+              <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                className="h-8 w-32 rounded-lg text-xs" />
+              <span className="text-xs text-muted-foreground">至</span>
+              <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                className="h-8 w-32 rounded-lg text-xs" />
+            </div>
+          )}
           <Button size="sm" onClick={() => setEnabled(true)} disabled={isFetching} className="rounded-lg gap-1">
             <Sparkles className="size-4" />
             {isFetching ? 'AI 分析中...' : '生成分析'}
@@ -151,8 +166,16 @@ export function AnalysisPage() {
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-4 md:p-6">
+          {isFetching && (
+            <div className="empty-state py-20">
+              <Loader2 className="mb-4 size-12 animate-spin text-primary" />
+              <p className="text-base font-medium">AI 正在分析数据...</p>
+              <p className="mt-1 max-w-xs text-sm text-muted-foreground">请稍候，正在生成图表与洞察报告</p>
+            </div>
+          )}
+
           {/* 统计卡片 - Bento Grid */}
-          {data?.stats && !isEmpty && (
+          {data?.stats && !isEmpty && !isFetching && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {STAT_ITEMS.map((item) => (
                 <StatCard
@@ -169,22 +192,21 @@ export function AnalysisPage() {
           )}
 
           {/* 空数据兜底 */}
-          {isEmpty && (
-            <Card className="overflow-hidden">
-              <CardContent className="flex flex-col items-center justify-center gap-3 py-14 text-center">
-                <div className="icon-badge mb-2 size-14 bg-gradient-to-br from-violet-500 to-fuchsia-500">
-                  <BarChart3 className="size-7" />
-                </div>
-                <p className="text-sm text-muted-foreground">暂无数据，去创建任务</p>
+          {isEmpty && !isFetching && (
+            <EmptyState
+              icon={BarChart3}
+              title="暂无数据"
+              description="去创建任务，积累数据后再来分析"
+              action={
                 <Button asChild size="sm" className="rounded-lg">
                   <Link to="/tasks/myday">去任务页</Link>
                 </Button>
-              </CardContent>
-            </Card>
+              }
+            />
           )}
 
           {/* 图表区域 */}
-          {data?.stats && !isEmpty && (
+          {data?.stats && !isEmpty && !isFetching && (
             <div className="grid gap-4 md:grid-cols-2">
               {/* 任务完成率 */}
               <Card className="overflow-hidden">
@@ -347,7 +369,7 @@ export function AnalysisPage() {
           )}
 
           {/* AI 分析报告 */}
-          {data?.analysis && !isEmpty && (
+          {data?.analysis && !isEmpty && !isFetching && (
             <Card className="overflow-hidden">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
@@ -449,13 +471,11 @@ export function AnalysisPage() {
           </Card>
 
           {!data && !isFetching && (
-            <div className="empty-state">
-              <div className="icon-badge mb-3 size-14 bg-gradient-to-br from-violet-500 to-fuchsia-500">
-                <BarChart3 className="size-7" />
-              </div>
-              <p className="text-base font-medium">开始探索你的数据</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">点击「生成分析」获取 AI 数据分析报告</p>
-            </div>
+            <EmptyState
+              icon={BarChart3}
+              title="开始探索你的数据"
+              description="点击「生成分析」获取 AI 数据分析报告"
+            />
           )}
         </div>
       </ScrollArea>

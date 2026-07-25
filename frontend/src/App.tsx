@@ -7,12 +7,14 @@ import { PageSkeleton } from '@/components/PageSkeleton'
 import { NotFound } from '@/pages/NotFound'
 
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((m) => ({ default: m.LoginPage })))
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const TasksPage = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })))
 const NotesPage = lazy(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
 const KnowledgePage = lazy(() => import('@/pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })))
 const AnalysisPage = lazy(() => import('@/pages/AnalysisPage').then((m) => ({ default: m.AnalysisPage })))
-const CoinPage = lazy(() => import('@/pages/CoinPage').then((m) => ({ default: m.CoinPage })))
+const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })))
 const MsTodoCallback = lazy(() => import('@/pages/MsTodoCallback').then((m) => ({ default: m.MsTodoCallback })))
 
 function ProtectedRoutes() {
@@ -27,7 +29,7 @@ function ProtectedRoutes() {
           </Suspense>
         }
       >
-        <Route path="/" element={<Navigate to="/tasks/lists" replace />} />
+        <Route path="/" element={<RouteBoundary><DashboardPage /></RouteBoundary>} />
         <Route path="/tasks" element={<Navigate to="/tasks/lists" replace />} />
         <Route path="/tasks/:view" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
         <Route path="/tasks/list/:listId" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
@@ -36,7 +38,8 @@ function ProtectedRoutes() {
         <Route path="/knowledge" element={<RouteBoundary><KnowledgePage /></RouteBoundary>} />
         <Route path="/knowledge/:id" element={<RouteBoundary><KnowledgePage /></RouteBoundary>} />
         <Route path="/analysis" element={<RouteBoundary><AnalysisPage /></RouteBoundary>} />
-        <Route path="/coin" element={<RouteBoundary><CoinPage /></RouteBoundary>} />
+        <Route path="/search" element={<RouteBoundary><SearchPage /></RouteBoundary>} />
+        <Route path="/tools" element={<RouteBoundary><ToolsPage /></RouteBoundary>} />
         <Route path="/settings" element={<RouteBoundary><SettingsPage /></RouteBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>

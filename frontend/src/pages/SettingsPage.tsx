@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Sun, Moon, Monitor, Cloud, Zap, TestTube, Save, FileText, ExternalLink, BookOpen, Trash2, ShieldAlert, Database } from 'lucide-react'
-import { settingsApi, imaApi } from '@/lib/api'
+import { Sun, Moon, Monitor, Cloud, Zap, TestTube, Save, Plus, Pencil, Check, FileText, ExternalLink, BookOpen, Trash2, ShieldAlert, Database, CheckCircle2, AlertCircle, Clock, Loader2 } from 'lucide-react'
+import { settingsApi, imaApi, aiConfigsApi, syncLogsApi, type AiConfig, type SyncLog } from '@/lib/api'
 import { useTheme } from '@/lib/theme'
 import { SettingsSkeleton } from '@/components/PageSkeleton'
 import { Button } from '@/components/ui/button'
@@ -29,46 +29,28 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { formatCST } from '@/lib/datetime'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 export function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
+  const [settingsTab, setSettingsTab] = useState('general')
+  const [resetConfirmText, setResetConfirmText] = useState('')
 
-  const { data: settings = {}, isLoading } = useQuery({
+  const { isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: settingsApi.get,
-  })
-
-  // AI 配置
-  const [aiProvider, setAiProvider] = useState('cloudflare')
-  const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [customApiKey, setCustomApiKey] = useState('')
-  const [customModel, setCustomModel] = useState('')
-  const [testResult, setTestResult] = useState<{ ok: boolean; latency_ms?: number; error?: string } | null>(null)
-  const [testing, setTesting] = useState(false)
-
-  useEffect(() => {
-    if (settings.ai_provider) setAiProvider(settings.ai_provider)
-    if (settings.custom_ai_base_url) setCustomBaseUrl(settings.custom_ai_base_url)
-    // custom_ai_api_key 是敏感字段，后端只返回 custom_ai_api_key_set 标记
-    if (settings.custom_ai_api_key_set && !customApiKey) setCustomApiKey('••••••••')
-    if (settings.custom_ai_model) setCustomModel(settings.custom_ai_model)
-  }, [settings])
-
-  const saveMutation = useMutation({
-    mutationFn: (data: Record<string, string>) => settingsApi.update(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings'] })
-      toast.success('配置已保存')
-    },
-  })
-
-  const testMutation = useMutation({
-    mutationFn: (data: { baseUrl: string; apiKey: string; model: string }) => settingsApi.testAi(data),
-    onMutate: () => { setTesting(true); setTestResult(null) },
-    onSuccess: (data) => { setTestResult(data); setTesting(false) },
-    onError: () => setTesting(false),
   })
 
   const resetMutation = useMutation({
@@ -97,214 +79,135 @@ export function SettingsPage() {
       {isLoading ? (
         <SettingsSkeleton />
       ) : (
-        <div className="space-y-5">
-          {/* 界面主题 */}
-          <SettingCard
-            icon={Sun}
-            title="界面主题"
-            description="选择适合你的界面外观"
-            gradient="from-orange-400 to-amber-400"
-          >
-            <RadioGroup
-              value={theme}
-              onValueChange={(v) => setTheme(v as 'light' | 'dark' | 'system')}
-              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+        <Tabs value={settingsTab} onValueChange={setSettingsTab}>
+          <TabsList className="w-full justify-start gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <TabsTrigger value="general">通用</TabsTrigger>
+            <TabsTrigger value="ai">AI</TabsTrigger>
+            <TabsTrigger value="sync">同步</TabsTrigger>
+            <TabsTrigger value="logs">同步日志</TabsTrigger>
+            <TabsTrigger value="data">数据</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="general" className="mt-4 space-y-5">
+            <SettingCard
+              icon={Sun}
+              title="界面主题"
+              description="选择适合你的界面外观"
+              gradient="from-orange-400 to-amber-400"
             >
-              {[
-                { value: 'light', label: '亮色', icon: Sun },
-                { value: 'dark', label: '暗色', icon: Moon },
-                { value: 'system', label: '跟随系统', icon: Monitor },
-              ].map((t) => (
-                <Label
-                  key={t.value}
-                  htmlFor={`theme-${t.value}`}
-                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-all duration-200 hover:bg-accent/60 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm"
-                >
-                  <RadioGroupItem value={t.value} id={`theme-${t.value}`} />
-                  <t.icon className="size-4" />
-                  <span className="text-sm font-medium">{t.label}</span>
-                </Label>
-              ))}
-            </RadioGroup>
-          </SettingCard>
-
-          {/* AI 配置 */}
-          <SettingCard
-            icon={Zap}
-            title="AI 配置"
-            description="配置 AI 分析、周报与任务拆解的模型来源"
-            gradient="from-violet-500 to-fuchsia-500"
-          >
-            <div className="space-y-5">
-              {/* Provider 切换 */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">AI 服务商</Label>
-                <Select value={aiProvider} onValueChange={setAiProvider}>
-                  <SelectTrigger className="w-full rounded-lg">
-                    <SelectValue placeholder="选择 AI 服务商" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cloudflare">
-                      <span className="flex items-center gap-2">
-                        <Cloud className="size-4" /> Cloudflare Workers AI (默认)
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="custom">自定义 API</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {aiProvider === 'cloudflare' && (
-                <div className="rounded-xl border border-dashed bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    使用 Cloudflare Workers AI 内置模型（免费额度），无需额外配置。
-                  </p>
-                </div>
-              )}
-
-              {aiProvider === 'custom' && (
-                <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">API Base URL</Label>
-                    <Input
-                      placeholder="https://api.openai.com/v1"
-                      value={customBaseUrl}
-                      onChange={(e) => setCustomBaseUrl(e.target.value)}
-                      className="rounded-lg"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">API Key</Label>
-                    <Input
-                      type="password"
-                      placeholder="sk-xxx"
-                      value={customApiKey}
-                      onFocus={() => { if (customApiKey === '••••••••') setCustomApiKey('') }}
-                      onChange={(e) => setCustomApiKey(e.target.value)}
-                      className="rounded-lg"
-                    />
-                    {settings.custom_ai_api_key_set && customApiKey === '••••••••' && (
-                      <p className="text-xs text-muted-foreground">已保存，点击输入框可修改</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">模型名称</Label>
-                    <Input
-                      placeholder="gpt-4o / deepseek-chat / qwen-plus"
-                      value={customModel}
-                      onChange={(e) => setCustomModel(e.target.value)}
-                      className="rounded-lg"
-                    />
-                  </div>
-
-                  {/* 连通性测试 */}
-                  <div className="flex flex-wrap items-center gap-3 pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={testing || !customBaseUrl || !customModel || (!customApiKey && !settings.custom_ai_api_key_set)}
-                      onClick={() => testMutation.mutate({
-                        baseUrl: customBaseUrl,
-                        apiKey: customApiKey === '••••••••' ? '' : customApiKey,
-                        model: customModel,
-                      })}
-                      className="gap-2 rounded-lg"
-                    >
-                      <TestTube className="size-4" />
-                      {testing ? '测试中...' : '测试连接'}
-                    </Button>
-                    {testResult && (
-                      testResult.ok ? (
-                        <Badge className="gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">
-                          连接成功 · {testResult.latency_ms}ms
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive" className="rounded-full px-2.5 py-0.5">失败: {testResult.error}</Badge>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <Button
-                size="sm"
-                className="gap-2 rounded-lg"
-                onClick={() => {
-                  const payload: Record<string, string> = {
-                    ai_provider: aiProvider,
-                    custom_ai_base_url: customBaseUrl,
-                    custom_ai_model: customModel,
-                  }
-                  // 仅在用户输入了真实密钥时才回写，避免占位符覆盖已保存的值
-                  if (customApiKey && customApiKey !== '••••••••') {
-                    payload.custom_ai_api_key = customApiKey
-                  }
-                  saveMutation.mutate(payload)
-                }}
+              <RadioGroup
+                value={theme}
+                onValueChange={(v) => setTheme(v as 'light' | 'dark' | 'system')}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-3"
               >
-                <Save className="size-4" /> 保存配置
-              </Button>
-            </div>
-          </SettingCard>
+                {[
+                  { value: 'light', label: '亮色', icon: Sun },
+                  { value: 'dark', label: '暗色', icon: Moon },
+                  { value: 'system', label: '跟随系统', icon: Monitor },
+                ].map((t) => (
+                  <Label
+                    key={t.value}
+                    htmlFor={`theme-${t.value}`}
+                    className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-all duration-200 hover:bg-accent/60 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm"
+                  >
+                    <RadioGroupItem value={t.value} id={`theme-${t.value}`} />
+                    <t.icon className="size-4" />
+                    <span className="text-sm font-medium">{t.label}</span>
+                  </Label>
+                ))}
+              </RadioGroup>
+            </SettingCard>
+          </TabsContent>
 
-          {/* 微软 To Do 同步 */}
-          <MsTodoSyncCard />
+          <TabsContent value="ai" className="mt-4 space-y-5">
+            <SettingCard
+              icon={Zap}
+              title="AI 配置"
+              description="配置 AI 分析、周报与任务拆解的模型来源（可添加多个并自由指定默认）"
+              gradient="from-violet-500 to-fuchsia-500"
+            >
+              <AiConfigManager />
+            </SettingCard>
+          </TabsContent>
 
-          {/* IMA 同步配置 */}
-          <ImaSyncCard />
+          <TabsContent value="sync" className="mt-4 space-y-5">
+            <MsTodoSyncCard />
+            <ImaSyncCard />
+          </TabsContent>
 
-          {/* 危险区域 */}
-          <Card className="overflow-hidden border-destructive/30 bg-destructive/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base text-destructive">
-                <div className="icon-badge size-7 bg-gradient-to-br from-red-500 to-rose-500">
-                  <ShieldAlert className="size-4" />
+          <TabsContent value="logs" className="mt-4 space-y-5">
+            <SyncLogCenter />
+          </TabsContent>
+
+          <TabsContent value="data" className="mt-4 space-y-5">
+            <Card className="overflow-hidden border-destructive/30 bg-destructive/5">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                  <div className="icon-badge size-7 bg-gradient-to-br from-red-500 to-rose-500">
+                    <ShieldAlert className="size-4" />
+                  </div>
+                  危险操作
+                </CardTitle>
+                <CardDescription className="text-destructive/80">
+                  以下操作会删除数据，请谨慎使用
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-start gap-3 rounded-2xl border border-destructive/20 bg-card p-4">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-destructive/10">
+                    <Database className="size-4 text-destructive" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">清空所有数据</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      永久删除所有任务、笔记、知识库及配置数据，且无法恢复。
+                    </p>
+                  </div>
+                  <AlertDialog onOpenChange={(open) => { if (!open) setResetConfirmText('') }}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm" className="gap-2 rounded-lg">
+                        <Trash2 className="size-4" /> 清空
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-destructive">确认清空所有数据？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          此操作将永久删除所有任务、笔记、知识库及配置数据，且无法恢复。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <div className="space-y-3 py-2">
+                        <div className="rounded-xl bg-destructive/5 p-3 text-sm text-destructive/80">
+                          <p className="font-medium text-destructive">请先备份数据</p>
+                          <p className="mt-1 text-xs">在执行清空前，请确保已通过顶部菜单「导出数据」功能备份了重要信息。</p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">请输入「确认清空」以继续</Label>
+                          <Input
+                            value={resetConfirmText}
+                            onChange={(e) => setResetConfirmText(e.target.value)}
+                            placeholder="确认清空"
+                            className="h-9 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          disabled={resetConfirmText !== '确认清空'}
+                          onClick={() => resetMutation.mutate()}
+                        >
+                          确认清空
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
-                危险操作
-              </CardTitle>
-              <CardDescription className="text-destructive/80">
-                以下操作会删除数据，请谨慎使用
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start gap-3 rounded-2xl border border-destructive/20 bg-card p-4">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-destructive/10">
-                  <Database className="size-4 text-destructive" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">清空所有数据</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    永久删除所有任务、笔记、知识库及配置数据，且无法恢复。
-                  </p>
-                </div>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" className="gap-2 rounded-lg">
-                      <Trash2 className="size-4" /> 清空
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>确认清空所有数据？</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        此操作将永久删除所有任务、笔记、知识库及配置数据，且无法恢复。请确认你已备份重要数据。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>取消</AlertDialogCancel>
-                      <AlertDialogAction
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={() => resetMutation.mutate()}
-                      >
-                        确认清空
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   )
@@ -384,16 +287,31 @@ function MsTodoSyncCard() {
 
   const effectiveRedirectUri = (redirectUri.trim() || `${window.location.origin}/oauth/ms-todo/callback`)
 
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(feedbackTimerRef.current), [])
+
   const syncMutation = useMutation({
     mutationFn: settingsApi.msTodoSync,
-    onMutate: () => setSyncing(true),
+    onMutate: () => { setSyncing(true); setSyncFeedback(null) },
     onSuccess: (data: { ok: boolean; synced?: number; error?: string }) => {
       setSyncing(false)
       queryClient.invalidateQueries({ queryKey: ['msTodoStatus'] })
-      if (data.ok) toast.success(`同步成功 · ${data.synced} 条任务`)
-      else toast.error(`同步失败: ${data.error}`)
+      queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
+      if (data.ok) {
+        const msg = `同步完成 · ${data.synced} 条任务`
+        setSyncFeedback({ type: 'success', message: msg })
+      } else {
+        const msg = data.error || '未知错误'
+        setSyncFeedback({ type: 'error', message: `同步失败: ${msg}` })
+      }
+      clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = setTimeout(() => setSyncFeedback(null), 5000)
     },
-    onError: () => setSyncing(false),
+    onError: (err: Error) => {
+      setSyncing(false)
+      setSyncFeedback({ type: 'error', message: `同步失败: ${err.message}` })
+    },
   })
 
   // 保存 Azure 凭据到设置
@@ -512,7 +430,7 @@ function MsTodoSyncCard() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -532,11 +450,26 @@ function MsTodoSyncCard() {
               {syncing ? '同步中...' : '立即同步'}
             </Button>
           )}
+          {syncFeedback && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs',
+                syncFeedback.type === 'success'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-destructive'
+              )}
+            >
+              {syncFeedback.type === 'success'
+                ? <CheckCircle2 className="size-3.5" />
+                : <AlertCircle className="size-3.5" />}
+              {syncFeedback.message}
+            </span>
+          )}
         </div>
 
         {status?.lastSync && (
           <p className="text-xs text-muted-foreground">
-            上次同步: {new Date(status.lastSync).toLocaleString('zh-CN')}
+            上次同步: {formatCST(status.lastSync, 'datetime')}
           </p>
         )}
       </div>
@@ -576,35 +509,57 @@ function ImaSyncCard() {
     },
   })
 
+  const [imaNotesFeedback, setImaNotesFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [imaKbFeedback, setImaKbFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const imaNotesTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const imaKbTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => { clearTimeout(imaNotesTimerRef.current); clearTimeout(imaKbTimerRef.current) }, [])
+
   const syncNotesMutation = useMutation({
     mutationFn: () => imaApi.syncNotes(),
-    onMutate: () => setSyncingNotes(true),
+    onMutate: () => { setSyncingNotes(true); setImaNotesFeedback(null) },
     onSuccess: (data: { ok: boolean; synced?: number; error?: string }) => {
       setSyncingNotes(false)
       queryClient.invalidateQueries({ queryKey: ['imaStatus'] })
       queryClient.invalidateQueries({ queryKey: ['notes'] })
-      if (data.ok) toast.success(`笔记同步成功${data.synced != null ? ` · ${data.synced} 条` : ''}`)
-      else toast.error(`笔记同步失败: ${data.error}`)
+      queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
+      if (data.ok) {
+        const msg = `同步完成${data.synced != null ? ` · ${data.synced} 条` : ''}`
+        setImaNotesFeedback({ type: 'success', message: msg })
+      } else {
+        const msg = data.error || '未知错误'
+        setImaNotesFeedback({ type: 'error', message: `同步失败: ${msg}` })
+      }
+      clearTimeout(imaNotesTimerRef.current)
+      imaNotesTimerRef.current = setTimeout(() => setImaNotesFeedback(null), 5000)
     },
     onError: (err: Error) => {
       setSyncingNotes(false)
-      toast.error(`笔记同步失败: ${err.message}`)
+      setImaNotesFeedback({ type: 'error', message: `同步失败: ${err.message}` })
     },
   })
 
   const syncKbMutation = useMutation({
     mutationFn: () => imaApi.syncKb(),
-    onMutate: () => setSyncingKb(true),
+    onMutate: () => { setSyncingKb(true); setImaKbFeedback(null) },
     onSuccess: (data: { ok: boolean; synced?: number; error?: string }) => {
       setSyncingKb(false)
       queryClient.invalidateQueries({ queryKey: ['imaStatus'] })
       queryClient.invalidateQueries({ queryKey: ['kb'] })
-      if (data.ok) toast.success(`知识库同步成功${data.synced != null ? ` · ${data.synced} 条` : ''}`)
-      else toast.error(`知识库同步失败: ${data.error}`)
+      queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
+      if (data.ok) {
+        const msg = `同步完成${data.synced != null ? ` · ${data.synced} 条` : ''}`
+        setImaKbFeedback({ type: 'success', message: msg })
+      } else {
+        const msg = data.error || '未知错误'
+        setImaKbFeedback({ type: 'error', message: `同步失败: ${msg}` })
+      }
+      clearTimeout(imaKbTimerRef.current)
+      imaKbTimerRef.current = setTimeout(() => setImaKbFeedback(null), 5000)
     },
     onError: (err: Error) => {
       setSyncingKb(false)
-      toast.error(`知识库同步失败: ${err.message}`)
+      setImaKbFeedback({ type: 'error', message: `同步失败: ${err.message}` })
     },
   })
 
@@ -667,7 +622,7 @@ function ImaSyncCard() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -686,6 +641,12 @@ function ImaSyncCard() {
             <FileText className="size-4" />
             {syncingNotes ? '同步笔记中...' : '同步笔记'}
           </Button>
+          {imaNotesFeedback && (
+            <span className={cn('inline-flex items-center gap-1.5 text-xs', imaNotesFeedback.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive')}>
+              {imaNotesFeedback.type === 'success' ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+              {imaNotesFeedback.message}
+            </span>
+          )}
           <Button
             size="sm"
             disabled={!imaStatus?.authorized || syncingKb}
@@ -695,14 +656,395 @@ function ImaSyncCard() {
             <BookOpen className="size-4" />
             {syncingKb ? '同步知识库中...' : '同步知识库'}
           </Button>
+          {imaKbFeedback && (
+            <span className={cn('inline-flex items-center gap-1.5 text-xs', imaKbFeedback.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive')}>
+              {imaKbFeedback.type === 'success' ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+              {imaKbFeedback.message}
+            </span>
+          )}
         </div>
 
         {imaStatus?.lastSync && (
           <p className="text-xs text-muted-foreground">
-            上次同步: {new Date(imaStatus.lastSync).toLocaleString('zh-CN')}
+            上次同步: {formatCST(imaStatus.lastSync, 'datetime')}
           </p>
         )}
       </div>
     </SettingCard>
+  )
+}
+
+// 同步日志中心
+const SOURCE_LABELS: Record<SyncLog['source'], string> = {
+  ms_todo: 'MS Todo',
+  ima_notes: 'IMA 笔记',
+  ima_kb: 'IMA 知识库',
+}
+
+const STATUS_VARIANTS: Record<SyncLog['status'], { label: string; className: string }> = {
+  success: { label: '成功', className: 'bg-emerald-500 hover:bg-emerald-500 text-white' },
+  partial: { label: '部分', className: 'bg-amber-500 hover:bg-amber-500 text-white' },
+  error: { label: '失败', className: 'bg-destructive hover:bg-destructive text-destructive-foreground' },
+}
+
+function SyncLogCenter() {
+  const [source, setSource] = useState<'all' | SyncLog['source']>('all')
+  const [status, setStatus] = useState<'all' | SyncLog['status']>('all')
+
+  const { data = [], isLoading, refetch } = useQuery({
+    queryKey: ['syncLogs', source, status],
+    queryFn: () =>
+      syncLogsApi.list(
+        source === 'all' && status === 'all'
+          ? undefined
+          : {
+              ...(source !== 'all' ? { source } : {}),
+              ...(status !== 'all' ? { status } : {}),
+            }
+      ),
+  })
+  const logs = Array.isArray(data) ? data : []
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <div className="icon-badge size-8 bg-gradient-to-br from-slate-500 to-slate-400">
+            <Clock className="size-4" />
+          </div>
+          同步日志
+        </CardTitle>
+        <CardDescription>查看所有同步事件与结果</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={source} onValueChange={(v) => setSource(v as 'all' | SyncLog['source'])}>
+            <SelectTrigger className="h-8 w-[140px] rounded-lg text-xs">
+              <SelectValue placeholder="来源" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部来源</SelectItem>
+              <SelectItem value="ms_todo">MS Todo</SelectItem>
+              <SelectItem value="ima_notes">IMA 笔记</SelectItem>
+              <SelectItem value="ima_kb">IMA 知识库</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={status} onValueChange={(v) => setStatus(v as 'all' | SyncLog['status'])}>
+            <SelectTrigger className="h-8 w-[120px] rounded-lg text-xs">
+              <SelectValue placeholder="状态" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部状态</SelectItem>
+              <SelectItem value="success">成功</SelectItem>
+              <SelectItem value="partial">部分</SelectItem>
+              <SelectItem value="error">失败</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto h-8 rounded-lg text-xs"
+            onClick={() => refetch()}
+            disabled={isLoading}
+          >
+            {isLoading ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : null}
+            刷新
+          </Button>
+        </div>
+
+        <ScrollArea className="h-64 rounded-xl border">
+          {isLoading ? (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 size-4 animate-spin" />
+              加载中…
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">暂无同步日志</div>
+          ) : (
+            <div className="divide-y">
+              {logs.map((log) => (
+                <div key={log.id} className="p-3 text-sm transition-colors hover:bg-accent/40">
+                  <div className="flex items-center gap-2">
+                    <Badge className={cn('rounded-full px-2 py-0.5 text-xs', STATUS_VARIANTS[log.status].className)}>
+                      {STATUS_VARIANTS[log.status].label}
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full px-2 py-0.5 text-xs">
+                      {SOURCE_LABELS[log.source]}
+                    </Badge>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {formatCST(log.createdAt, 'compact')}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 font-medium">{log.message || '无消息'}</p>
+                  {(log.synced > 0 || log.failed > 0 || log.skipped > 0) && (
+                    <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      {log.synced > 0 && <span>成功 {log.synced}</span>}
+                      {log.failed > 0 && <span className="text-destructive">失败 {log.failed}</span>}
+                      {log.skipped > 0 && <span>跳过 {log.skipped}</span>}
+                    </div>
+                  )}
+                  {log.details && (
+                    <p className="mt-1.5 whitespace-pre-wrap text-xs text-muted-foreground">{log.details}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  )
+}
+
+// AI 配置管理：支持多条配置 + 自由设置默认
+function AiConfigManager() {
+  const queryClient = useQueryClient()
+  const { data: configs = [], isLoading } = useQuery({
+    queryKey: ['aiConfigs'],
+    queryFn: aiConfigsApi.list,
+  })
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [type, setType] = useState<'cloudflare' | 'openai'>('cloudflare')
+  const [baseUrl, setBaseUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
+  const [isDefault, setIsDefault] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; latency_ms?: number; error?: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+
+  const resetForm = () => {
+    setEditingId(null)
+    setName('')
+    setType('cloudflare')
+    setBaseUrl('')
+    setApiKey('')
+    setModel('')
+    setIsDefault(false)
+    setTestResult(null)
+  }
+
+  const openAdd = () => {
+    resetForm()
+    setDialogOpen(true)
+  }
+
+  const openEdit = (cfg: AiConfig) => {
+    setEditingId(cfg.id)
+    setName(cfg.name)
+    setType(cfg.type)
+    setBaseUrl(cfg.baseUrl)
+    setApiKey('') // 不回显明文；留空表示沿用已保存密钥
+    setModel(cfg.model)
+    setIsDefault(cfg.isDefault)
+    setTestResult(null)
+    setDialogOpen(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const payload = { name, type, baseUrl, apiKey, model, isDefault }
+      return editingId ? aiConfigsApi.update(editingId, payload) : aiConfigsApi.create(payload)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aiConfigs'] })
+      toast.success(editingId ? '配置已更新' : '配置已添加')
+      setDialogOpen(false)
+    },
+    onError: (e: Error) => toast.error(`保存失败: ${e.message}`),
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: (id: string) => aiConfigsApi.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aiConfigs'] })
+      toast.success('已删除')
+    },
+    onError: (e: Error) => toast.error(`删除失败: ${e.message}`),
+  })
+
+  const defaultMutation = useMutation({
+    mutationFn: (id: string) => aiConfigsApi.setDefault(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['aiConfigs'] })
+      toast.success('已设为默认')
+    },
+    onError: (e: Error) => toast.error(`操作失败: ${e.message}`),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      editingId
+        ? aiConfigsApi.test({ id: editingId })
+        : aiConfigsApi.test({ type, baseUrl, apiKey, model }),
+    onMutate: () => { setTesting(true); setTestResult(null) },
+    onSuccess: (d) => { setTestResult(d); setTesting(false) },
+    onError: () => setTesting(false),
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          已配置 {configs.length} 个模型来源，AI 功能使用标记为「默认」的配置。
+        </p>
+        <Button size="sm" className="gap-2 rounded-lg" onClick={openAdd}>
+          <Plus className="size-4" /> 添加配置
+        </Button>
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">加载中…</p>}
+
+      {!isLoading && configs.length === 0 && (
+        <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          还没有 AI 配置。默认将使用 Cloudflare Workers AI 免费模型。点击「添加配置」可接入自定义 API。
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {configs.map((cfg) => (
+          <div key={cfg.id} className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-500">
+              {cfg.type === 'cloudflare' ? <Cloud className="size-4" /> : <Zap className="size-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate text-sm font-medium">{cfg.name}</span>
+                {cfg.isDefault && (
+                  <Badge className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs hover:bg-emerald-500">默认</Badge>
+                )}
+                <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-xs">
+                  {cfg.type === 'cloudflare' ? 'Cloudflare' : 'OpenAI'}
+                </Badge>
+              </div>
+              <p className="truncate text-xs text-muted-foreground">
+                {cfg.type === 'cloudflare'
+                  ? `模型: ${cfg.model || '@cf/qwen/qwen2.5-coder-32b-instruct'}`
+                  : `${cfg.baseUrl} · ${cfg.model || 'gpt-4o'}${cfg.apiKeySet ? ' · 密钥已保存' : ''}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {!cfg.isDefault && (
+                <Button variant="outline" size="sm" className="rounded-lg" onClick={() => defaultMutation.mutate(cfg.id)}>
+                  设为默认
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-lg" onClick={() => openEdit(cfg)}>
+                <Pencil className="size-3.5" /> 编辑
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 rounded-lg text-destructive hover:text-destructive"
+                onClick={() => removeMutation.mutate(cfg.id)}
+              >
+                <Trash2 className="size-3.5" /> 删除
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingId ? '编辑 AI 配置' : '添加 AI 配置'}</DialogTitle>
+            <DialogDescription>配置一个模型来源，可添加多个并在列表中自由设置默认。</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">名称</Label>
+              <Input placeholder="如：我的 GPT / 公司 Qwen" value={name} onChange={(e) => setName(e.target.value)} className="rounded-lg" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">类型</Label>
+              <Select value={type} onValueChange={(v) => setType(v as 'cloudflare' | 'openai')}>
+                <SelectTrigger className="w-full rounded-lg">
+                  <SelectValue placeholder="选择类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cloudflare">Cloudflare Workers AI（免费）</SelectItem>
+                  <SelectItem value="openai">自定义 OpenAI 兼容 API</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {type === 'cloudflare' && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">模型名称</Label>
+                <Input placeholder="@cf/qwen/qwen2.5-coder-32b-instruct" value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg" />
+                <p className="text-xs text-muted-foreground">留空使用默认均衡模型。可在 Cloudflare 控制台查看可用 @cf 模型。</p>
+              </div>
+            )}
+
+            {type === 'openai' && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">API Base URL</Label>
+                  <Input placeholder="https://api.openai.com/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="rounded-lg" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">API Key</Label>
+                  <Input
+                    type="password"
+                    placeholder={editingId ? '留空则沿用已保存密钥' : 'sk-xxx'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="rounded-lg"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">模型名称</Label>
+                  <Input placeholder="gpt-4o / deepseek-chat / qwen-plus" value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg" />
+                </div>
+              </>
+            )}
+
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isDefault}
+                onChange={(e) => setIsDefault(e.target.checked)}
+                className="size-4 rounded border-border"
+              />
+              设为默认（AI 功能使用该配置）
+            </label>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <Button variant="outline" size="sm" disabled={testing} onClick={() => testMutation.mutate()} className="gap-2 rounded-lg">
+                <TestTube className="size-4" />
+                {testing ? '测试中...' : '测试连接'}
+              </Button>
+              {testResult && (
+                testResult.ok ? (
+                  <Badge className="gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">
+                    连接成功 · {testResult.latency_ms}ms
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="rounded-full px-2.5 py-0.5">失败: {testResult.error}</Badge>
+                )
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
+            <Button
+              disabled={!name || (type === 'openai' && !baseUrl) || saveMutation.isPending}
+              onClick={() => saveMutation.mutate()}
+              className="gap-2 rounded-lg"
+            >
+              <Check className="size-4" /> 保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

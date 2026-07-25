@@ -41,11 +41,13 @@ function useAuthBlob(docId?: string) {
     setLoading(true)
     setError(null)
 
-    kbApi.getArrayBuffer(docId)
-      .then((buf) => {
+    kbApi.getBlob(docId)
+      .then(async (blob) => {
+        if (cancelled) return
+        const buf = await blob.arrayBuffer()
         if (cancelled) return
         setArrayBuffer(buf)
-        url = URL.createObjectURL(new Blob([buf]))
+        url = URL.createObjectURL(blob)
         setBlobUrl(url)
         setLoading(false)
       })
