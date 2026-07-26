@@ -6,7 +6,7 @@ import { Jwt } from 'hono/utils/jwt'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { drizzle } from 'drizzle-orm/d1'
-import { eq, and, or, isNotNull, isNull, like, desc, gte, gt, lt, asc, inArray, sql } from 'drizzle-orm'
+import { eq, and, or, isNotNull, isNull, like, desc, gte, gt, lt, asc, inArray, sql, getTableColumns } from 'drizzle-orm'
 import * as schema from './schema'
 import type { Env, ChatMessage } from './types'
 import {
@@ -33,6 +33,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { createMcpHandler } from 'agents/mcp'
 
 
+// 任务表的全部列（用于列表查询，避免 SELECT * 之余方便附加上 subtaskCount）
+const TASK_COLUMNS = getTableColumns(schema.tasks)
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -41,6 +43,7 @@ app.use('*', cors({
   origin: (_origin, c) => c.env.ALLOWED_ORIGIN ?? '*',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+  maxAge: 86400,
 }))
 
 // AI 调用辅助函数：优先使用 ai_configs 表中的默认配置，回退到旧 settings.ai_provider，
@@ -497,7 +500,10 @@ app.delete('/api/tasks/lists/:id', async (c) => {
 app.get('/api/tasks/lists/:id/tasks', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoDeletedAt)))
     .orderBy(schema.tasks.sortOrder)
   return c.json(result)
@@ -507,7 +513,10 @@ app.get('/api/tasks/lists/:id/tasks', async (c) => {
 app.get('/api/tasks/myday', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.myDayDate, today), isNull(schema.tasks.msTodoDeletedAt)))
     .orderBy(schema.tasks.sortOrder, desc(schema.tasks.createdAt))
   return c.json(result)
@@ -516,7 +525,10 @@ app.get('/api/tasks/myday', async (c) => {
 // 重要（须放在 /:id 之前避免被捕获）
 app.get('/api/tasks/important', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(and(eq(schema.tasks.isImportant, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
     .orderBy(schema.tasks.sortOrder, desc(schema.tasks.createdAt))
   return c.json(result)
@@ -525,7 +537,10 @@ app.get('/api/tasks/important', async (c) => {
 // 已计划（须放在 /:id 之前避免被捕获）
 app.get('/api/tasks/planned', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(and(isNotNull(schema.tasks.dueDate), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
     .orderBy(schema.tasks.dueDate, schema.tasks.sortOrder)
   return c.json(result)
@@ -536,7 +551,10 @@ app.get('/api/tasks/search', async (c) => {
   const q = c.req.query('q') || ''
   if (!q) return c.json([])
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(and(or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)), isNull(schema.tasks.msTodoDeletedAt)))
   return c.json(result)
 })
@@ -544,7 +562,10 @@ app.get('/api/tasks/search', async (c) => {
 // 全部任务（用于任务总览页）
 app.get('/api/tasks', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.tasks)
+  const result = await db.select({
+    ...TASK_COLUMNS,
+    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
+  }).from(schema.tasks)
     .where(isNull(schema.tasks.msTodoDeletedAt))
     .orderBy(desc(schema.tasks.createdAt))
   return c.json(result)
@@ -591,9 +612,9 @@ app.post('/api/tasks', async (c) => {
     dueDate: body.dueDate ?? null,
     sortOrder: maxSort + 1,
   })
-  // 增量嵌入，供语义检索即时命中（AI 异常不阻断创建）
+  // 增量嵌入，供语义检索即时命中（AI 异常不阻断创建）。用 waitUntil 后台执行，不阻塞响应。
   const taskText = `${body.title}\n${body.note || ''}\n${body.isImportant ? '重要' : ''}\n${body.dueDate ? '截止: ' + body.dueDate : ''}\n${body.isMyDay ? '我的一天' : ''}`
-  await indexTarget(c, 'task', id, taskText).catch((e) => console.error('[embed] task create failed:', e?.message))
+  c.executionCtx.waitUntil(indexTarget(c, 'task', id, taskText).catch((e) => console.error('[embed] task create failed:', e?.message)))
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   return c.json(task[0], 201)
 })
@@ -613,10 +634,10 @@ app.put('/api/tasks/:id', async (c) => {
     await db.update(schema.subtasks).set({ isCompleted: true }).where(eq(schema.subtasks.taskId, id))
   }
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
-  // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）
+  // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）。用 waitUntil 后台执行，不阻塞响应。
   if (task[0]) {
     const taskText = `${task[0].title}\n${task[0].note || ''}\n${task[0].isCompleted ? '已完成' : '未完成'}\n${task[0].isImportant ? '重要' : ''}\n${task[0].dueDate ? '截止: ' + task[0].dueDate : ''}\n${task[0].isMyDay ? '我的一天' : ''}`
-    await indexTarget(c, 'task', task[0].id, taskText).catch((e) => console.error('[embed] task update failed:', e?.message))
+    c.executionCtx.waitUntil(indexTarget(c, 'task', task[0].id, taskText).catch((e) => console.error('[embed] task update failed:', e?.message)))
   }
   return c.json(task[0])
 })
@@ -812,8 +833,8 @@ app.delete('/api/subtasks/:id', async (c) => {
   if (existing.length > 0) {
     await syncParentCompletion(db, existing[0].taskId)
   }
-  // 清理子任务嵌入
-  await indexTarget(c, 'subtask', id, '').catch((e) => console.error('[embed] subtask delete cleanup failed:', e?.message))
+  // 清理子任务嵌入（后台执行，不阻塞响应）
+  c.executionCtx.waitUntil(indexTarget(c, 'subtask', id, '').catch((e) => console.error('[embed] subtask delete cleanup failed:', e?.message)))
   return c.json({ ok: true })
 })
 

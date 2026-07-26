@@ -341,11 +341,22 @@ export function TasksPage() {
     onError: (err: Error) => toast.error(`创建失败: ${err.message}`),
   })
 
-  // 更新任务
+  // 更新任务（含勾选完成）。乐观更新：勾选后立即在列表里变，后台静默同步。
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Task> }) => tasksApi.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
-    onError: (err: Error) => toast.error(`更新失败: ${err.message}`),
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const prev = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
+      queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
+        old?.map((t) => (t.id === id ? { ...t, ...data } : t))
+      )
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) ctx.prev.forEach(([key, val]) => queryClient.setQueryData(key, val))
+      toast.error(`更新失败`)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   })
 
   // 删除任务（支持撤销恢复）
@@ -855,10 +866,11 @@ function TaskRow({
     threshold: 80,
   })
 
-  // 拉取子任务（用于显示数量 badge + 展开时渲染）
+  // 拉取子任务（用于显示数量 badge + 展开时渲染）。仅在展开时拉取，避免列表 N+1 并发请求。
   const { data: subtasks = [] } = useQuery<Subtask[]>({
     queryKey: ['subtasks', task.id],
     queryFn: () => subtasksApi.byTask(task.id),
+    enabled: isExpanded,
   })
 
   const toggleSubtaskMutation = useMutation({
@@ -964,8 +976,8 @@ function TaskRow({
           }}
         >
           {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-          {subtasks.length > 0 && (
-            <span className="ml-0.5 text-xs tabular-nums">{subtasks.length}</span>
+          {(task.subtaskCount ?? 0) > 0 && (
+            <span className="ml-0.5 text-xs tabular-nums">{task.subtaskCount}</span>
           )}
         </Button>
         {task.isImportant && <Star className="size-4 fill-yellow-400 text-yellow-400" />}
@@ -1226,22 +1238,25 @@ function TaskDetailDialog({
 
   const toggleSubtaskMutation = useMutation({
     mutationFn: (id: string) => subtasksApi.toggle(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['subtasks', taskId] })
+      const prev = queryClient.getQueryData<Subtask[]>(['subtasks', taskId])
+      queryClient.setQueryData<Subtask[]>(['subtasks', taskId], (old) =>
+        old?.map((s) => (s.id === id ? { ...s, isCompleted: !s.isCompleted } : s))
+      )
+      return { prev }
     },
-    onError: (err: Error) => {
-      toast.error(`更新子任务失败: ${err.message}`)
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['subtasks', taskId], ctx.prev)
+      toast.error(`更新子任务失败`)
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] }),
   })
 
   const deleteSubtaskMutation = useMutation({
     mutationFn: (id: string) => subtasksApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
-      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
     },
   })
 

@@ -29,6 +29,7 @@ export interface Task {
   msTodoId?: string | null
   createdAt: string
   updatedAt: string
+  subtaskCount?: number
 }
 
 export interface Subtask {
@@ -127,6 +128,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 export const api = ky.create({
   prefix: API_BASE,
+  retry: 0,
   hooks: {
     beforeRequest: [
       ({ request }) => {
