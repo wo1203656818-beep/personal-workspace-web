@@ -7,8 +7,8 @@ import { nowBeijing } from './time'
 
 export type AiConfigType = 'cloudflare' | 'openai'
 
-const DEFAULT_CF_MODEL = '@cf/qwen/qwen2.5-72b-instruct'
-const FALLBACK_CF_MODEL = '@cf/meta/llama-3.1-8b-instruct'
+const DEFAULT_CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
+const FALLBACK_CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
 
 export const CF_MODELS = { DEFAULT: DEFAULT_CF_MODEL, FALLBACK: FALLBACK_CF_MODEL }
 

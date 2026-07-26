@@ -1,10 +1,10 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import { useUndo } from '@/lib/use-undo'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { HTTPError } from 'ky'
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvided } from '@hello-pangea/dnd'
-import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, ListChecks, type LucideIcon } from 'lucide-react'
+import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronUp, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, ListChecks, type LucideIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
@@ -1163,6 +1163,8 @@ function TaskDetailDialog({
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [reminderPickerOpen, setReminderPickerOpen] = useState(false)
   const [noteDraft, setNoteDraft] = useState('')
+  // 子任务中途插入：非空时表示在 sortOrder=insertAtPosition 处插入
+  const [insertAtPosition, setInsertAtPosition] = useState<number | null>(null)
 
   const { data: task } = useQuery<Task>({
     queryKey: ['task', taskId],
@@ -1175,6 +1177,9 @@ function TaskDetailDialog({
     queryFn: () => subtasksApi.byTask(taskId!),
     enabled: !!taskId,
   })
+
+  // 子任务排序
+  const sortedSubtasks = useMemo(() => [...subtasks].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)), [subtasks])
 
   // 任务切换或备注变化时同步本地草稿
   useEffect(() => {
@@ -1202,21 +1207,42 @@ function TaskDetailDialog({
   })
 
   const addSubtaskMutation = useMutation({
-    mutationFn: (title: string) => subtasksApi.create(taskId!, title),
+    mutationFn: ({ title, sortOrder }: { title: string; sortOrder?: number }) => subtasksApi.create(taskId!, title, sortOrder),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
       setNewSubtask('')
+      setInsertAtPosition(null)
     },
+    onError: (err: Error) => {
+      toast.error(`添加子任务失败: ${err.message}`)
+    },
+  })
+
+  const reorderSubtaskMutation = useMutation({
+    mutationFn: (orders: { id: string; sortOrder: number }[]) => subtasksApi.reorder(orders),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] }),
+    onError: (err: Error) => toast.error(`排序失败: ${err.message}`),
   })
 
   const toggleSubtaskMutation = useMutation({
     mutationFn: (id: string) => subtasksApi.toggle(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: (err: Error) => {
+      toast.error(`更新子任务失败: ${err.message}`)
+    },
   })
 
   const deleteSubtaskMutation = useMutation({
     mutationFn: (id: string) => subtasksApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    },
   })
 
   // AI 拆解
@@ -1224,20 +1250,19 @@ function TaskDetailDialog({
     mutationFn: async () => {
       if (!taskId) throw new Error('未选择任务')
       setAiLoading(true)
-      const data = await aiApi.breakdown(task?.title || '')
+      const data = await aiApi.breakdown(task?.title || '', taskId)
       const validSubtasks = (data.subtasks || [])
         .filter((st: { title?: string }) => typeof st.title === 'string' && st.title.trim().length > 0)
         .filter((st: { title: string }) => st.title.trim().length <= 200)
         .slice(0, 10)
       if (validSubtasks.length === 0) throw new Error('AI 未返回有效子任务')
-      // B9: 顺序 await 每个子任务创建，避免竞态丢失
-      for (const st of validSubtasks) {
-        await subtasksApi.create(taskId, st.title.trim())
-      }
+      // B9: 后端已直接创建子任务（返回含 id），前端只需刷新列表
       return { ...data, subtasks: validSubtasks }
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
       setAiLoading(false)
       toast.success(`AI 已拆解 ${data.subtasks.length} 个子任务`)
     },
@@ -1296,38 +1321,100 @@ function TaskDetailDialog({
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <CheckSquare className="size-4" /> 子任务
             </div>
-            <div className="space-y-1">
-              {subtasks.map((st: Subtask) => (
-                <div key={st.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-accent">
-                  <Checkbox
-                    checked={st.isCompleted}
-                    onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
-                  />
-                  <span className={cn('flex-1 text-sm', st.isCompleted && 'line-through text-muted-foreground')}>
-                    {st.title}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 opacity-0 group-hover:opacity-100"
-                    onClick={() => deleteSubtaskMutation.mutate(st.id)}
-                  >
-                    <X className="size-3" />
-                  </Button>
-                </div>
+            <div className="space-y-0.5">
+              {sortedSubtasks.map((st: Subtask, idx: number) => (
+                <React.Fragment key={st.id}>
+                  {/* 中途插入按钮 */}
+                  <div className="flex justify-center">
+                    {insertAtPosition === st.sortOrder + 0.5 ? (
+                      <div className="flex w-full items-center gap-2 px-2 py-1">
+                        <Plus className="size-3 text-primary shrink-0" />
+                        <Input
+                          value={newSubtask}
+                          onChange={(e) => setNewSubtask(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newSubtask.trim()) {
+                              addSubtaskMutation.mutate({ title: newSubtask.trim(), sortOrder: st.sortOrder + 0.5 })
+                            }
+                            if (e.key === 'Escape') { setInsertAtPosition(null); setNewSubtask('') }
+                          }}
+                          onBlur={() => { setInsertAtPosition(null); setNewSubtask('') }}
+                          placeholder="输入子步骤..."
+                          className="h-7 text-xs border-0 bg-background/60 rounded px-2 focus-visible:ring-1"
+                          autoFocus
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setInsertAtPosition(st.sortOrder + 0.5); setNewSubtask('') }}
+                        className="flex items-center justify-center w-full rounded py-0.5 text-muted-foreground/30 hover:text-primary hover:bg-primary/5 transition-colors"
+                        title="在此处插入子步骤"
+                      >
+                        <Plus className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                  {/* 子任务行 */}
+                  <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-accent">
+                    <div className="flex flex-col items-center gap-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => {
+                          const orders = sortedSubtasks.map((s, i) => ({ id: s.id, sortOrder: i === idx ? idx - 1 : i === idx - 1 ? idx : (s.sortOrder ?? i) }))
+                          reorderSubtaskMutation.mutate(orders)
+                        }}
+                        className="size-3.5 flex items-center justify-center text-muted-foreground/30 hover:text-foreground disabled:opacity-0"
+                      >
+                        <ChevronUp className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === sortedSubtasks.length - 1}
+                        onClick={() => {
+                          const orders = sortedSubtasks.map((s, i) => ({ id: s.id, sortOrder: i === idx ? idx + 1 : i === idx + 1 ? idx : (s.sortOrder ?? i) }))
+                          reorderSubtaskMutation.mutate(orders)
+                        }}
+                        className="size-3.5 flex items-center justify-center text-muted-foreground/30 hover:text-foreground disabled:opacity-0"
+                      >
+                        <ChevronDown className="size-3" />
+                      </button>
+                    </div>
+                    <Checkbox
+                      checked={st.isCompleted}
+                      onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
+                    />
+                    <span className={cn('flex-1 text-sm truncate', st.isCompleted && 'line-through text-muted-foreground')}>
+                      {st.title}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 opacity-0 group-hover:opacity-100 shrink-0"
+                      onClick={() => deleteSubtaskMutation.mutate(st.id)}
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </div>
+                </React.Fragment>
               ))}
               {subtasks.length === 0 && (
                 <p className="px-2 py-1 text-xs text-muted-foreground">暂无子任务，点击 AI 拆解可自动生成</p>
               )}
             </div>
             <div className="flex items-center gap-2 pt-1">
-              <Plus className="size-4 text-muted-foreground" />
+              <Plus className="size-4 text-muted-foreground shrink-0" />
               <Input
                 value={newSubtask}
                 onChange={(e) => setNewSubtask(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newSubtask.trim()) {
-                    addSubtaskMutation.mutate(newSubtask.trim())
+                    if (insertAtPosition !== null) {
+                      addSubtaskMutation.mutate({ title: newSubtask.trim(), sortOrder: insertAtPosition })
+                    } else {
+                      addSubtaskMutation.mutate({ title: newSubtask.trim() })
+                    }
                   }
                 }}
                 placeholder="添加子步骤..."

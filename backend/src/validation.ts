@@ -50,6 +50,7 @@ export const updateTaskSchema = z.object({
 // 子任务
 export const createSubtaskSchema = z.object({
   title: z.string().min(1, 'title 不能为空'),
+  sortOrder: z.number().optional(),
 })
 
 export const updateSubtaskSchema = z.object({

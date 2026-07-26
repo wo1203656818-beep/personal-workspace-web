@@ -190,14 +190,15 @@ export const tasksApi = {
 // 子任务
 export const subtasksApi = {
   byTask: (taskId: string) => api.get(`subtasks/${taskId}`).json<Subtask[]>(),
-  create: (taskId: string, title: string) => api.post(`subtasks/${taskId}`, { json: { title } }).json<Subtask>(),
+  create: (taskId: string, title: string, sortOrder?: number) => api.post(`subtasks/${taskId}`, { json: { title, sortOrder } }).json<Subtask>(),
   toggle: (id: string) => api.patch(`subtasks/${id}/toggle`).json<Subtask>(),
+  reorder: (orders: { id: string; sortOrder: number }[]) => api.put('subtasks/reorder', { json: { orders } }).json(),
   delete: (id: string) => api.delete(`subtasks/${id}`).json(),
 }
 
 // AI
 export const aiApi = {
-  breakdown: (taskTitle: string) => api.post('ai/breakdown', { json: { taskTitle } }).json<{ subtasks: { title: string }[] }>(),
+  breakdown: (taskTitle: string, taskId?: string) => api.post('ai/breakdown', { json: { taskTitle, taskId } }).json<{ subtasks: { id?: string; title: string }[]; created?: boolean }>(),
   analysis: (range?: string) => api.post(`ai/analysis${range ? `?range=${range}` : ''}`).json<{ analysis: string; stats: AiAnalysisStats }>(),
   weeklyReport: () => api.post('ai/weekly-report').json<{ report: string; week: string }>(),
   weeklyReports: () => api.get('ai/weekly-reports').json<WeeklyReport[]>(),

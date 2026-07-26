@@ -608,11 +608,9 @@ app.put('/api/tasks/:id', async (c) => {
     if (key in body) updateData[key] = body[key]
   }
   await db.update(schema.tasks).set(updateData).where(eq(schema.tasks.id, id))
-  // 主任务勾选完成 → 其下所有子任务同步完成；取消完成 → 同步取消所有子任务
+  // 主任务勾选完成 → 其下所有子任务同步完成（"父完成即子完成"）。取消完成时应保留子任务已有进度，不应强拆。
   if (body.isCompleted === true) {
     await db.update(schema.subtasks).set({ isCompleted: true }).where(eq(schema.subtasks.taskId, id))
-  } else if (body.isCompleted === false) {
-    await db.update(schema.subtasks).set({ isCompleted: false }).where(eq(schema.subtasks.taskId, id))
   }
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）
@@ -711,7 +709,7 @@ app.post('/api/subtasks/:taskId', async (c) => {
       console.error('[subtasks] validation failed:', { taskId, body, issues: parsed.error.issues })
       return c.json({ error: '参数校验失败', detail: parsed.error.message }, 422)
     }
-    const { title } = parsed.data
+    const { title, sortOrder } = parsed.data
 
     const db = drizzle(c.env.DB, { schema })
 
@@ -723,25 +721,46 @@ app.post('/api/subtasks/:taskId', async (c) => {
 
     const id = crypto.randomUUID()
     const now = nowBeijing()
-    // 子任务排在末尾：sortOrder 取当前任务下子任务最大值 + 1
-    const existingSubs = await db.select({ sortOrder: schema.subtasks.sortOrder }).from(schema.subtasks)
-      .where(eq(schema.subtasks.taskId, taskId))
-    const maxSort = existingSubs.reduce((m, s) => Math.max(m, s.sortOrder ?? 0), 0)
-    await db.insert(schema.subtasks).values({
-      id,
-      taskId,
-      title,
-      isCompleted: false,
-      sortOrder: maxSort + 1,
-      createdAt: now,
-    })
+    // 若传了 sortOrder：插入到指定位置，该位置及之后的子任务后移一位
+    if (sortOrder !== undefined) {
+      await db.update(schema.subtasks)
+        .set({ sortOrder: sql`${schema.subtasks.sortOrder} + 1` })
+        .where(and(eq(schema.subtasks.taskId, taskId), gte(schema.subtasks.sortOrder, sortOrder)))
+      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder, createdAt: now })
+    } else {
+      // 未传 sortOrder：追加到末尾
+      const existingSubs = await db.select({ sortOrder: schema.subtasks.sortOrder }).from(schema.subtasks)
+        .where(eq(schema.subtasks.taskId, taskId))
+      const maxSort = existingSubs.reduce((m, s) => Math.max(m, s.sortOrder ?? 0), 0)
+      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: maxSort + 1, createdAt: now })
+    }
+    // 新增子任务后同步父任务完成态（新子任务默认未完成，若父任务之前已完成则变为未完成）
+    await syncParentCompletion(db, taskId)
     const subtask = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id))
-    // 增量嵌入子任务
-    await indexTarget(c, 'subtask', id, title).catch((e) => console.error('[embed] subtask create failed:', e?.message))
+    // 增量嵌入子任务（非阻塞：响应返回后在后台执行，不拖慢前端）
+    c.executionCtx.waitUntil(
+      indexTarget(c, 'subtask', id, title).catch((e) => console.error('[embed] subtask create failed:', e?.message))
+    )
     return c.json(subtask[0], 201)
   } catch (e: any) {
     console.error('[subtasks] unhandled error:', { taskId, error: e, stack: e.stack })
     return c.json({ error: '子任务创建失败', detail: e.message, stack: e.stack }, 500)
+  }
+})
+
+// 子任务批量排序（拖拽后）
+app.put('/api/subtasks/reorder', async (c) => {
+  try {
+    const { orders } = await c.req.json() as { orders: { id: string; sortOrder: number }[] }
+    if (!orders || !Array.isArray(orders)) return c.json({ error: 'orders required' }, 400)
+    const db = drizzle(c.env.DB, { schema })
+    // 逐条更新（D1 batch 类型约束较严，顺序执行更稳妥）
+    for (const o of orders) {
+      await db.update(schema.subtasks).set({ sortOrder: o.sortOrder }).where(eq(schema.subtasks.id, o.id))
+    }
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: '排序失败', detail: e.message }, 500)
   }
 })
 
@@ -760,8 +779,10 @@ app.put('/api/subtasks/:id', async (c) => {
   if (subtask[0] && 'isCompleted' in updateData) {
     await syncParentCompletion(db, subtask[0].taskId)
   }
-  // 增量嵌入子任务
-  if (subtask[0]) await indexTarget(c, 'subtask', subtask[0].id, subtask[0].title).catch((e) => console.error('[embed] subtask update failed:', e?.message))
+  // 增量嵌入子任务（非阻塞）
+  if (subtask[0]) c.executionCtx.waitUntil(
+    indexTarget(c, 'subtask', subtask[0].id, subtask[0].title).catch((e) => console.error('[embed] subtask update failed:', e?.message))
+  )
   return c.json(subtask[0])
 })
 
@@ -798,10 +819,10 @@ app.delete('/api/subtasks/:id', async (c) => {
 
 // ========== AI ==========
 
-// AI 拆解子任务
+// AI 拆解子任务（支持直接在服务端创建，避免前端 N 次串行请求）
 app.post('/api/ai/breakdown', async (c) => {
     try {
-      const { taskTitle } = await c.req.json()
+      const { taskTitle, taskId } = await c.req.json()
       if (!taskTitle) return c.json({ error: '任务标题不能为空' }, 400)
 
       const text = await callAI(c, [
@@ -810,7 +831,7 @@ app.post('/api/ai/breakdown', async (c) => {
           content: '你是任务拆解专家。将任务拆解为3-7个可执行子步骤。每行只写一个步骤，不要编号、不要 JSON、不要额外说明。'
         },
         { role: 'user', content: `任务：${taskTitle}` }
-      ])
+      ], { maxTokens: 1024 })
 
       if (!text || typeof text !== 'string') {
         return c.json({ subtasks: [] })
@@ -818,28 +839,53 @@ app.post('/api/ai/breakdown', async (c) => {
 
       // 优先尝试解析 JSON 数组，失败则按行拆分
       const match = text.match(/\[[\s\S]*\]/)
-      let subtasks: { title: string }[] = []
+      let parsedTitles: string[] = []
       if (match) {
         try {
           const parsed = JSON.parse(match[0])
           if (Array.isArray(parsed)) {
-            subtasks = parsed.filter((item: any) => item && item.title).map((item: any) => ({ title: String(item.title) }))
+            parsedTitles = parsed.filter((item: any) => item && item.title).map((item: any) => String(item.title).trim()).filter(Boolean)
           }
-        } catch {
-          // ignore
-        }
+        } catch { /* ignore */ }
       }
 
-      if (subtasks.length === 0) {
-        subtasks = text
+      if (parsedTitles.length === 0) {
+        parsedTitles = text
           .split(/\n/)
           .map((line) => line.replace(/^\s*[-\d\.\*]+\s*/, '').trim())
           .filter((line) => line.length > 0 && line.length < 200)
           .slice(0, 10)
-          .map((title) => ({ title }))
       }
 
-      return c.json({ subtasks })
+      // 若传了 taskId，直接在服务端创建子任务（免前端逐个请求）
+      if (taskId) {
+        const db = drizzle(c.env.DB, { schema })
+        const now = nowBeijing()
+        const created: { id: string; title: string }[] = []
+        for (const title of parsedTitles) {
+          const id = crypto.randomUUID()
+          await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: created.length + 1, createdAt: now })
+          // 非阻塞索引嵌入
+          c.executionCtx.waitUntil(
+            indexTarget(c, 'subtask', id, title).catch((e) => console.error('[embed] ai subtask failed:', e?.message))
+          )
+          created.push({ id, title })
+        }
+        // 批量创建完成后同步一次父任务完成态
+        await syncParentCompletion(db, taskId)
+        // 令父任务嵌入中包含新子任务信息
+        const parentTitles = parsedTitles.join(', ')
+        const parentTask = await db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note }).from(schema.tasks).where(eq(schema.tasks.id, taskId))
+        if (parentTask[0]) {
+          c.executionCtx.waitUntil(
+            indexTarget(c, 'task', taskId, `${parentTask[0].title}\n${parentTask[0].note || ''}\n${parentTitles}`).catch(() => {})
+          )
+        }
+        return c.json({ subtasks: created, created: true })
+      }
+
+      // 未传 taskId 时兼容旧行为（仅返回标题列表）
+      return c.json({ subtasks: parsedTitles.map((title) => ({ title })) })
     } catch (e: any) {
       console.error('[ai/breakdown] error:', e?.message || e)
       return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)
