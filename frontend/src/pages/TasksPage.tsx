@@ -4,7 +4,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { HTTPError } from 'ky'
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvided } from '@hello-pangea/dnd'
-import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, type LucideIcon } from 'lucide-react'
+import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, ListChecks, type LucideIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
@@ -36,6 +36,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useSwipeGesture } from '@/hooks/use-swipe-gesture'
 
 const viewConfig: Record<string, { title: string; icon: LucideIcon; color: string; iconBg: string; tabActiveClass: string }> = {
+  all: { title: '所有任务', icon: ListChecks, color: 'text-emerald-500', iconBg: 'bg-gradient-to-br from-emerald-500 to-green-400', tabActiveClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
   myday: { title: '我的一天', icon: Sun, color: 'text-blue-500', iconBg: 'bg-gradient-to-br from-blue-500 to-blue-400', tabActiveClass: 'bg-blue-500/15 text-blue-600 dark:text-blue-400' },
   important: { title: '重要', icon: Star, color: 'text-yellow-500', iconBg: 'bg-gradient-to-br from-yellow-400 to-amber-400', tabActiveClass: 'bg-yellow-400/15 text-yellow-600 dark:text-yellow-400' },
   planned: { title: '已计划', icon: CalendarClock, color: 'text-purple-500', iconBg: 'bg-gradient-to-br from-purple-500 to-violet-400', tabActiveClass: 'bg-purple-500/15 text-purple-600 dark:text-purple-400' },
@@ -139,6 +140,7 @@ export function TasksPage() {
   // 获取任务列表
   const queryKey = useMemo(() => {
     if (isSearchView) return ['tasks', 'search', searchQuery]
+    if (currentView === 'all') return ['tasks', 'all']
     if (currentView === 'myday') return ['tasks', 'myday']
     if (currentView === 'important') return ['tasks', 'important']
     if (currentView === 'planned') return ['tasks', 'planned']
@@ -151,6 +153,7 @@ export function TasksPage() {
     queryKey,
     queryFn: () => {
       if (isSearchView) return tasksApi.search(searchQuery)
+      if (currentView === 'all') return tasksApi.list()
       if (currentView === 'myday') return tasksApi.myDay()
       if (currentView === 'important') return tasksApi.important()
       if (currentView === 'planned') return tasksApi.planned()
@@ -472,6 +475,7 @@ export function TasksPage() {
         {/* 分类标签 */}
         {!isSearchView && !isListView && (
           <div className="mt-4 flex flex-wrap gap-2">
+            <ViewTab to="/tasks/all" icon={ListChecks} label="所有任务" active={currentView === 'all'} color="text-emerald-500" activeClass={viewConfig.all.tabActiveClass} />
             <ViewTab to="/tasks/lists" icon={ListTodo} label="列表" active={currentView === 'lists'} color="text-muted-foreground" activeClass={viewConfig.lists.tabActiveClass} />
             <ViewTab to="/tasks/myday" icon={Sun} label="我的一天" active={currentView === 'myday'} color="text-blue-500" activeClass={viewConfig.myday.tabActiveClass} />
             <ViewTab to="/tasks/important" icon={Star} label="重要" active={currentView === 'important'} color="text-yellow-500" activeClass={viewConfig.important.tabActiveClass} />

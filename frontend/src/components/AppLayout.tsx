@@ -6,7 +6,7 @@ import {
   BarChart3, Coins, Settings, Plus, Search, CheckSquare,
   User, LogOut, Moon, Monitor, KeyRound, Unlink, Download,
   LayoutDashboard, Sparkles, ChevronDown, ChevronsUpDown,
-  Home, AlertTriangle, X,
+  Home, AlertTriangle, X, ListChecks,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
@@ -76,6 +76,7 @@ const navGroups = [
     items: [
       { title: '仪表盘', href: '/', icon: Home },
       { title: '任务', href: '/tasks', icon: ListTodo, children: [
+        { title: '列表', href: '/tasks/all', icon: ListChecks },
         { title: '我的一天', href: '/tasks/myday', icon: Sun },
         { title: '重要', href: '/tasks/important', icon: Star },
         { title: '已计划', href: '/tasks/planned', icon: CalendarClock },

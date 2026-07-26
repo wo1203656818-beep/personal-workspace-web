@@ -30,7 +30,7 @@ function ProtectedRoutes() {
         }
       >
         <Route path="/" element={<RouteBoundary><DashboardPage /></RouteBoundary>} />
-        <Route path="/tasks" element={<Navigate to="/tasks/lists" replace />} />
+        <Route path="/tasks" element={<Navigate to="/tasks/all" replace />} />
         <Route path="/tasks/:view" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
         <Route path="/tasks/list/:listId" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
         <Route path="/notes" element={<RouteBoundary><NotesPage /></RouteBoundary>} />
