@@ -3,6 +3,7 @@ import * as schema from './schema'
 import { eq, notInArray, inArray, like } from 'drizzle-orm'
 import { decrypt } from './crypto-utils'
 import type { Env } from './types'
+import { nowBeijing } from './time'
 import { marked } from 'marked'
 
 /**
@@ -61,7 +62,7 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
   const db = drizzle(env.DB, { schema })
   await db.insert(schema.settings)
     .values({ key, value })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value, updatedAt: new Date().toISOString() } })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value, updatedAt: nowBeijing() } })
 }
 
 // 通用 IMA API 调用（无重试 — 防止 cron 同步期间子请求数超过 1000 上限）
@@ -444,7 +445,7 @@ export async function syncNotes(env: Env): Promise<{ synced: number; partial?: b
     const stmts: any[] = []
     for (const u of updates) {
       stmts.push(db.update(schema.imaNotes)
-        .set({ title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi', updatedAt: new Date().toISOString() })
+        .set({ title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi', updatedAt: nowBeijing() })
         .where(eq(schema.imaNotes.id, u.id)))
     }
     for (const u of inserts) {
@@ -532,7 +533,7 @@ export async function syncNotes(env: Env): Promise<{ synced: number; partial?: b
 
   // 更新同步时间戳（partial 时不更新，让下次同步继续拉取剩余笔记）
   if (!partial) {
-    await setSetting(env, 'ima_notes_synced_at', new Date().toISOString())
+    await setSetting(env, 'ima_notes_synced_at', nowBeijing())
   }
 
   return { synced: syncedCount, partial, skipped: skippedCount }
@@ -775,7 +776,7 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
             content: textContent ?? '',
             r2Key: r2Key ?? undefined,
             fileSize: fileSize ?? undefined,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowBeijing(),
           })
           .where(eq(schema.kbDocuments.id, mediaId))
         // r2Key 变化时清理旧的 R2 对象，避免孤儿文件
@@ -828,7 +829,7 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
   }
 
   // 更新同步时间戳
-  await setSetting(env, 'ima_kb_synced_at', new Date().toISOString())
+  await setSetting(env, 'ima_kb_synced_at', nowBeijing())
   return { synced: syncedCount }
 }
 

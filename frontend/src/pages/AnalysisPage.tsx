@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { format, parseISO } from 'date-fns'
 import { BarChart3, FileText, Loader2, Sparkles, TrendingUp,
   CheckCircle2, ListTodo, Star, BookOpen, Quote, ChevronDown, ChevronUp,
 } from 'lucide-react'
@@ -109,10 +108,12 @@ export function AnalysisPage() {
     ? data.stats.dailyCompleted
     : []
   const trendData = dailyRaw.map((d) => {
-    const date = typeof d.date === 'string' ? parseISO(d.date) : new Date(d.date)
+    const dateStr = typeof d.date === 'string' ? d.date : String(d.date)
+    // dateStr 是日期字符串，格式 yyyy-MM-dd，直接使用无需时区转换
+    const label = dateStr.slice(5) // MM-dd
     return {
-      date: format(date, 'yyyy-MM-dd'),
-      label: format(date, 'MM-dd'),
+      date: dateStr,
+      label,
       count: Number(d.count) || 0,
     }
   })

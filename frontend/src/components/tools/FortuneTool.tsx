@@ -8,34 +8,46 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-type FortuneItem = {
+type FortuneResult = {
+  result: string
+  level: string
+  poem: string
+  interpret: string
+  source: string
+  rawValue: number
+  cached?: boolean
+}
+
+type FortuneHistoryItem = {
   id: string
   date: string
   result: string
-  interpretation: string
+  level?: string
+  poem?: string
+  interpret?: string
   entropySource: string
   rawValue: number
-  createdAt: string
+  interpretation?: string
 }
 
 function entropyLabel(source: string) {
   if (source === 'random_org') return '大气噪声'
   if (source === 'nist_beacon') return 'NIST 量子熵'
-  return 'Web Crypto'
+  return '未知熵源'
 }
 
-function fortuneTone(result: string): { from: string; to: string; text: string; border: string } {
-  if (result.includes('上') || result.includes('吉')) {
-    return { from: 'from-rose-100', to: 'to-rose-400', text: 'text-rose-900', border: 'border-rose-300/50' }
-  }
-  if (result.includes('下')) {
-    return { from: 'from-slate-100', to: 'to-slate-400', text: 'text-slate-900', border: 'border-slate-300/50' }
-  }
-  return { from: 'from-amber-100', to: 'to-amber-300', text: 'text-amber-900', border: 'border-amber-300/50' }
+function levelTone(level: string): { from: string; to: string; text: string; border: string; badge: string } {
+  if (level === '大吉') return { from: 'from-rose-100', to: 'to-rose-400', text: 'text-rose-900', border: 'border-rose-300/50', badge: 'bg-rose-500 text-white' }
+  if (level === '吉') return { from: 'from-amber-100', to: 'to-amber-300', text: 'text-amber-900', border: 'border-amber-300/50', badge: 'bg-amber-500 text-white' }
+  if (level === '中吉') return { from: 'from-yellow-100', to: 'to-yellow-300', text: 'text-yellow-900', border: 'border-yellow-300/50', badge: 'bg-yellow-500 text-white' }
+  if (level === '小吉') return { from: 'from-emerald-100', to: 'to-emerald-300', text: 'text-emerald-900', border: 'border-emerald-300/50', badge: 'bg-emerald-500 text-white' }
+  if (level === '末吉') return { from: 'from-slate-100', to: 'to-slate-300', text: 'text-slate-900', border: 'border-slate-300/50', badge: 'bg-slate-400 text-white' }
+  if (level === '凶') return { from: 'from-gray-200', to: 'to-gray-400', text: 'text-gray-900', border: 'border-gray-300/50', badge: 'bg-gray-600 text-white' }
+  return { from: 'from-amber-100', to: 'to-amber-300', text: 'text-amber-900', border: 'border-amber-300/50', badge: 'bg-amber-500 text-white' }
 }
 
 export function FortuneTool() {
-  const [result, setResult] = useState<{ result: string; interpretation: string; source: string; rawValue: number; cached?: boolean } | null>(null)
+  const [result, setResult] = useState<FortuneResult | null>(null)
   const [showAll, setShowAll] = useState(false)
   const [animating, setAnimating] = useState(false)
 
@@ -83,7 +95,7 @@ export function FortuneTool() {
             </div>
           </button>
 
-          <div className="mt-10 min-h-[10rem] w-full max-w-lg text-center">
+          <div className="mt-10 min-h-[12rem] w-full max-w-lg text-center">
             {animating ? (
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-5 animate-spin text-primary" />
@@ -98,13 +110,21 @@ export function FortuneTool() {
                     {result.cached && ' · 今日已求'}
                   </span>
                 </div>
-                <Card className={cn('border shadow-lg bg-gradient-to-b dark:from-rose-950/20', fortuneTone(result.result).border, fortuneTone(result.result).from, 'to-card')}>
+                <Card className={cn('border shadow-lg bg-gradient-to-b dark:from-rose-950/20', levelTone(result.level).border, levelTone(result.level).from, 'to-card')}>
                   <CardContent className="px-6 py-8">
-                    <p className={cn('text-3xl font-black tracking-tight md:text-4xl', fortuneTone(result.result).text)}>
+                    <div className="mb-3">
+                      <span className={cn('inline-block rounded-full px-3 py-1 text-xs font-bold', levelTone(result.level).badge)}>
+                        {result.level}
+                      </span>
+                    </div>
+                    <p className={cn('text-3xl font-black tracking-tight md:text-4xl', levelTone(result.level).text)}>
                       {result.result}
                     </p>
+                    <p className="mt-4 text-base italic leading-relaxed text-muted-foreground">
+                      「{result.poem}」
+                    </p>
                     <p className="mt-4 text-sm leading-6 text-muted-foreground md:text-base">
-                      {result.interpretation}
+                      {result.interpret}
                     </p>
                   </CardContent>
                 </Card>
@@ -141,8 +161,9 @@ export function FortuneTool() {
             )}
           </div>
           <div className="space-y-2">
-            {visibleHistory.map((item: FortuneItem) => {
-              const tone = fortuneTone(item.result)
+            {visibleHistory.map((item: FortuneHistoryItem) => {
+              const itemLevel = item.level || item.result
+              const tone = levelTone(itemLevel)
               return (
                 <div
                   key={item.id}
@@ -153,11 +174,13 @@ export function FortuneTool() {
                       'inline-flex size-8 items-center justify-center rounded-full text-xs font-black shadow-sm bg-gradient-to-br',
                       tone.from, tone.to, tone.text
                     )}>
-                      签
+                      {item.level?.charAt(0) || '签'}
                     </span>
                     <span className="flex flex-col">
                       <span className="font-medium">{item.result}</span>
-                      <span className="text-xs text-muted-foreground line-clamp-1">{item.interpretation}</span>
+                      <span className="text-xs text-muted-foreground line-clamp-1">
+                        {item.poem || ''}
+                      </span>
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">

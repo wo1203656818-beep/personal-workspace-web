@@ -5,6 +5,7 @@ import * as schema from './schema'
 import { eq, or, and, isNull, isNotNull } from 'drizzle-orm'
 import { encrypt, decrypt } from './crypto-utils'
 import type { Env } from './types'
+import { nowBeijing } from './time'
 
 type DB = DrizzleD1Database<typeof schema>
 
@@ -40,9 +41,9 @@ function msDueDateToLocal(msDateTime: string | undefined | null): string | null 
     const hasTzSuffix = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)
     const d = new Date(hasTzSuffix ? s : s + 'Z')
     if (isNaN(d.getTime())) return s.split('T')[0]
-    // 加 8 小时得到北京时间，再取日期
-    const cst = new Date(d.getTime() + 8 * 3600 * 1000)
-    return cst.toISOString().split('T')[0]
+    // 用 Intl.DateTimeFormat 获取北京时间日期
+    const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' })
+    return fmt.format(d)
   } catch {
     return s.split('T')[0]
   }
@@ -319,7 +320,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
         const useMsName = msListUpdated > localListUpdated
         const newName = useMsName ? msList.displayName : existingList[0].name
         await db.update(schema.taskLists)
-          .set({ name: newName, msTodoListId: msList.id, updatedAt: new Date().toISOString() })
+          .set({ name: newName, msTodoListId: msList.id, updatedAt: nowBeijing() })
           .where(eq(schema.taskLists.id, listId))
         // 本地较新时把本地名推到 MS，避免本地重命名被吞
         if (!useMsName && existingList[0].name !== msList.displayName) {
@@ -333,7 +334,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
         // 新关联列表：保留本地名（用户可能重命名过），仅回填 msTodoListId
         // 并把本地名推到 MS，统一两端名字
         await db.update(schema.taskLists)
-          .set({ msTodoListId: msList.id, updatedAt: new Date().toISOString() })
+          .set({ msTodoListId: msList.id, updatedAt: nowBeijing() })
           .where(eq(schema.taskLists.id, listId))
         if (existingList[0].name !== msList.displayName) {
           try {
@@ -371,7 +372,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
         // MS 返回的 dueDateTime.dateTime 是 UTC（如 "2026-07-22T16:00:00" 对应 7月23日 CST），
         // 直接存会让前端 new Date() 解析为前一天。转成北京时间 yyyy-MM-dd，与本地编辑格式一致。
         dueDate: msDueDateToLocal(msTask.dueDateTime?.dateTime),
-        lastSyncedAt: new Date().toISOString(),
+        lastSyncedAt: nowBeijing(),
       }
 
       if (existingTask.length > 0) {
@@ -380,7 +381,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
         const localUpdated = new Date(existingTask[0].updatedAt || 0)
         if (msUpdated > localUpdated) {
           await db.update(schema.tasks)
-            .set({ ...taskData, updatedAt: new Date().toISOString() })
+            .set({ ...taskData, updatedAt: nowBeijing() })
             .where(eq(schema.tasks.id, existingTask[0].id))
         }
 
@@ -496,7 +497,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
             .set({
               msTodoId: msTask.id,
               msTodoListId: newListMsId,
-              lastSyncedAt: new Date().toISOString(),
+              lastSyncedAt: nowBeijing(),
             })
             .where(eq(schema.tasks.id, localTask.id))
           // 记录新 MS 任务 ID，防止步骤8.1 误删
@@ -518,7 +519,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
             .set({
               msTodoId: null,
               msTodoListId: null,
-              lastSyncedAt: new Date().toISOString(),
+              lastSyncedAt: nowBeijing(),
             })
             .where(eq(schema.tasks.id, localTask.id))
         }
@@ -540,7 +541,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
       }
       await client.api(`/me/todo/lists/${localTask.msTodoListId}/tasks/${localTask.msTodoId}`).patch(patchPayload)
       await db.update(schema.tasks)
-        .set({ lastSyncedAt: new Date().toISOString() })
+        .set({ lastSyncedAt: nowBeijing() })
         .where(eq(schema.tasks.id, localTask.id))
       syncedCount++
     } catch (e) {
@@ -578,7 +579,7 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
         const msTask = await client.api(`/me/todo/lists/${list[0].msTodoListId}/tasks`).post(postPayload)
 
         await db.update(schema.tasks)
-          .set({ msTodoId: msTask.id, msTodoListId: list[0].msTodoListId, lastSyncedAt: new Date().toISOString() })
+          .set({ msTodoId: msTask.id, msTodoListId: list[0].msTodoListId, lastSyncedAt: nowBeijing() })
           .where(eq(schema.tasks.id, localTask.id))
         // 记录新 MS 任务 ID，防止步骤8.1 误删
         createdMsTaskIds.add(msTask.id)
@@ -722,7 +723,7 @@ async function syncLocalListsReverse(db: DB, client: Client): Promise<Set<string
         displayName: list.name,
       })
       await db.update(schema.taskLists)
-        .set({ msTodoListId: msList.id, updatedAt: new Date().toISOString() })
+        .set({ msTodoListId: msList.id, updatedAt: nowBeijing() })
         .where(eq(schema.taskLists.id, list.id))
       createdMsListIds.add(msList.id)
     } catch (e) {
@@ -820,7 +821,7 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
   }
   await db.insert(schema.settings)
     .values({ key, value: stored })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value: stored, updatedAt: new Date().toISOString() } })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value: stored, updatedAt: nowBeijing() } })
 }
 
 // 获取同步状态

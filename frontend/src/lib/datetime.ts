@@ -1,27 +1,25 @@
-// 时区工具：统一把"后端以 UTC 存储的时间字符串"按北京时间（Asia/Shanghai）渲染。
+// 时区工具：统一把"后端以北京时间存储的时间字符串"按北京时间（Asia/Shanghai）渲染。
 //
-// 背景：Cloudflare Workers / D1 默认 UTC。后端所有 createdAt/updatedAt/importedAt
-// 都以 UTC 存储，存在两种格式：
-//   1) D1 默认 datetime('now') 产出 "2026-07-25 08:39:59"（空格、无时区后缀）
-//   2) 代码显式 new Date().toISOString() 产出 "2026-07-25T08:39:59.123Z"（ISO，带 Z）
-// 二者都表示 UTC 时刻。若前端直接 `new Date(str)`：
-//   - ISO 带 Z：能被正确识别为 UTC，再 toLocaleString 显示北京时间（正确）
-//   - 空格格式：V8 当成"本地时间"解析（北京 8 小时时差），Safari 直接 Invalid Date
-// 于是同一页面里时间一会儿对一会儿慢 8 小时，正是用户反馈的"很多时间都是 UTC"。
+// 背景：后端所有 createdAt/updatedAt/importedAt 都以北京时间存储，格式为：
+//   1) ISO 带 +08:00 后缀："2026-07-25T16:39:59+08:00"（新格式）
+//   2) D1 默认 datetime('now') 产出 "2026-07-25 08:39:59"（空格、无时区后缀，旧数据）
 //
-// 本工具在解析阶段显式把存储值当 UTC 处理，再用 Intl 以 Asia/Shanghai 渲染，
-// 两种格式都能得到正确的北京时间，彻底消除偏差。
+// 本工具在解析阶段：
+//   - 新格式 (+08:00)：new Date() 能正确解析
+//   - 空格格式：补 Z 当 UTC 解析（旧数据兼容）
+// 再用 Intl 以 Asia/Shanghai 渲染，确保显示正确。
 
 const TZ = 'Asia/Shanghai'
 
-/** 把存储的时间字符串解析为 UTC 的 Date 对象（无法解析返回 null）。 */
+/** 把存储的时间字符串解析为 Date 对象（无法解析返回 null）。 */
 export function parseStoredTime(input: string | null | undefined): Date | null {
   if (!input) return null
   let s = input.trim()
-  // 纯日期（yyyy-MM-dd）：视作该日历日的 UTC 零点
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00Z')
-  // D1 空格格式 -> 补 T 和 Z，显式按 UTC 解析
-  if (s.includes(' ')) s = s.replace(' ', 'T') + 'Z'
+  // 纯日期（yyyy-MM-dd）：视作该日历日的北京时间零点
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00+08:00')
+  // D1 空格格式（旧数据）-> 补 T 和 Z，当 UTC 解析
+  if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T') + 'Z'
+  // 新格式 (+08:00) 或旧格式 (Z) 都能被 new Date() 正确解析
   const d = new Date(s)
   return isNaN(d.getTime()) ? null : d
 }

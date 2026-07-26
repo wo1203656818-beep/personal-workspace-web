@@ -44,9 +44,19 @@ const viewConfig: Record<string, { title: string; icon: LucideIcon; color: strin
 }
 
 // 将 ISO 时间字符串转为 datetime-local input 所需格式 (yyyy-MM-ddTHH:mm)
+// 使用北京时间格式化，不受浏览器时区影响
 function toDatetimeLocal(iso: string) {
   const d = parseStoredTime(iso)
-  return d ? format(d, "yyyy-MM-dd'T'HH:mm") : ''
+  if (!d) return ''
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+    hour12: false,
+  })
+  const parts = fmt.formatToParts(d)
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '00'
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
 }
 
 export function TasksPage() {
@@ -312,11 +322,11 @@ export function TasksPage() {
       // 按当前视图自动打标签，使新建任务立即出现在对应分类中
       if (currentView === 'myday') {
         data.isMyDay = true
-        data.myDayDate = format(new Date(), 'yyyy-MM-dd')
+        data.myDayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
       } else if (currentView === 'important') {
         data.isImportant = true
       } else if (currentView === 'planned') {
-        data.dueDate = format(new Date(), 'yyyy-MM-dd')
+        data.dueDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
       }
       return tasksApi.create(data)
     },
@@ -1376,14 +1386,17 @@ function TaskDetailDialog({
                 <Input
                   type="datetime-local"
                   defaultValue={reminder ? toDatetimeLocal(task.reminder || '') : ''}
-                  onBlur={(e) => {
-                    if (e.target.value) {
-                      updateDetailMutation.mutate({
-                        id: task.id,
-                        data: { reminder: new Date(e.target.value).toISOString() },
-                      })
-                    }
-                  }}
+onBlur={(e) => {
+	                    if (e.target.value) {
+	                      const parts = e.target.value.split('T')
+	                      if (parts.length === 2) {
+	                        updateDetailMutation.mutate({
+	                          id: task.id,
+	                          data: { reminder: `${parts[0]}T${parts[1]}+08:00` },
+	                        })
+	                      }
+	                    }
+	                  }}
                 />
                 {reminder && (
                   <Button

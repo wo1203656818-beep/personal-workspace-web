@@ -26,7 +26,8 @@ import {
   deleteAiConfig, setDefaultAiConfig, testAiConfig, CF_MODELS,
   ensureChatTables, ensureAiConfigsTable,
 } from './ai-configs'
-import { fetchPhysicalEntropy } from './entropy'
+import { fetchPhysicalEntropy, fetchUniformEntropy } from './entropy'
+import { nowBeijing, todayBeijing, nowCST, todayCST } from './time'
 import { logSync } from './sync-logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { createMcpHandler } from 'agents/mcp'
@@ -236,23 +237,11 @@ async function syncParentCompletion(db: any, taskId: string) {
     .from(schema.subtasks).where(eq(schema.subtasks.taskId, taskId))
   const allDone = subs.length > 0 && subs.every((s: any) => s.isCompleted)
   await db.update(schema.tasks)
-    .set({ isCompleted: allDone, updatedAt: new Date().toISOString() })
+    .set({ isCompleted: allDone, updatedAt: nowBeijing() })
     .where(eq(schema.tasks.id, taskId))
 }
 
-// 北京时间（UTC+8）工具函数：Cloudflare Workers 默认 UTC，用户在 Asia/Shanghai
-// 用 UTC + 8 小时偏移计算，避免依赖 Intl 时区数据库
-const CST_OFFSET_MS = 8 * 60 * 60 * 1000
-
-// 返回北京时间的当前 Date 对象
-function nowCST(): Date {
-  return new Date(Date.now() + CST_OFFSET_MS)
-}
-
-// 返回北京日期字符串 yyyy-MM-dd（用于 myDayDate / dueDate 比较）
-function todayCST(): string {
-  return nowCST().toISOString().split('T')[0]
-}
+// 北京时间工具函数已移至 ./time 模块
 
 // 规范化日期字段为 yyyy-MM-dd（兼容 "2026-07-23" 和 "2026-07-23T00:00:00" 两种格式）
 function normalizeDate(s: string | null | undefined): string | null {
@@ -377,7 +366,7 @@ app.post('/api/auth/change-password', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   await db.insert(schema.settings)
     .values({ key: 'password_hash', value: encrypted })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value: encrypted, updatedAt: new Date().toISOString() } })
+    .onConflictDoUpdate({ target: schema.settings.key, set: { value: encrypted, updatedAt: nowBeijing() } })
   return c.json({ ok: true })
 })
 
@@ -455,7 +444,7 @@ app.put('/api/tasks/lists/:id', async (c) => {
   const { name, color } = updateListSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
   await db.update(schema.taskLists)
-    .set({ name, color, updatedAt: new Date().toISOString() })
+    .set({ name, color, updatedAt: nowBeijing() })
     .where(eq(schema.taskLists.id, id))
   const list = await db.select().from(schema.taskLists).where(eq(schema.taskLists.id, id))
   return c.json(list[0])
@@ -465,7 +454,7 @@ app.put('/api/tasks/lists/:id', async (c) => {
 app.delete('/api/tasks/lists/:id', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const now = new Date().toISOString()
+  const now = nowBeijing()
   // 先查列表信息（含 msTodoListId），删除后无法再查
   const list = await db.select().from(schema.taskLists).where(eq(schema.taskLists.id, id))
   const msTodoListId = list[0]?.msTodoListId
@@ -614,14 +603,16 @@ app.put('/api/tasks/:id', async (c) => {
   const { id } = c.req.param()
   const body = updateTaskSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
-  const updateData: Record<string, unknown> = { updatedAt: new Date().toISOString() }
+  const updateData: Record<string, unknown> = { updatedAt: nowBeijing() }
   for (const key of ['title', 'note', 'isCompleted', 'isImportant', 'isMyDay', 'myDayDate', 'dueDate', 'reminder', 'recurrence', 'sortOrder', 'listId'] as const) {
     if (key in body) updateData[key] = body[key]
   }
   await db.update(schema.tasks).set(updateData).where(eq(schema.tasks.id, id))
-  // 主任务勾选完成 → 其下所有子任务同步完成
+  // 主任务勾选完成 → 其下所有子任务同步完成；取消完成 → 同步取消所有子任务
   if (body.isCompleted === true) {
     await db.update(schema.subtasks).set({ isCompleted: true }).where(eq(schema.subtasks.taskId, id))
+  } else if (body.isCompleted === false) {
+    await db.update(schema.subtasks).set({ isCompleted: false }).where(eq(schema.subtasks.taskId, id))
   }
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）
@@ -646,7 +637,7 @@ app.delete('/api/tasks/:id', async (c) => {
     // 同步清理子任务，避免软删除任务产生隐藏孤儿子任务
     await db.batch([
       db.update(schema.tasks)
-        .set({ msTodoDeletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        .set({ msTodoDeletedAt: nowBeijing(), updatedAt: nowBeijing() })
         .where(eq(schema.tasks.id, id)),
       db.delete(schema.subtasks).where(eq(schema.subtasks.taskId, id)),
     ])
@@ -674,7 +665,7 @@ app.post('/api/tasks/:id/myday', async (c) => {
   await db.update(schema.tasks).set({
     isMyDay: true,
     myDayDate: todayCST(),
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowBeijing(),
   }).where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
 })
@@ -686,7 +677,7 @@ app.delete('/api/tasks/:id/myday', async (c) => {
   await db.update(schema.tasks).set({
     isMyDay: false,
     myDayDate: null,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowBeijing(),
   }).where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
 })
@@ -731,7 +722,7 @@ app.post('/api/subtasks/:taskId', async (c) => {
     }
 
     const id = crypto.randomUUID()
-    const now = new Date().toISOString()
+    const now = nowBeijing()
     // 子任务排在末尾：sortOrder 取当前任务下子任务最大值 + 1
     const existingSubs = await db.select({ sortOrder: schema.subtasks.sortOrder }).from(schema.subtasks)
       .where(eq(schema.subtasks.taskId, taskId))
@@ -794,7 +785,12 @@ app.patch('/api/subtasks/:id/toggle', async (c) => {
 app.delete('/api/subtasks/:id', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
+  const existing = await db.select({ taskId: schema.subtasks.taskId }).from(schema.subtasks).where(eq(schema.subtasks.id, id))
   await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id))
+  // 删除后重新同步父任务完成态（可能因少了一个子任务导致父任务不再满足"全部完成"）
+  if (existing.length > 0) {
+    await syncParentCompletion(db, existing[0].taskId)
+  }
   // 清理子任务嵌入
   await indexTarget(c, 'subtask', id, '').catch((e) => console.error('[embed] subtask delete cleanup failed:', e?.message))
   return c.json({ ok: true })
@@ -961,7 +957,7 @@ app.post('/api/ai/weekly-report', async (c) => {
     const reportKey = `weekly_report_${year}W${week.toString().padStart(2, '0')}`
     await db.insert(schema.settings).values({ key: reportKey, value: report }).onConflictDoUpdate({
       target: schema.settings.key,
-      set: { value: report, updatedAt: new Date().toISOString() },
+      set: { value: report, updatedAt: nowBeijing() },
     })
 
     // 保留最近 52 周周报，删除更旧的数据避免 settings 无限增长
@@ -1021,8 +1017,18 @@ app.post('/api/ai/digest', async (c) => {
         )
       ))
 
-    // 最近 3 天新增笔记
-    const threeDaysAgo = new Date(Date.now() + CST_OFFSET_MS - 3 * 24 * 60 * 60 * 1000).toISOString()
+    // 最近 3 天新增笔记（用北京时间日期计算）
+    const now = new Date()
+    const threeDaysAgoDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+    const fmt3d = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    })
+    const parts3d = fmt3d.formatToParts(threeDaysAgoDate)
+    const g3 = (type: string) => parts3d.find(p => p.type === type)?.value || '00'
+    const threeDaysAgo = `${g3('year')}-${g3('month')}-${g3('day')}T${g3('hour')}:${g3('minute')}:${g3('second')}+08:00`
     const recentNotes = await db.select().from(schema.imaNotes)
       .where(gte(schema.imaNotes.importedAt, threeDaysAgo))
       .orderBy(desc(schema.imaNotes.importedAt))
@@ -1380,7 +1386,6 @@ app.post('/api/ai/chat', async (c) => {
   if (!message) return c.json({ error: 'message 必填' }, 400)
   const sessionId = typeof body?.sessionId === 'string' && body.sessionId ? body.sessionId : null
   const deepThink = !!body?.deepThink
-  const webSearchOn = !!body?.webSearch
   const systemPrompt = typeof body?.systemPrompt === 'string' ? body.systemPrompt.slice(0, 2000) : ''
   const role = typeof body?.role === 'string' ? body.role : ''
   const images = Array.isArray(body?.images) ? body.images.filter((x: any) => typeof x === 'string' && x.startsWith('data:')).slice(0, 4) : []
@@ -1409,7 +1414,6 @@ app.post('/api/ai/chat', async (c) => {
       try {
         await streamChat(c, db, {
           message, sessionId: session.id, history, deepThink,
-          webSearchOn,
           systemPrompt, role, images,
           ctx,
           send,
@@ -1463,157 +1467,8 @@ async function buildChatCtx(db: any): Promise<ChatCtx> {
   return { lists, pendingTasks, today, listNames, context, completedToday, overdueCount }
 }
 
-// 工具定义（OpenAI / 兼容接口 function calling 标准格式）
-const CHAT_TOOLS: any[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'task',
-      description: '任务操作。action: create新建/update修改/complete完成/delete删除/search搜索。改动具体任务无 id 时先 search 拿 id。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['create', 'update', 'complete', 'delete', 'search'] },
-          id: { type: 'string', description: '任务 id（update/complete/delete 优先）' },
-          keyword: { type: 'string', description: '标题关键词（无 id 时模糊匹配）' },
-          query: { type: 'string', description: 'search 关键词' },
-          includeCompleted: { type: 'boolean', description: 'search 含已完成' },
-          title: { type: 'string', description: '标题（create 必填/update 新标题）' },
-          dueDate: { type: 'string', description: '截止 yyyy-MM-dd' },
-          reminder: { type: 'string', description: '提醒 yyyy-MM-dd HH:mm' },
-          listName: { type: 'string', description: 'create 所属列表名' },
-          isImportant: { type: 'boolean', description: '标重要' },
-          isMyDay: { type: 'boolean', description: '加入我的一天' },
-          note: { type: 'string', description: '备注' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'note',
-      description: '笔记操作。action: create新建/update修改/delete删除/search搜索。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['create', 'update', 'delete', 'search'] },
-          noteId: { type: 'string', description: '笔记 id（优先）' },
-          keyword: { type: 'string', description: '标题关键词' },
-          query: { type: 'string', description: 'search 关键词' },
-          title: { type: 'string', description: '标题（create 必填/update 新标题）' },
-          content: { type: 'string', description: '内容（create 必填/update 新内容）' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'workspace',
-      description: '工作台操作。action: overview概览统计/navigate跳转页面/theme切换主题/coin_flip抛硬币做决定。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['overview', 'navigate', 'theme', 'coin_flip'] },
-          path: { type: 'string', enum: ['/tasks', '/notes', '/knowledge', '/analysis', '/tools', '/search', '/settings', '/'], description: 'navigate 目标' },
-          value: { type: 'string', enum: ['light', 'dark', 'system'], description: 'theme 取值' },
-          question: { type: 'string', description: 'coin_flip 要决定的问题' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'ai_config',
-      description: 'AI 模型配置。action: get查看（不含Key明文）/update修改保存（可含Key、设默认）。DeepSeek→type=openai,baseUrl=https://api.deepseek.com/v1,model=deepseek-chat；内置免费→type=cloudflare。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['get', 'update'] },
-          name: { type: 'string', description: '配置名称（update 必填）' },
-          type: { type: 'string', enum: ['openai', 'cloudflare'], description: 'openai=兼容接口；cloudflare=内置免费' },
-          baseUrl: { type: 'string', description: 'API 地址（openai 必填）' },
-          apiKey: { type: 'string', description: 'API Key' },
-          model: { type: 'string', description: '模型名' },
-          setDefault: { type: 'boolean', description: '设为默认，默认 true' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'task_list',
-      description: '任务列表/分组操作。action: create新建/update重命名改色/delete删除（其下任务一并删，不可逆）。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['create', 'update', 'delete'] },
-          listId: { type: 'string', description: '列表 id（优先）' },
-          keyword: { type: 'string', description: '列表名关键词' },
-          name: { type: 'string', description: '名称（create 必填/update 新名）' },
-          color: { type: 'string', description: '颜色（十六进制，如#16A34A）' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'subtask',
-      description: '子任务操作。action: create添加/toggle勾选切换/delete删除。定位用 subtaskId 或 taskKeyword+title。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['create', 'toggle', 'delete'] },
-          subtaskId: { type: 'string', description: '子任务 id（优先）' },
-          taskId: { type: 'string', description: '父任务 id' },
-          taskKeyword: { type: 'string', description: '父任务标题关键词' },
-          title: { type: 'string', description: '子任务标题' },
-          complete: { type: 'boolean', description: 'toggle 强制设完成/未完成；省略则切换' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'knowledge',
-      description: '知识库操作。action: search搜索文档/summarize生成摘要/ask基于文档问答。',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: { type: 'string', enum: ['search', 'summarize', 'ask'] },
-          query: { type: 'string', description: 'search 关键词' },
-          docId: { type: 'string', description: '文档 id（优先）' },
-          keyword: { type: 'string', description: '文档标题关键词' },
-          question: { type: 'string', description: 'ask 的问题' },
-        },
-        required: ['action'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'web_search',
-      description: '联网搜索实时信息、新闻、外部知识。返回网页标题、链接与摘要供引用。',
-      parameters: {
-        type: 'object',
-        properties: { query: { type: 'string', description: '搜索关键词或问题' } },
-        required: ['query'],
-      },
-    },
-  },
-]
+// 工具定义：聊天端点不再使用工具调用，改为纯文本对话（MCP 端点仍可引用此数组）
+const CHAT_TOOLS: any[] = []
 
 // 新工具名(+action) → 旧执行分支映射：executeChatTool 的 case 逻辑保持不变，零改动复用
 const TOOL_ACTION_MAP: Record<string, Record<string, string>> = {
@@ -1643,20 +1498,18 @@ const ROLE_PERSONAS: Record<string, string> = {
 function buildChatSystem(ctx: ChatCtx, extra?: { systemPrompt?: string; role?: string }): string {
   const roleLine = extra?.role && ROLE_PERSONAS[extra.role] ? `\n${ROLE_PERSONAS[extra.role]}` : ''
   const customLine = extra?.systemPrompt?.trim() ? `\n用户自定义指令（最高优先级）：\n${extra.systemPrompt.trim()}` : ''
-  return `你是这个「个人工作台」的专属 AI 管家：既是通用 AI（问答/写作/推理/代码/翻译/闲聊都行），更能像人一样直接操作整个系统——用户说一句话，你就替他把事办完。
-工具均为多态：先选工具（task/task_list/subtask/note/knowledge/workspace/ai_config/web_search），再用 action 参数指定动作。用户要求执行操作时必须真调工具，不要只口头描述。
+  return `你是这个「个人工作台」的专属 AI 助手。你可以看到用户当前的任务、笔记、列表等上下文信息，基于这些信息回答问题、提供建议、协助思考。你不直接操作数据，而是像一个了解用户工作状态的顾问一样，给出有用的建议和回答。
+
 ${roleLine}${customLine}
+
 ## 当前上下文
 ${ctx.context}
 
-## 规则
-1. 理解意图：口语化/省略/错别字尽量读懂
-2. 操作前先查 id：不知道具体任务/笔记 id 时先 search 再操作
-3. 可一次调多个工具；连续操作时等结果回传再决定下一步
-4. 无需工具的事（问答/聊天）直接自然语言回复
-5. 涉及实时信息或不确定内容时主动 web_search
-6. 中文回复；工具执行后给一句简短说明（如"已创建任务：买菜"）
-7. 工具参数中的 apiKey 等敏感字段落库时必须脱敏为 ***`
+## 能力
+- 基于用户的任务和笔记提供分析、总结、建议
+- 回答问题、写作、翻译、代码、推理
+- 梳理待办事项的优先级和安排建议
+- 中文回复，保持友好、简洁、有帮助的风格`
 }
 
 function safeParseJson(s: string): any {
@@ -1940,7 +1793,7 @@ async function insertChatMessage(db: any, sessionId: string, role: string, conte
     content,
     toolCalls: toolCalls && toolCalls.length ? JSON.stringify(toolCalls) : null,
   })
-  await db.update(schema.chatSessions).set({ updatedAt: new Date().toISOString() }).where(eq(schema.chatSessions.id, sessionId)).catch(() => {})
+  await db.update(schema.chatSessions).set({ updatedAt: nowBeijing() }).where(eq(schema.chatSessions.id, sessionId)).catch(() => {})
 }
 
 // 粗略估算文本 token 数（CJK 混合文本约 2.5 字符/token，纯英文约 4 字符/token）
@@ -1969,86 +1822,45 @@ function truncateHistory(history: { role: string; content: string }[], maxTokens
   return keepFromRight.map((idx) => history[idx])
 }
 
-// 核心：多轮工具调用 + 流式输出 + 持久化
+// 核心：纯流式对话 + 持久化（无工具调用）
 async function streamChat(
   c: Context<{ Bindings: Env }>,
   db: any,
-  opts: { message: string; sessionId: string; history: { role: string; content: string }[]; ctx: ChatCtx; send: (o: any) => void; deepThink?: boolean; webSearchOn?: boolean; systemPrompt?: string; role?: string; images?: string[] }
+  opts: { message: string; sessionId: string; history: { role: string; content: string }[]; ctx: ChatCtx; send: (o: any) => void; deepThink?: boolean; systemPrompt?: string; role?: string; images?: string[] }
 ): Promise<void> {
-  const { message, sessionId, history, ctx, send, deepThink, webSearchOn, systemPrompt, role, images } = opts
+  const { message, sessionId, history, ctx, send, deepThink, systemPrompt, role, images } = opts
   await insertChatMessage(db, sessionId, 'user', message, null)
 
   const system = buildChatSystem(ctx, { systemPrompt, role })
-  // 历史截断：system+tools 约占 3000-4000 token，给历史留 ~4000 token 预算（总输入控制在 8K 以内）
   const trimmedHistory = truncateHistory(history, 4000)
   const messages: any[] = [{ role: 'system', content: system }]
   for (const h of trimmedHistory) {
     if (h.role === 'user') messages.push({ role: 'user', content: h.content })
     else if (h.role === 'assistant') messages.push({ role: 'assistant', content: h.content || ' ' })
   }
-  // 开关类指令统一附加到当前消息尾部（而非 system），保持 system+tools 前缀稳定以命中缓存
+  // 深度思考提示附加到当前消息尾部
   const hints: string[] = []
-  if (webSearchOn) hints.push('用户已开启「联网搜索」，请先调用 web_search 获取最新信息，再基于搜索结果回答并标注来源。')
   if (deepThink) hints.push('用户已开启「深度思考」，请先分步推理再作答，复杂问题要拆解方案并权衡。')
   messages.push({ role: 'user', content: hints.length ? `${message}\n\n（系统提示：${hints.join('')}）` : message })
 
-  let refresh = false
-  let finalAction: any = null
   let finalReply = ''
-  const toolCallsSummary: any[] = []
 
-  for (let round = 0; round < 5; round++) {
-    let result: ChatResult
-    try {
-      result = await chatCompletion(c, messages, { tools: CHAT_TOOLS, stream: true, deepThink, images: round === 0 ? images : undefined, onText: (t) => send({ type: 'delta', text: t }), onReasoning: (t) => send({ type: 'reasoning', text: t }) })
-    } catch (e: any) {
-      if (round === 0) {
-        const fb = chatSafetyFallback(message)
-        if (fb) { finalReply = fb.reply; finalAction = fb.action; break }
-        finalReply = 'AI 暂时不可用（请到「设置 → AI 配置」测试你的接口），这条指令没能执行。'
-        break
-      }
-      finalReply = finalReply || '操作进行到一半出错了，请稍后再试。'
-      break
+  try {
+    const result = await chatCompletion(c, messages, { stream: true, deepThink, images, onText: (t) => send({ type: 'delta', text: t }), onReasoning: (t) => send({ type: 'reasoning', text: t }) })
+    finalReply = result.content?.trim() || '好的。'
+  } catch (e: any) {
+    const fb = chatSafetyFallback(message)
+    if (fb) {
+      finalReply = fb.reply
+      await insertChatMessage(db, sessionId, 'assistant', finalReply, null)
+      send({ type: 'done', reply: finalReply, refresh: false, action: fb.action, sessionId })
+      return
     }
-
-    if (result.toolCalls && result.toolCalls.length) {
-      const toolMsg: any = { role: 'assistant', content: result.content || null, tool_calls: [] as any[] }
-      // MiMo 等思考型模型要求：含工具调用的 assistant 消息必须回传 reasoning_content，否则 400
-      if (result.reasoning) toolMsg.reasoning_content = result.reasoning
-      const observations: { id: string; observation: string }[] = []
-      for (const tc of result.toolCalls) {
-        // 优先用模型返回的真实 tool_call id（部分提供商会校验 id 一致性）
-        const id = tc.id || `call_${round}_${toolMsg.tool_calls.length}`
-        toolMsg.tool_calls.push({ id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.args ?? {}) } })
-        // 工具执行失败不断流：错误转为 observation 回灌给模型，由模型向用户解释并决定是否换方式重试
-        let r: Awaited<ReturnType<typeof executeChatTool>>
-        try {
-          r = await executeChatTool(c, db, tc.name, tc.args ?? {}, ctx)
-        } catch (toolErr: any) {
-          console.error('[chat] tool execution failed:', tc.name, toolErr?.message)
-          r = { observation: `工具 ${tc.name} 执行失败：${String(toolErr?.message || toolErr).slice(0, 200)}。请向用户说明失败原因，若可换参数重试则重试一次，不要重复失败的调用。`, refresh: false }
-        }
-        refresh = refresh || r.refresh
-        if (r.action) finalAction = r.action
-        observations.push({ id, observation: r.observation })
-        // 下发解析后的细粒度名（create_task 等），前端标签/跳转映射无需感知多态工具
-        const fineName = resolveChatTool(tc.name, tc.args ?? {})
-        send({ type: 'tool', name: fineName, observation: r.observation })
-        if (r.sources && r.sources.length) send({ type: 'sources', sources: r.sources })
-        toolCallsSummary.push({ name: fineName, args: sanitizeToolArgs(tc.args), observation: r.observation, sources: r.sources })
-      }
-      messages.push(toolMsg)
-      for (const o of observations) messages.push({ role: 'tool', tool_call_id: o.id, content: o.observation })
-      continue
-    }
-
-    finalReply = result.content?.trim() || (refresh ? '已处理。' : '好的。')
-    break
+    finalReply = 'AI 暂时不可用，请稍后再试。'
   }
 
-  await insertChatMessage(db, sessionId, 'assistant', finalReply, toolCallsSummary.length ? toolCallsSummary : null)
-  send({ type: 'done', reply: finalReply, refresh, action: finalAction, sessionId })
+  await insertChatMessage(db, sessionId, 'assistant', finalReply, null)
+  send({ type: 'done', reply: finalReply, refresh: false, action: null, sessionId })
 }
 
 // ============ AI 聊天：历史记录接口 ============
@@ -2120,7 +1932,7 @@ app.patch('/api/ai/chat/sessions/:id', async (c) => {
     }
     if (typeof body.pinned === 'boolean' || typeof body.pinned === 'number') patch.pinned = body.pinned ? 1 : 0
     if (Object.keys(patch).length === 0) return c.json({ error: '无可更新字段' }, 400)
-    patch.updatedAt = new Date().toISOString()
+    patch.updatedAt = nowBeijing()
     await db.update(schema.chatSessions).set(patch).where(eq(schema.chatSessions.id, id))
     return c.json({ ok: true })
   } catch (e: any) {
@@ -2214,7 +2026,7 @@ async function executeChatTool(
       const cur = await db.select({ title: schema.tasks.title }).from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1)
       const title = cur[0]?.title ?? '任务'
       if (name === 'complete_task') {
-        await db.update(schema.tasks).set({ isCompleted: true, updatedAt: new Date().toISOString() }).where(eq(schema.tasks.id, id))
+        await db.update(schema.tasks).set({ isCompleted: true, updatedAt: nowBeijing() }).where(eq(schema.tasks.id, id))
         await db.update(schema.subtasks).set({ isCompleted: true }).where(eq(schema.subtasks.taskId, id)).catch(() => {})
         return { observation: `已标记完成：${title}`, refresh: true }
       }
@@ -2222,7 +2034,7 @@ async function executeChatTool(
         await db.delete(schema.tasks).where(eq(schema.tasks.id, id)).catch(() => {})
         return { observation: `已删除：${title}`, refresh: true }
       }
-      const set: any = { updatedAt: new Date().toISOString() }
+      const set: any = { updatedAt: nowBeijing() }
       if (args.title != null) set.title = str(args.title)
       if (args.note != null) set.note = str(args.note)
       if (args.dueDate != null) set.dueDate = normalizeDate(args.dueDate) ?? null
@@ -2339,7 +2151,7 @@ async function executeChatTool(
     case 'update_task_list': {
       const listId = await resolveListId(db, args)
       if (!listId) return { observation: `没找到要修改的列表（${args.keyword || args.listId || '无关键词'}）`, refresh: false }
-      const patch: any = { updatedAt: new Date().toISOString() }
+      const patch: any = { updatedAt: nowBeijing() }
       if (args.name != null) patch.name = str(args.name)
       if (args.color != null) patch.color = str(args.color)
       await db.update(schema.taskLists).set(patch).where(eq(schema.taskLists.id, listId))
@@ -2364,7 +2176,7 @@ async function executeChatTool(
       const existing = await db.select({ sortOrder: schema.subtasks.sortOrder }).from(schema.subtasks).where(eq(schema.subtasks.taskId, taskId))
       const maxSort = existing.reduce((m: number, s: any) => Math.max(m, s.sortOrder ?? 0), 0)
       const id = crypto.randomUUID()
-      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: maxSort + 1, createdAt: new Date().toISOString() })
+      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: maxSort + 1, createdAt: nowBeijing() })
       await indexTarget(c, 'subtask', id, title).catch(() => {})
       return { observation: `已为任务添加子任务「${title}」`, refresh: true }
     }
@@ -2413,7 +2225,7 @@ async function executeChatTool(
         id = rows.find((r: any) => normalizeSearchText(r.title).includes(norm) || r.title.includes(str(args.keyword)))?.id ?? null
       }
       if (!id) return { observation: `没找到要修改的笔记（${args.keyword || args.noteId || '无关键词'}）`, refresh: false }
-      const patch: any = { updatedAt: new Date().toISOString() }
+      const patch: any = { updatedAt: nowBeijing() }
       if (args.title != null) patch.title = str(args.title)
       if (args.content != null) patch.content = str(args.content)
       await db.update(schema.imaNotes).set(patch).where(eq(schema.imaNotes.id, id))
@@ -2664,54 +2476,151 @@ app.post('/api/coin/flip', async (c) => {
 
 app.get('/api/coin/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100)
-  const rows = await db.select().from(schema.coinFlips).orderBy(desc(schema.coinFlips.createdAt)).limit(limit)
+  const rows = await db.select().from(schema.coinFlips).orderBy(desc(schema.coinFlips.createdAt))
   return c.json(rows)
 })
 
 // ========== 决策小工具：答案之书 & 每日一签 ==========
 
+// 答案之书：64条，取意易经六十四卦与道佛智慧
 const ANSWERS = [
-  '是的，放手去做。',
-  '现在还不是时候。',
-  '再等等，答案会自己浮现。',
-  '不必强求，顺其自然。',
-  '这很重要，值得投入。',
-  '换个角度，你会看见出口。',
-  '相信你的直觉。',
-  '先放一放，明天再看。',
-  '会有人帮你。',
-  '小心别太冲动。',
-  '这正是你需要的。',
-  '答案就在你心中。',
-  '不妨试一试。',
-  '保持现状就好。',
-  '它会比你想象的简单。',
-  '别让完美主义拖住你。',
-  '去问问你信任的人。',
-  '接受它，然后继续往前走。',
-  '小改变就够了。',
-  '给自己多一点耐心。',
+  '乾元亨利贞，天行健，去做。',
+  '否极泰来，时机将至。',
+  '潜龙勿用，再等等。',
+  '利见大人，贵人将至。',
+  '含章可贞，内敛为上。',
+  '括囊无咎，收敛锋芒。',
+  '鸣谦贞吉，谦受益。',
+  '鸣豫凶，不可沉溺安逸。',
+  '观我生进退，审时度势。',
+  '不远复，迷途知返。',
+  '无妄往吉，无妄之行。',
+  '大畜利贞，积蓄力量。',
+  '颐贞吉，养正则吉。',
+  '大过栋桡，非常之时需非常之策。',
+  '习坎有孚，险中求信。',
+  '离丽也，附丽正道。',
+  '咸感也，以心感应。',
+  '恒久也，持之以恒。',
+  '遁之时义大矣哉，该退则退。',
+  '大壮利贞，壮而守正。',
+  '晋明出地上，光明在前。',
+  '明夷艰贞，韬光养晦。',
+  '家人言有物，言行一致。',
+  '睽小事吉，小事可成。',
+  '蹇利西南，绕道而行。',
+  '解利西南，宽以待人。',
+  '损损下益上，有舍才有得。',
+  '益益动而巽，日进无疆。',
+  '夬扬于王庭，果断宣示。',
+  '姤女壮勿用取女，谨慎为上。',
+  '萃聚也，团结一心。',
+  '升地中生木，循序渐进。',
+  '困困而不失其所亨，困境见品格。',
+  '井改邑不改井，万变不离其宗。',
+  '革汤武革命，顺天应人。',
+  '鼎取新也，革故鼎新。',
+  '震亨震来虩虩，敬畏则安。',
+  '艮其背，止于当止。',
+  '渐进以正，循序渐进。',
+  '归妹征凶，勿急于求成。',
+  '丰宜日中，盛极必衰。',
+  '旅琐琐斯其所取灾，谨慎处世。',
+  '巽小亨，柔顺通达。',
+  '兑说也，和悦为贵。',
+  '涣亨，散而复聚。',
+  '节亨苦节不可贞，适度为佳。',
+  '中孚豚鱼吉，至诚感通。',
+  '小过可小事不可大事，小事吉。',
+  '既济亨小利贞，初吉终乱。',
+  '未济亨小狐汔济，将成未成。',
+  '天道亏盈而益谦。',
+  '地势坤厚德载物。',
+  '山止川行，动静皆宜。',
+  '泽中有雷，蓄势待发。',
+  '风雷相益，借力而行。',
+  '水火既济，阴阳调和。',
+  '天地不交否，暂守为宜。',
+  '泽火革，除旧布新。',
+  '雷风恒，守常应变。',
+  '山泽损，减损增益。',
+  '风山渐，稳步推进。',
+  '火地晋，步步高升。',
+  '地山谦，满招损谦受益。',
+  '天火同人，志同道合。',
+  '火天大有，大有可为。',
 ]
 
+// 每日一签：64签，仿传统庙签格式
 const FORTUNES = [
-  { result: '上上签', interpretation: '云开见日，诸事皆宜，今天适合主动推进重要的事。' },
-  { result: '上签', interpretation: '小有顺风，保持节奏，成果会陆续出现。' },
-  { result: '中上签', interpretation: '稳中求进，注意细节，机会藏在平凡处。' },
-  { result: '中签', interpretation: '平常心看待，不急于求成，按部就班即可。' },
-  { result: '中下签', interpretation: '略有阻滞，不妨放慢脚步，先处理手尾。' },
-  { result: '下签', interpretation: '今日宜守不宜攻，减少冒险决策，多休息。' },
-  { result: '小吉', interpretation: '微光在前，做一点小事也能带来好心情。' },
-  { result: '安签', interpretation: '无大风浪，适合整理、复盘与陪伴自己。' },
-  { result: '进签', interpretation: '迈开一步比想十步更重要，先动起来。' },
-  { result: '守签', interpretation: '稳住基本盘，别被外界节奏带跑。' },
-  { result: '悟签', interpretation: '今天可能会有一点领悟，停下来听听内心。' },
-  { result: '和签', interpretation: '与人相处宜柔和，避免争执，合作更顺。' },
+  { name: '乾卦', level: '大吉', poem: '龙飞九霄云程开，万里鹏程自此来。', interpret: '诸事大吉，主动推进，天时地利人和皆备。' },
+  { name: '坤卦', level: '吉', poem: '厚德载物容万物，柔顺利贞行无阻。', interpret: '顺势而为，包容为上，合作比单打独斗更顺。' },
+  { name: '屯卦', level: '中吉', poem: '春雷初动万物生，草创之时宜谨慎。', interpret: '万事开头难，坚持则通，勿急勿躁。' },
+  { name: '蒙卦', level: '中吉', poem: '山下出泉蒙以养，虚心求教智慧长。', interpret: '放下成见，虚心学习，答案会在求索中浮现。' },
+  { name: '需卦', level: '吉', poem: '云上于天需以待，饮食宴乐静心怀。', interpret: '耐心等待，时机未到强求无益，养精蓄锐。' },
+  { name: '讼卦', level: '末吉', poem: '天水相违讼端起，宜止争端修内省。', interpret: '避免争论，退一步海阔天空，和解为上。' },
+  { name: '师卦', level: '中吉', poem: '地中有水师以律，行师出征需正当。', interpret: '行事有章法，团队协作，以正道服人。' },
+  { name: '比卦', level: '吉', poem: '地上有水比相亲，择善而从得助力。', interpret: '贵人运旺，主动结交良友，借力而行。' },
+  { name: '小畜', level: '小吉', poem: '风行天上小畜密，积少成多方有成。', interpret: '小事可为，大事需缓，积累实力为要。' },
+  { name: '履卦', level: '中吉', poem: '上天下泽履以礼，小心谨慎行坦途。', interpret: '按部就班，守规矩走正路，平安顺遂。' },
+  { name: '泰卦', level: '大吉', poem: '天地交泰万物通，否极泰来福运隆。', interpret: '大吉大利，一切通达，把握良机果断行动。' },
+  { name: '否卦', level: '末吉', poem: '天地不交否难通，宜守不宜进待转机。', interpret: '暂时蛰伏，不冒险不冲动，静待变化。' },
+  { name: '同人', level: '吉', poem: '天火同人志相同，和同于人百事通。', interpret: '志同道合之人将至，合作共贏，团结力量大。' },
+  { name: '大有', level: '大吉', poem: '火在天上大有明，自天佑之吉无不利。', interpret: '运势极旺，大有可为，正财正缘皆顺。' },
+  { name: '谦卦', level: '吉', poem: '地中有山谦君子，满招损兮谦受益。', interpret: '谦虚低调，越谦越顺，勿张扬勿自满。' },
+  { name: '豫卦', level: '中吉', poem: '雷出地奋豫以乐，顺时而动万事和。', interpret: '心态积极，顺势而行，但勿乐极生悲。' },
+  { name: '随卦', level: '吉', poem: '泽中有雷随时义，顺天应人随缘去。', interpret: '随缘不随意，顺应大势，灵活应变。' },
+  { name: '蛊卦', level: '中吉', poem: '山下有风蛊须治，振弊起衰正当时。', interpret: '旧事需清理，革新除弊，破旧方能立新。' },
+  { name: '临卦', level: '大吉', poem: '泽上有地临以近，教思无穷容保民。', interpret: '好运临门，亲近良师益友，受益匪浅。' },
+  { name: '观卦', level: '中吉', poem: '风行地上观天道，观我生兮进退明。', interpret: '观察形势再行动，三思而后行，审时度势。' },
+  { name: '噬嗑', level: '小吉', poem: '雷电噬嗑合而分，果断决裂去障碍。', interpret: '障碍可除，需果断处理，犹豫反受其害。' },
+  { name: '贲卦', level: '小吉', poem: '山下有火贲以文，修饰外表重内涵。', interpret: '外在修饰适度即可，内在充实更为重要。' },
+  { name: '剥卦', level: '凶', poem: '山附于地剥将尽，不宜冒进宜守身。', interpret: '运势低迷，不宜进取，固守等待转机。' },
+  { name: '复卦', level: '大吉', poem: '雷在地中复亨通，一阳来复万象新。', interpret: '否极泰来，重新开始，一切从头再来吉。' },
+  { name: '无妄', level: '吉', poem: '天下雷行无妄动，至诚无妄行正道。', interpret: '不做妄念之事，坦荡行事，天佑善人。' },
+  { name: '大畜', level: '吉', poem: '天在山中大畜厚，日新其德蓄光明。', interpret: '积蓄实力，厚积薄发，时机到时一飞冲天。' },
+  { name: '颐卦', level: '中吉', poem: '山下有雷颐以养，节饮食慎言语。', interpret: '养身养心，节制为上，祸从口出慎言为佳。' },
+  { name: '大过', level: '末吉', poem: '泽灭木兮大过时，独立不惧济危难。', interpret: '非常时期需非常之策，但风险亦大，慎行。' },
+  { name: '坎卦', level: '凶', poem: '水流不盈习坎险，心亨行尚守诚信。', interpret: '险阻重重，唯有内心坚定、守信方能脱困。' },
+  { name: '离卦', level: '中吉', poem: '明两作离大人继，附丽正道放光明。', interpret: '依附正道，远离邪念，光明在前。' },
+  { name: '咸卦', level: '吉', poem: '山泽通气咸感应，以虚受人情意通。', interpret: '人缘极佳，以心换心，感情之事尤为顺遂。' },
+  { name: '恒卦', level: '吉', poem: '雷风相与恒久远，守常应变道不穷。', interpret: '持之以恒方能成事，三分钟热度终无果。' },
+  { name: '遁卦', level: '末吉', poem: '天下有山遁以远，君子远小人不恶。', interpret: '该退则退，远离是非，保全自身为上。' },
+  { name: '大壮', level: '中吉', poem: '雷在天上大壮时，非礼弗履守正直。', interpret: '精力旺盛但需守正，壮而不妄方为真壮。' },
+  { name: '晋卦', level: '大吉', poem: '明出地上晋光明，自昭明德日日新。', interpret: '步步高升，前途光明，努力终将被看见。' },
+  { name: '明夷', level: '凶', poem: '明入地中明夷暗，内文明而外柔顺。', interpret: '韬光养晦之时，隐忍不发，保存实力。' },
+  { name: '家人', level: '吉', poem: '风自火出家人和，言有物而行有恒。', interpret: '家庭和睦，家和万事兴，言行一致为要。' },
+  { name: '睽卦', level: '末吉', poem: '上火下泽睽相违，小事可成大事非。', interpret: '意见分歧，求同存异，小事可为大事暂缓。' },
+  { name: '蹇卦', level: '凶', poem: '山上有水蹇难行，反身修德待时通。', interpret: '举步维艰，内修己身，静待柳暗花明。' },
+  { name: '解卦', level: '吉', poem: '雷雨作解百难消，宽以待人解纷扰。', interpret: '困难已解，宜宽厚待人，化干戈为玉帛。' },
+  { name: '损卦', level: '中吉', poem: '山泽损损下益上，损益盈虚随时变。', interpret: '有失必有得，适当损失换取更大收获。' },
+  { name: '益卦', level: '大吉', poem: '风雷益益动而巽，自天佑之吉大有。', interpret: '运势上升，助人即助己，善行带来好运。' },
+  { name: '夬卦', level: '中吉', poem: '泽上于天夬以决，扬于王庭告四方。', interpret: '果断决策之时，但需公开公正，不可暗行。' },
+  { name: '姤卦', level: '末吉', poem: '天下有风姤以遇，勿用取女慎始交。', interpret: '初遇之事需谨慎，不被表象迷惑，深入了解。' },
+  { name: '萃卦', level: '吉', poem: '泽上于地萃以聚，团结一心力量聚。', interpret: '人聚财聚，合作共贏，独木难成林。' },
+  { name: '升卦', level: '大吉', poem: '地中生木升以高，积小成大步步高。', interpret: '稳步上升，日积月累，终成大器。' },
+  { name: '困卦', level: '凶', poem: '泽无水兮困穷时，致命遂志守诚信。', interpret: '困境之中不失志，守信待时终会脱困。' },
+  { name: '井卦', level: '中吉', poem: '木上有水井养民，改邑不改井长存。', interpret: '万变不离其宗，坚守本心方为长久之道。' },
+  { name: '革卦', level: '吉', poem: '泽中有火革故新，汤武革命顺天人。', interpret: '变革之时，除旧布新，顺势而变大吉。' },
+  { name: '鼎卦', level: '大吉', poem: '木上有火鼎烹饪，取新去故立正位。', interpret: '鼎新之际，万象更新，把握时机开创新局。' },
+  { name: '震卦', level: '中吉', poem: '洊雷震亨震虩虩，恐惧修省福自至。', interpret: '敬畏之心不可无，谨慎行事平安顺遂。' },
+  { name: '艮卦', level: '末吉', poem: '兼山艮止于当止，时止时行皆有道。', interpret: '该停则停，该行则行，知止为智。' },
+  { name: '渐卦', level: '吉', poem: '山上有木渐以进，循序渐进终有成。', interpret: '循序渐进，不可急于求成，水到渠成。' },
+  { name: '归妹', level: '凶', poem: '泽上有雷归妹时，征凶无攸利可寻。', interpret: '关系或合作需谨慎，勿急于确定，多观察。' },
+  { name: '丰卦', level: '中吉', poem: '雷电皆至丰以大，宜照天下勿自封。', interpret: '运势正盛，但居安思危，盛极必衰需警醒。' },
+  { name: '旅卦', level: '末吉', poem: '山上有火旅途中，柔得中乎行小心。', interpret: '出行或变动需谨慎，漂泊不定守正为要。' },
+  { name: '巽卦', level: '小吉', poem: '随风巽以申命行，小亨利有攸往行。', interpret: '以柔顺之道行事，小事可成，顺势而为。' },
+  { name: '兑卦', level: '吉', poem: '丽泽兑以朋友讲，和悦待人善缘来。', interpret: '人缘极佳，和颜悦色迎人，好运自然来。' },
+  { name: '涣卦', level: '中吉', poem: '风行水上涣以散，先王享帝立庙安。', interpret: '散中有聚，放下执念反而得到更多。' },
+  { name: '节卦', level: '小吉', poem: '泽上有水节以度，苦节不可贞守中。', interpret: '节制有度，过犹不及，适中方为上策。' },
+  { name: '中孚', level: '大吉', poem: '泽上有风中孚诚，豚鱼吉兮信及远。', interpret: '至诚感通，诚信待人，天佑诚者。' },
+  { name: '小过', level: '中吉', poem: '山上有雷过小事，可小事兮不可大。', interpret: '小事可为，大事需缓，不宜好高骛远。' },
+  { name: '既济', level: '末吉', poem: '水在火上既济成，初吉终乱慎终始。', interpret: '事已初成，但勿松懈，守成比创业更难。' },
+  { name: '未济', level: '中吉', poem: '火在水上未济时，慎辨物居方待时。', interpret: '事未终了，继续努力，黎明前最暗。' },
 ]
 
 app.post('/api/tools/answer', async (c) => {
-  const { value: randomValue, source } = await fetchPhysicalEntropy()
-  const idx = randomValue % ANSWERS.length
+  const { value: randomValue, source, uniformValue: idx } = await fetchUniformEntropy(ANSWERS.length)
   const result = ANSWERS[idx]
   const db = drizzle(c.env.DB, { schema })
   const id = crypto.randomUUID()
@@ -2728,8 +2637,7 @@ app.post('/api/tools/answer', async (c) => {
 
 app.get('/api/tools/answer/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100)
-  const rows = await db.select().from(schema.answerBookDraws).orderBy(desc(schema.answerBookDraws.createdAt)).limit(limit)
+  const rows = await db.select().from(schema.answerBookDraws).orderBy(desc(schema.answerBookDraws.createdAt))
   return c.json(rows)
 })
 
@@ -2741,30 +2649,28 @@ app.post('/api/tools/fortune', async (c) => {
   const existing = await db.select().from(schema.dailyFortunes).where(eq(schema.dailyFortunes.date, today))
   if (existing.length > 0) {
     const row = existing[0]
-    return c.json({ result: row.result, interpretation: row.interpretation, source: row.entropySource, rawValue: row.rawValue, cached: true })
+    return c.json({ ...row, cached: true })
   }
 
-  const { value: randomValue, source } = await fetchPhysicalEntropy()
-  const idx = randomValue % FORTUNES.length
-  const { result, interpretation } = FORTUNES[idx]
+  const { value: randomValue, source, uniformValue: idx } = await fetchUniformEntropy(FORTUNES.length)
+  const fortune = FORTUNES[idx]
   const id = crypto.randomUUID()
 
   await db.insert(schema.dailyFortunes).values({
     id,
     date: today,
-    result,
-    interpretation,
+    result: fortune.name,
+    interpretation: JSON.stringify({ level: fortune.level, poem: fortune.poem, interpret: fortune.interpret }),
     entropySource: source,
     rawValue: randomValue,
   })
 
-  return c.json({ result, interpretation, source, rawValue: randomValue, cached: false })
+  return c.json({ id, date: today, result: fortune.name, level: fortune.level, poem: fortune.poem, interpret: fortune.interpret, source, rawValue: randomValue, cached: false })
 })
 
 app.get('/api/tools/fortune/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const limit = Math.min(parseInt(c.req.query('limit') || '30', 10) || 30, 100)
-  const rows = await db.select().from(schema.dailyFortunes).orderBy(desc(schema.dailyFortunes.date)).limit(limit)
+  const rows = await db.select().from(schema.dailyFortunes).orderBy(desc(schema.dailyFortunes.date))
   return c.json(rows)
 })
 
@@ -2774,7 +2680,6 @@ app.get('/api/sync-logs', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const source = c.req.query('source')
   const status = c.req.query('status')
-  const limit = Math.min(parseInt(c.req.query('limit') || '30', 10) || 30, 100)
 
   let q = db.select().from(schema.syncLogs)
   const conditions = []
@@ -2782,7 +2687,7 @@ app.get('/api/sync-logs', async (c) => {
   if (status) conditions.push(eq(schema.syncLogs.status, status))
   if (conditions.length > 0) q = q.where(and(...conditions)) as typeof q
 
-  const rows = await q.orderBy(desc(schema.syncLogs.createdAt)).limit(limit)
+  const rows = await q.orderBy(desc(schema.syncLogs.createdAt))
   return c.json(rows)
 })
 
@@ -2819,7 +2724,7 @@ app.put('/api/notes/:id', async (c) => {
   const { title, content } = updateNoteSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
   await db.update(schema.imaNotes)
-    .set({ title, content, updatedAt: new Date().toISOString() })
+    .set({ title, content, updatedAt: nowBeijing() })
     .where(eq(schema.imaNotes.id, id))
   // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）
   await indexTarget(c, 'note', id, `${title}\n${content || ''}`).catch((e) => console.error('[embed] note update failed:', e?.message))
@@ -3039,7 +2944,7 @@ app.post('/api/ima/sync-notes', async (c) => {
     // 仅完整同步（非 partial）时更新 ima_last_sync，partial 时下次继续
     if (!result.partial) {
       const db = drizzle(c.env.DB, { schema })
-      const now = new Date().toISOString()
+      const now = nowBeijing()
       await db.insert(schema.settings)
         .values({ key: 'ima_last_sync', value: now })
         .onConflictDoUpdate({ target: schema.settings.key, set: { value: now } })
@@ -3076,7 +2981,7 @@ app.post('/api/ima/backfill-content-html', async (c) => {
       const cleanMd = stripImagesAndAttachments(row.content || '')
       const html = markdownToCleanHtml(cleanMd)
       stmts.push(db.update(schema.imaNotes)
-        .set({ content: cleanMd, contentHtml: html, updatedAt: new Date().toISOString() })
+        .set({ content: cleanMd, contentHtml: html, updatedAt: nowBeijing() })
         .where(eq(schema.imaNotes.id, row.id)))
       updated++
       if (stmts.length >= 50) {
@@ -3098,8 +3003,8 @@ app.post('/api/ima/sync-kb', async (c) => {
     const result = await syncKnowledgeBase(c.env)
     const db = drizzle(c.env.DB, { schema })
     await db.insert(schema.settings)
-      .values({ key: 'ima_last_sync', value: new Date().toISOString() })
-      .onConflictDoUpdate({ target: schema.settings.key, set: { value: new Date().toISOString() } })
+      .values({ key: 'ima_last_sync', value: nowBeijing() })
+      .onConflictDoUpdate({ target: schema.settings.key, set: { value: nowBeijing() } })
     await logSync(c.env, 'ima_kb', {
       status: 'success',
       synced: result.synced,
@@ -3208,7 +3113,7 @@ app.post('/api/ima/notes/:id/append', async (c) => {
     if (existing.length > 0) {
       const newContent = (existing[0].content || '') + '\n\n' + content
       await db.update(schema.imaNotes)
-        .set({ content: newContent, updatedAt: new Date().toISOString() })
+        .set({ content: newContent, updatedAt: nowBeijing() })
         .where(eq(schema.imaNotes.id, id))
       await indexTarget(c, 'note', id, `${existing[0].title}\n${newContent}`).catch((e) => console.error('[embed] ima append failed:', e?.message))
     }
@@ -3239,7 +3144,7 @@ app.put('/api/settings', async (c) => {
   // 敏感键加密后再存储（向后兼容：读取时 decrypt 自动识别 enc$ 前缀）
   const encrypted = await encryptSettings(c.env.JWT_SECRET, body)
   const db = drizzle(c.env.DB, { schema })
-  const now = new Date().toISOString()
+  const now = nowBeijing()
   const stmts = Object.entries(encrypted).map(([key, value]) =>
     db.insert(schema.settings)
       .values({ key, value })
@@ -3377,8 +3282,8 @@ app.post('/api/settings/ms-todo/sync', async (c) => {
     // 仅在完全无失败时更新"最后同步时间"，避免部分失败显示"同步成功"假阳性
     if (result.failed === 0) {
       await db.insert(schema.settings)
-        .values({ key: 'ms_last_sync', value: new Date().toISOString() })
-        .onConflictDoUpdate({ target: schema.settings.key, set: { value: new Date().toISOString() } })
+        .values({ key: 'ms_last_sync', value: nowBeijing() })
+        .onConflictDoUpdate({ target: schema.settings.key, set: { value: nowBeijing() } })
     }
 
     let status: 'success' | 'partial' | 'error'
@@ -3490,7 +3395,7 @@ export default {
 
   scheduled: async (event: ScheduledEvent, env: any) => {
     const db = drizzle(env.DB, { schema })
-    const now = new Date().toISOString()
+    const now = nowBeijing()
     const LOCK_KEY = 'cron_sync_lock'
     const LOCK_TTL_MS = 30 * 60 * 1000
 

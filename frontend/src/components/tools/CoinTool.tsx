@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Loader2, Trophy, TrendingUp, History, Sparkles } from 'lucide-react'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { coinApi } from '@/lib/api'
+import { formatCST } from '@/lib/datetime'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
@@ -112,7 +113,7 @@ export function CoinTool() {
                 <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 shadow-sm">
                   <span className={cn('size-2 rounded-full', result.result === 'heads' ? 'bg-yellow-500' : 'bg-slate-500')} />
                   <span className="text-xs font-medium text-muted-foreground">
-                    熵源: {result.source === 'random_org' ? '大气噪声' : result.source === 'nist_beacon' ? 'NIST 量子熵' : 'Web Crypto'}
+                    熵源: {result.source === 'random_org' ? '大气噪声' : result.source === 'nist_beacon' ? 'NIST 量子熵' : '未知熵源'}
                   </span>
                 </div>
                 <p className="text-4xl font-black tracking-tight md:text-5xl">
@@ -219,7 +220,7 @@ export function CoinTool() {
                   <span className="font-medium">{flip.result === 'heads' ? '阳 · 正面' : '阴 · 反面'}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {new Date(flip.createdAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {formatCST(flip.createdAt, 'cnShort')}
                 </span>
               </div>
             ))}

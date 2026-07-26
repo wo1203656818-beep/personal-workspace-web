@@ -3,6 +3,7 @@ import { eq, asc } from 'drizzle-orm'
 import * as schema from './schema'
 import type { Env } from './types'
 import { encrypt, decrypt } from './crypto-utils'
+import { nowBeijing } from './time'
 
 export type AiConfigType = 'cloudflare' | 'openai'
 
@@ -166,7 +167,7 @@ export async function updateAiConfig(env: Env, id: string, input: Partial<AiConf
   if (input.isDefault) {
     await db.update(schema.aiConfigs).set({ isDefault: false }).where(eq(schema.aiConfigs.isDefault, true))
   }
-  const patch: any = { updatedAt: new Date().toISOString() }
+  const patch: any = { updatedAt: nowBeijing() }
   if (input.name !== undefined) patch.name = input.name
   if (input.type !== undefined) patch.type = input.type
   if (input.baseUrl !== undefined) patch.baseUrl = input.type === 'cloudflare' ? null : (input.baseUrl || null)

@@ -9,7 +9,17 @@ const SENSITIVE_KEYS = ['password_hash', 'ms_refresh_token', 'ima_api_key', 'cus
  * 不包含：知识库文件二进制（仅元数据）、敏感凭据。
  */
 export async function exportAllData(): Promise<void> {
-  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  // 用北京时间作为文件名和导出时间戳
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' })
+  const timestamp = fmt.format(new Date()).replace(/-/g, '')
+  const nowBj = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).format(new Date())
+  const [bjDate, bjTime] = nowBj.split(', ').map((s: string) => s.trim())
+  const exportedAt = `${bjDate.replace(/\//g, '-')}T${bjTime}+08:00`
 
   // 并发拉取所有数据
   const [lists, notes, kbDocs, settings] = await Promise.all([
@@ -36,7 +46,7 @@ export async function exportAllData(): Promise<void> {
   )
 
   const payload = {
-    exportedAt: new Date().toISOString(),
+    exportedAt,
     version: 1,
     taskLists: lists,
     tasks: allTasks,

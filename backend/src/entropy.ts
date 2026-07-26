@@ -1,12 +1,15 @@
 /**
  * 物理熵采集模块
- * 优先使用真物理熵源，全部失败时回退到 Web Crypto。
+ * 优先使用真物理熵源，全部失败时抛出错误。
  */
 
 export interface EntropyResult {
   value: number
   source: string
 }
+
+// NIST Beacon 防重放：记录上次脉冲时间戳，同窗口内拒绝重复
+let lastNistPulseTimestamp: string | null = null
 
 const entropySources: Array<{ name: string; fetch: () => Promise<number> }> = [
   {
@@ -24,13 +27,20 @@ const entropySources: Array<{ name: string; fetch: () => Promise<number> }> = [
   },
   {
     // NIST Beacon 2.0：量子相位噪声 + 放射性衰变 Krypton-85，真物理熵
+    // Beacon 约60秒更新一次脉冲，同一窗口内多次请求返回相同值
     name: 'nist_beacon',
     fetch: async () => {
       const res = await fetch('https://beacon.nist.gov/beacon/2.0/pulse/last')
       if (!res.ok) throw new Error(`NIST ${res.status}`)
       const data = (await res.json()) as any
       const hex = data?.pulse?.localRandomValue
+      const pulseTs = data?.pulse?.timeStamp
       if (!hex || hex.length < 2) throw new Error('NIST no value')
+      // 防重放：同一脉冲时间戳说明是同一个60秒窗口，拒绝复用
+      if (pulseTs && pulseTs === lastNistPulseTimestamp) {
+        throw new Error('NIST pulse reused (same 60s window)')
+      }
+      if (pulseTs) lastNistPulseTimestamp = pulseTs
       const v = parseInt(hex.slice(0, 2), 16)
       if (isNaN(v)) throw new Error('NIST invalid')
       return v
@@ -40,9 +50,9 @@ const entropySources: Array<{ name: string; fetch: () => Promise<number> }> = [
 
 /**
  * 获取一个 0-255 的随机字节，source 标明实际使用的熵源。
+ * 全部物理熵源失败时抛出错误。
  */
 export async function fetchPhysicalEntropy(): Promise<EntropyResult> {
-  // 用 Web Crypto 随机选起点（仅用于选源，不参与最终结果）
   const selector = new Uint8Array(1)
   crypto.getRandomValues(selector)
   const startIdx = selector[0] % entropySources.length
@@ -59,9 +69,21 @@ export async function fetchPhysicalEntropy(): Promise<EntropyResult> {
     }
   }
 
-  // 所有真物理熵源失败 → Web Crypto 兜底
-  const arr = new Uint8Array(1)
-  crypto.getRandomValues(arr)
-  console.warn('[entropy] all physical entropy sources failed, fallback to Web Crypto:', lastErr)
-  return { value: arr[0], source: 'crypto' }
+  throw new Error(`物理熵采集失败（所有源不可用）: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`)
+}
+
+/**
+ * 基于物理熵的均匀随机整数 [0, n-1]，使用拒绝采样消除 modulo bias。
+ * maxValid = floor(256/n)*n，拒绝 >= maxValid 的值，最多重试3次。
+ */
+export async function fetchUniformEntropy(n: number): Promise<EntropyResult & { uniformValue: number }> {
+  const maxValid = Math.floor(256 / n) * n
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, source } = await fetchPhysicalEntropy()
+    if (value < maxValid) {
+      return { value, source, uniformValue: value % n }
+    }
+  }
+  const { value, source } = await fetchPhysicalEntropy()
+  return { value, source, uniformValue: value % n }
 }

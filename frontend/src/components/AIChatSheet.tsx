@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Send, Sparkles, Plus, History, Trash2, Square, Cpu, X, Brain, Pin, Tag, Mic, AtSign, SlidersHorizontal, Paperclip, Globe } from 'lucide-react'
+import { Send, Sparkles, Plus, History, Trash2, Square, X, Brain, Pin, Tag, Mic, Paperclip, SlidersHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -11,18 +10,14 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { useTheme } from '@/lib/theme'
-import { aiApi, notesApi, tasksApi, type ChatSessionPreview } from '@/lib/api'
+import { aiApi, type ChatSessionPreview } from '@/lib/api'
 import { copyChatAsMarkdown, downloadChatMarkdown, exportChatPdf } from '@/lib/chat-export'
 import { cn } from '@/lib/utils'
 
-type ToolCall = { name: string; observation: string }
 type Msg = {
   id: string
   role: 'user' | 'assistant'
   content: string
-  tools?: ToolCall[]
-  sources?: { title: string; url: string }[]
   reasoning?: string
   pending?: boolean
 }
@@ -42,41 +37,6 @@ function splitThink(raw: string): { think: string; rest: string } {
   const think = raw.slice(start + '<think>'.length, end).trim()
   const rest = (raw.slice(0, start) + raw.slice(end + '</think>'.length)).trim()
   return { think, rest }
-}
-
-const SUGGESTIONS = [
-  '帮我加个任务：明天下午3点交周报',
-  '今天的任务完成情况怎么样？',
-  '记条笔记：刚想到的产品灵感…',
-  '搜一下今天 AI 圈有什么重要新闻',
-]
-
-const TOOL_LABEL: Record<string, string> = {
-  create_task: '创建任务',
-  search_tasks: '搜索任务',
-  complete_task: '标记完成',
-  delete_task: '删除任务',
-  update_task: '更新任务',
-  create_task_list: '新建列表',
-  update_task_list: '修改列表',
-  delete_task_list: '删除列表',
-  create_subtask: '添加子任务',
-  toggle_subtask: '勾选子任务',
-  delete_subtask: '删除子任务',
-  get_overview: '查看概览',
-  add_note: '保存笔记',
-  update_note: '修改笔记',
-  delete_note: '删除笔记',
-  search_notes: '搜索笔记',
-  search_knowledge: '搜索知识库',
-  summarize_knowledge: '总结文档',
-  ask_knowledge: '知识库问答',
-  get_ai_config: '查看 AI 配置',
-  update_ai_config: '修改 AI 配置',
-  set_theme: '切换主题',
-  navigate: '页面跳转',
-  coin_flip: '抛硬币',
-  web_search: '联网搜索',
 }
 
 function genId() {
@@ -109,17 +69,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }) {
   )
 }
 
-// 把"建/查"类工具映射到可跳转的模块路由
-function toolTarget(t: ToolCall): string | null {
-  if (t.name === 'create_task' || t.name === 'create_subtask' || t.name === 'create_task_list' || t.name === 'search_tasks') return '/tasks'
-  if (t.name === 'add_note' || t.name === 'update_note' || t.name === 'search_notes') return '/notes'
-  if (t.name === 'search_knowledge' || t.name === 'summarize_knowledge' || t.name === 'ask_knowledge') return '/knowledge'
-  return null
-}
-
 function BuiltinAIChat() {
-  const { setTheme } = useTheme()
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [open, setOpen] = useState(false)
@@ -130,20 +80,16 @@ function BuiltinAIChat() {
   const [sessions, setSessions] = useState<ChatSessionPreview[]>([])
   const [sessionId, setSessionId] = useState<string | null>(sessionStore.sessionId)
   const [deepThink, setDeepThink] = useState<boolean>(sessionStore.deepThink)
-  const [webSearch, setWebSearch] = useState<boolean>(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [customPrompt, setCustomPrompt] = useState<string>(() => localStorage.getItem('chat_sysprompt') || '')
   const customPromptRef = useRef<string>(customPrompt)
   customPromptRef.current = customPrompt
   useEffect(() => { localStorage.setItem('chat_sysprompt', customPrompt) }, [customPrompt])
-  const [atOpen, setAtOpen] = useState(false)
   const [images, setImages] = useState<{ id: string; dataUrl: string; name: string }[]>([])
   const imagesRef = useRef<{ id: string; dataUrl: string; name: string }[]>(images)
   imagesRef.current = images
   const fileRef = useRef<HTMLInputElement>(null)
-  const [atQuery, setAtQuery] = useState('')
-  const [atResults, setAtResults] = useState<{ kind: 'note' | 'task'; id: string; title: string; content: string }[]>([])
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<any>(null)
   const [speechSupported] = useState<boolean>(() => {
@@ -155,10 +101,8 @@ function BuiltinAIChat() {
   const abortRef = useRef<AbortController | null>(null)
   const sessionIdRef = useRef<string | null>(sessionId)
   const deepThinkRef = useRef<boolean>(deepThink)
-  const webSearchRef = useRef<boolean>(webSearch)
   sessionIdRef.current = sessionId
   deepThinkRef.current = deepThink
-  webSearchRef.current = webSearch
 
   // 同步到模块级 store，跨开/关保留
   useEffect(() => { sessionStore.messages = messages }, [messages])
@@ -179,12 +123,6 @@ function BuiltinAIChat() {
   useEffect(() => {
     if (open && historyOpen) loadSessions()
   }, [open, historyOpen, loadSessions])
-
-  const applyAction = useCallback((action: any) => {
-    if (!action) return
-    if (action.type === 'theme') setTheme(action.payload as 'light' | 'dark' | 'system')
-    else if (action.type === 'navigate') navigate(action.payload)
-  }, [setTheme, navigate])
 
   const handleFiles = (files: FileList | null) => {
     if (!files || !files.length) return
@@ -208,13 +146,12 @@ function BuiltinAIChat() {
     setInput('')
     setImages([])
     const userMsg: Msg = { id: genId(), role: 'user', content: t }
-    const aiMsg: Msg = { id: genId(), role: 'assistant', content: '', tools: [], pending: true }
+    const aiMsg: Msg = { id: genId(), role: 'assistant', content: '', pending: true }
     setMessages((m) => [...m, userMsg, aiMsg])
     setLoading(true)
 
     const ctrl = aiApi.chatStream(t, sessionIdRef.current, {
       deepThink: deepThinkRef.current,
-      webSearch: webSearchRef.current,
       systemPrompt: customPromptRef.current,
       images: imgs,
       onDelta: (chunk) => {
@@ -223,21 +160,10 @@ function BuiltinAIChat() {
       onReasoning: (chunk) => {
         setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg))
       },
-      onTool: ({ name, observation }) => {
-        setMessages((m) => m.map((msg) => msg.id === aiMsg.id
-          ? { ...msg, tools: [...(msg.tools || []), { name, observation }] }
-          : msg))
-      },
-      onSources: (sources) => {
-        setMessages((m) => m.map((msg) => msg.id === aiMsg.id
-          ? { ...msg, sources: [...(msg.sources || []), ...sources] }
-          : msg))
-      },
       onDone: (ev) => {
         setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, pending: false } : msg))
         if (ev.sessionId) setSessionId(ev.sessionId)
         if (ev.refresh) queryClient.invalidateQueries()
-        applyAction(ev.action)
         setLoading(false)
       },
       onError: (msg) => {
@@ -248,7 +174,7 @@ function BuiltinAIChat() {
       },
     })
     abortRef.current = ctrl
-  }, [loading, applyAction, queryClient])
+  }, [loading, queryClient])
 
   const newChat = () => {
     abortRef.current?.abort()
@@ -260,19 +186,13 @@ function BuiltinAIChat() {
   const openSession = async (id: string) => {
     try {
       const { messages: rows } = await aiApi.getChatSession(id)
-      const restored: Msg[] = rows.map((r) => {
-        const tools = r.toolCalls ? JSON.parse(r.toolCalls) : undefined
-        const sources = (tools || []).flatMap((t: any) => t.sources || []).filter(Boolean)
-        return {
-          id: genId(),
-          role: r.role === 'assistant' ? 'assistant' : 'user',
-          content: r.content || '',
-          tools,
-          sources: sources.length ? sources : undefined,
-          reasoning: undefined,
-          pending: false,
-        }
-      })
+      const restored: Msg[] = rows.map((r) => ({
+        id: genId(),
+        role: r.role === 'assistant' ? 'assistant' : 'user',
+        content: r.content || '',
+        reasoning: undefined,
+        pending: false,
+      }))
       setSessionId(id)
       setMessages(restored)
       setHistoryOpen(false)
@@ -334,29 +254,6 @@ function BuiltinAIChat() {
     try { rec.start(); setListening(true) } catch {}
   }
 
-  // @ 引用：把笔记/任务作为上下文注入到下一条消息
-  const openMention = async () => {
-    setAtOpen(true)
-    try {
-      const [notes, tasks] = await Promise.all([notesApi.list(), tasksApi.list()])
-      setAtResults([
-        ...(notes || []).slice(0, 20).map((n: any) => ({ kind: 'note' as const, id: n.id, title: n.title, content: n.content || '' })),
-        ...(tasks || []).slice(0, 20).map((t: any) => ({ kind: 'task' as const, id: t.id, title: t.title, content: '' })),
-      ])
-    } catch {}
-  }
-  const selectMention = (item: { kind: 'note' | 'task'; title: string; content: string }) => {
-    const ref = item.kind === 'note'
-      ? `\n\n参考笔记《${item.title}》：${(item.content || '').slice(0, 600)}`
-      : `\n\n参考任务：${item.title}`
-    setInput((v) => (v ? v + '\n' : '') + ref)
-    setAtOpen(false)
-    setAtQuery('')
-  }
-  const filteredMention = atResults.filter((r) =>
-    !atQuery.trim() || r.title.toLowerCase().includes(atQuery.trim().toLowerCase())
-  )
-
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -409,31 +306,15 @@ function BuiltinAIChat() {
               /* ── 空状态：DeepSeek 风格居中布局 ── */
               <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
                 <div className="mb-6 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary">
-                  <Cpu className="size-7" />
+                  <Sparkles className="size-7" />
                 </div>
-                <p className="text-base font-medium text-white/90">有什么要我做的？</p>
+                <p className="text-base font-medium text-white/90">有什么想聊的？</p>
                 <p className="mt-1.5 max-w-[280px] text-[13px] leading-relaxed text-white/40">
-                  说一句话，我就能直接替你操作工作台：建任务、记笔记、查知识库、联网搜索……当然也能随便聊
+                  问答、写作、翻译、代码、闲聊，随时找我
                 </p>
-                {/* 快捷操作 chip */}
-                <div className="mt-6 flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.slice(0, 4).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => send(s)}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[13px] text-white/60 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white/90 disabled:opacity-40"
-                    >
-                      {s.length > 16 ? s.slice(0, 14) + '…' : s}
-                    </button>
-                  ))}
-                </div>
                 {/* 模式提示 */}
                 <div className="mt-6 flex items-center gap-3 text-[11px] text-white/25">
                   <span className="flex items-center gap-1"><Brain className="size-3" /> 深度思考</span>
-                  <span className="flex items-center gap-1"><Globe className="size-3" /> 联网搜索</span>
-                  <span className="flex items-center gap-1"><AtSign className="size-3" /> 引用笔记</span>
                 </div>
               </div>
             ) : (
@@ -458,27 +339,6 @@ function BuiltinAIChat() {
                           /* AI 消息：左侧，无背景，直接渲染 */
                           <div className="space-y-3">
                             {reasoningText && <ThinkingBlock text={reasoningText} />}
-                            {m.tools && m.tools.length > 0 && (
-                              <div className="space-y-1.5">
-                                {m.tools.map((t, i) => (
-                                  <div key={i} className="flex items-start gap-2 rounded-xl bg-white/5 px-3 py-2 text-[13px] text-white/60">
-                                    <span className="mt-0.5 shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-medium text-primary/80">
-                                      {TOOL_LABEL[t.name] || t.name}
-                                    </span>
-                                    <span className="break-words leading-relaxed">{t.observation}</span>
-                                    {toolTarget(t) && (
-                                      <button
-                                        type="button"
-                                        onClick={() => navigate(toolTarget(t)!)}
-                                        className="mt-0.5 shrink-0 rounded-md px-1.5 text-[12px] font-medium text-primary/70 hover:text-primary"
-                                      >
-                                        查看 →
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                             {rest ? (
                               <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-white/90 prose-headings:font-semibold prose-p:text-white/75 prose-li:text-white/75 prose-strong:text-white/90 prose-code:text-white/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-white/60 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={{ pre: CodeBlock }}>
@@ -492,16 +352,6 @@ function BuiltinAIChat() {
                                 <span className="inline-block size-1.5 animate-pulse rounded-full bg-white/50" style={{ animationDelay: '0.4s' }} />
                               </span>
                             ) : null}
-                            {m.sources && m.sources.length > 0 && (
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                <span className="text-[11px] text-white/30">来源</span>
-                                {m.sources.map((s, i) => (
-                                  <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.title} className="max-w-[160px] truncate rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/40 transition-colors hover:bg-white/10 hover:text-white/60">
-                                    {s.title || s.url}
-                                  </a>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
@@ -574,58 +424,6 @@ function BuiltinAIChat() {
 
         {/* ── 输入区：DeepSeek 风格全宽圆角输入栏 ── */}
         <div className="border-t border-white/5 px-3 py-3">
-          {/* @ 引用面板 */}
-          {atOpen && (
-            <div className="mb-2 rounded-xl border border-white/10 bg-white/5 p-2.5">
-              <input
-                value={atQuery}
-                onChange={(e) => setAtQuery(e.target.value)}
-                placeholder="搜索要引用的笔记 / 任务…"
-                className="mb-2 w-full rounded-lg border border-white/10 bg-transparent px-2.5 py-1.5 text-[13px] text-white placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-              />
-              <div className="max-h-36 space-y-0.5 overflow-y-auto">
-                {filteredMention.length === 0 && (
-                  <p className="px-1 py-2 text-center text-[12px] text-white/30">没有可引用的笔记 / 任务</p>
-                )}
-                {filteredMention.map((r) => (
-                  <button
-                    key={r.kind + r.id}
-                    type="button"
-                    onClick={() => selectMention(r)}
-                    className="block w-full truncate rounded-lg px-2.5 py-1.5 text-left text-[13px] text-white/60 transition-colors hover:bg-white/5 hover:text-white/80"
-                  >
-                    <span className="mr-1.5 rounded bg-primary/10 px-1 text-[10px] text-primary/70">{r.kind === 'note' ? '笔记' : '任务'}</span>
-                    {r.title}
-                  </button>
-                ))}
-              </div>
-              <button type="button" onClick={() => setAtOpen(false)} className="mt-1.5 w-full text-center text-[11px] text-white/30 hover:text-white/50">关闭</button>
-            </div>
-          )}
-
-          {/* / 快捷指令 */}
-          {input.startsWith('/') && (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {[['/task', '建任务'], ['/note', '记笔记'], ['/search', '搜索']].map(([cmd, label]) => (
-                <button
-                  key={cmd}
-                  type="button"
-                  onClick={() => setInput(`${cmd} `)}
-                  className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[12px] text-white/50 transition-colors hover:border-white/20 hover:text-white/70"
-                >
-                  {cmd} {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={newChat}
-                className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[12px] text-white/50 transition-colors hover:border-white/20 hover:text-white/70"
-              >
-                /clear 清屏
-              </button>
-            </div>
-          )}
-
           {/* 图片预览 */}
           {images.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -679,19 +477,6 @@ function BuiltinAIChat() {
                 >
                   <Brain className="size-3.5" /> 深度思考
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setWebSearch((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors',
-                    webSearch
-                      ? 'border-primary/60 bg-primary/15 text-primary'
-                      : 'border-white/10 text-white/45 hover:border-white/20 hover:text-white/70'
-                  )}
-                  title="开启后 AI 会先上网查最新资料再回答"
-                >
-                  <Globe className="size-3.5" /> 联网搜索
-                </button>
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
@@ -710,9 +495,6 @@ function BuiltinAIChat() {
                 <Button type="button" variant="ghost" size="icon" className="size-8 text-white/40 hover:text-white" title="上传图片" onClick={() => fileRef.current?.click()}>
                   <Paperclip className="size-4" />
                 </Button>
-                <Button type="button" variant="ghost" size="icon" className="size-8 text-white/40 hover:text-white" title="引用笔记/任务" onClick={openMention}>
-                  <AtSign className="size-4" />
-                </Button>
                 {loading ? (
                   <Button size="icon" className="size-8 shrink-0 rounded-xl" onClick={stop} title="停止">
                     <Square className="size-3.5" />
@@ -728,7 +510,7 @@ function BuiltinAIChat() {
 
           {/* 底部极简提示 */}
           <p className="mt-1.5 px-1 text-center text-[10px] leading-relaxed text-white/20">
-            Enter 发送 · Shift+Enter 换行 · 支持图片 / 语音 / 引用笔记
+            Enter 发送 · Shift+Enter 换行 · 支持图片 / 语音
           </p>
         </div>
       </SheetContent>

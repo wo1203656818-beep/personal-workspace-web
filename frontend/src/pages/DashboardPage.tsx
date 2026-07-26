@@ -9,8 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi } from '@/lib/api'
-import { format } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { formatCST, parseStoredTime } from '@/lib/datetime'
 
@@ -78,7 +76,8 @@ export function DashboardPage() {
       .slice(0, 5)
   }, [notes])
 
-  const today = format(new Date(), 'yyyy年MM月dd日 EEEE', { locale: zhCN })
+  const todayFormatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+  const today = todayFormatter.format(new Date())
 
   return (
     <div className="p-4 sm:p-6">

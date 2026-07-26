@@ -83,9 +83,12 @@ export interface DailyFortune {
   id: string
   date: string
   result: string
+  level?: string
+  poem?: string
+  interpret?: string
   entropySource: string
   rawValue: number
-  interpretation: string
+  interpretation?: string
   createdAt: string
 }
 
@@ -329,7 +332,7 @@ export const coinApi = {
 export const toolsApi = {
   answer: () => api.post('tools/answer').json<{ result: string; source: string; rawValue: number }>(),
   answerHistory: () => api.get('tools/answer/history').json<AnswerBookDraw[]>(),
-  fortune: () => api.post('tools/fortune').json<{ result: string; interpretation: string; source: string; rawValue: number; cached?: boolean }>(),
+  fortune: () => api.post('tools/fortune').json<{ result: string; level: string; poem: string; interpret: string; source: string; rawValue: number; cached?: boolean }>(),
   fortuneHistory: () => api.get('tools/fortune/history').json<DailyFortune[]>(),
 }
 

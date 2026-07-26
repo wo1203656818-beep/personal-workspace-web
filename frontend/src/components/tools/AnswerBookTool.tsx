@@ -3,6 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { BookOpen, Sparkles, History, Loader2 } from 'lucide-react'
 import { toolsApi } from '@/lib/api'
+import { formatCST } from '@/lib/datetime'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,7 +20,7 @@ type AnswerItem = {
 function entropyLabel(source: string) {
   if (source === 'random_org') return '大气噪声'
   if (source === 'nist_beacon') return 'NIST 量子熵'
-  return 'Web Crypto'
+  return '未知熵源'
 }
 
 export function AnswerBookTool() {
@@ -135,7 +136,7 @@ export function AnswerBookTool() {
                   <span className="font-medium">{item.result}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {new Date(item.createdAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {formatCST(item.createdAt, 'cnShort')}
                 </span>
               </div>
             ))}
