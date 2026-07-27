@@ -6,7 +6,7 @@ import { Jwt } from 'hono/utils/jwt'
 import { cors } from 'hono/cors'
 import { HTTPException } from 'hono/http-exception'
 import { drizzle } from 'drizzle-orm/d1'
-import { eq, and, or, isNotNull, isNull, like, desc, gte, gt, lt, asc, inArray, sql, getTableColumns } from 'drizzle-orm'
+import { eq, and, or, isNotNull, isNull, like, desc, gte, gt, lt, asc, inArray, sql, getTableColumns, max, count } from 'drizzle-orm'
 import * as schema from './schema'
 import type { Env, ChatMessage } from './types'
 import {
@@ -37,6 +37,28 @@ import { createMcpHandler } from 'agents/mcp'
 const TASK_COLUMNS = getTableColumns(schema.tasks)
 // 任务列表用摘要列：排除可能很大的 note 字段，详情接口再返回完整内容
 const { note: _taskNote, ...TASK_SUMMARY_COLUMNS } = TASK_COLUMNS
+
+// 列表查询任务的通用聚合：单次扫 subtasks 表产出每个 taskId 的数量，避免逐行子查询
+// 用法：在每个任务列表端点内 { subAgg } = buildSubtaskAgg(db) 后 LEFT JOIN 或 Map 聚合后拼回结果
+function buildSubtaskAgg(db: ReturnType<typeof drizzle<any>>) {
+  return {
+    async counts(taskIds: string[]) {
+      if (!taskIds.length) return new Map<string, { subtaskCount: number; completedSubtaskCount: number }>()
+      const rows = await db
+        .select({
+          taskId: schema.subtasks.taskId,
+          subtaskCount: count(schema.subtasks.id),
+          completedSubtaskCount: sql<number>`SUM(CASE WHEN ${schema.subtasks.isCompleted} = 1 THEN 1 ELSE 0 END)`,
+        })
+        .from(schema.subtasks)
+        .where(inArray(schema.subtasks.taskId, taskIds))
+        .groupBy(schema.subtasks.taskId)
+      const m = new Map<string, { subtaskCount: number; completedSubtaskCount: number }>()
+      for (const r of rows) m.set(r.taskId, { subtaskCount: Number(r.subtaskCount), completedSubtaskCount: Number(r.completedSubtaskCount) ?? 0 })
+      return m
+    },
+  }
+}
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -419,17 +441,35 @@ app.onError((err, c) => {
 // 获取所有列表
 app.get('/api/tasks/lists', async (c) => {
   const db = drizzle(c.env.DB, { schema })
+  const withStats = c.req.query('stats') === '1'
   const lists = await db.select().from(schema.taskLists).orderBy(schema.taskLists.sortOrder)
-  return c.json(lists)
+  if (!withStats) return c.json(lists)
+  const stats = await db
+    .select({
+      listId: schema.tasks.listId,
+      total: count(schema.tasks.id),
+      active: sql<number>`SUM(CASE WHEN ${schema.tasks.isCompleted} = 0 AND ${schema.tasks.msTodoDeletedAt} IS NULL THEN 1 ELSE 0 END)`,
+      completed: sql<number>`SUM(CASE WHEN ${schema.tasks.isCompleted} = 1 AND ${schema.tasks.msTodoDeletedAt} IS NULL THEN 1 ELSE 0 END)`,
+    })
+    .from(schema.tasks)
+    .where(isNull(schema.tasks.msTodoDeletedAt))
+    .groupBy(schema.tasks.listId)
+  const sm = new Map<string, { total: number; active: number; completed: number }>()
+  for (const s of stats) sm.set(s.listId, { total: Number(s.total), active: Number(s.active) ?? 0, completed: Number(s.completed) ?? 0 })
+  const enriched = lists.map((l) => {
+    const s = sm.get(l.id) || { total: 0, active: 0, completed: 0 }
+    return { ...l, taskCount: s.total, activeTaskCount: s.active, completedTaskCount: s.completed }
+  })
+  return c.json(enriched)
 })
 
 // 创建列表
 app.post('/api/tasks/lists', async (c) => {
   const { name, color } = createListSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
-  // 任务列表排在末尾：sortOrder 取当前最大值 + 1
-  const existingLists = await db.select({ sortOrder: schema.taskLists.sortOrder }).from(schema.taskLists)
-  const maxSort = existingLists.reduce((m, l) => Math.max(m, l.sortOrder ?? 0), 0)
+  // 任务列表排在末尾：SQL MAX 代替全表拉回
+  const [maxRow] = await db.select({ v: max(schema.taskLists.sortOrder) }).from(schema.taskLists)
+  const maxSort = Number(maxRow.v ?? 0)
 
   const id = crypto.randomUUID()
   await db.insert(schema.taskLists).values({
@@ -498,16 +538,34 @@ app.delete('/api/tasks/lists/:id', async (c) => {
 
 // ========== 任务 ==========
 
+// 查询任务列表 + 拼回 subtask 统计（2 次 roundtrip 代替逐行子查询 N 次）
+async function queryTasksWithSubtaskStats(
+  db: ReturnType<typeof drizzle<any>>,
+  whereClause: any,
+  orderClause: any[],
+): Promise<any[]> {
+  const rows: any[] = await db.select({ ...TASK_SUMMARY_COLUMNS })
+    .from(schema.tasks)
+    .where(whereClause)
+    .orderBy(...orderClause)
+  const ids = rows.map((r) => r.id)
+  const agg = buildSubtaskAgg(db)
+  const counts = await agg.counts(ids)
+  return rows.map((r) => {
+    const s = counts.get(r.id) || { subtaskCount: 0, completedSubtaskCount: 0 }
+    return { ...r, subtaskCount: s.subtaskCount, completedSubtaskCount: s.completedSubtaskCount }
+  })
+}
+
 // 获取列表下的任务
 app.get('/api/tasks/lists/:id/tasks', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoDeletedAt)))
-    .orderBy(schema.tasks.sortOrder)
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoDeletedAt)),
+    [schema.tasks.sortOrder],
+  )
   return c.json(result)
 })
 
@@ -515,36 +573,33 @@ app.get('/api/tasks/lists/:id/tasks', async (c) => {
 app.get('/api/tasks/myday', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.myDayDate, today), isNull(schema.tasks.msTodoDeletedAt)))
-    .orderBy(schema.tasks.sortOrder, desc(schema.tasks.createdAt))
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.myDayDate, today), isNull(schema.tasks.msTodoDeletedAt)),
+    [schema.tasks.sortOrder, desc(schema.tasks.createdAt)],
+  )
   return c.json(result)
 })
 
 // 重要（须放在 /:id 之前避免被捕获）
 app.get('/api/tasks/important', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(and(eq(schema.tasks.isImportant, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
-    .orderBy(schema.tasks.sortOrder, desc(schema.tasks.createdAt))
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    and(eq(schema.tasks.isImportant, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)),
+    [schema.tasks.sortOrder, desc(schema.tasks.createdAt)],
+  )
   return c.json(result)
 })
 
 // 已计划（须放在 /:id 之前避免被捕获）
 app.get('/api/tasks/planned', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(and(isNotNull(schema.tasks.dueDate), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
-    .orderBy(schema.tasks.dueDate, schema.tasks.sortOrder)
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    and(isNotNull(schema.tasks.dueDate), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)),
+    [schema.tasks.dueDate, schema.tasks.sortOrder],
+  )
   return c.json(result)
 })
 
@@ -553,23 +608,22 @@ app.get('/api/tasks/search', async (c) => {
   const q = c.req.query('q') || ''
   if (!q) return c.json([])
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(and(or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)), isNull(schema.tasks.msTodoDeletedAt)))
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    and(or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)), isNull(schema.tasks.msTodoDeletedAt)),
+    [desc(schema.tasks.createdAt)],
+  )
   return c.json(result)
 })
 
 // 全部任务（用于任务总览页）
 app.get('/api/tasks', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select({
-    ...TASK_SUMMARY_COLUMNS,
-    subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
-  }).from(schema.tasks)
-    .where(isNull(schema.tasks.msTodoDeletedAt))
-    .orderBy(desc(schema.tasks.createdAt))
+  const result = await queryTasksWithSubtaskStats(
+    db,
+    isNull(schema.tasks.msTodoDeletedAt),
+    [desc(schema.tasks.createdAt)],
+  )
   return c.json(result)
 })
 
@@ -588,17 +642,17 @@ app.post('/api/tasks', async (c) => {
   const body = createTaskSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
 
-  // 校验 listId 存在 + 计算最大 sortOrder 可并行
-  const [list, existingTasks] = await Promise.all([
-    db.select().from(schema.taskLists).where(eq(schema.taskLists.id, body.listId)),
-    db.select({ sortOrder: schema.tasks.sortOrder }).from(schema.tasks).where(eq(schema.tasks.listId, body.listId)),
+  // 校验 listId 存在 + SQL MAX(sortOrder) 代替全表拉回
+  const [list, maxRow] = await Promise.all([
+    db.select({ id: schema.taskLists.id }).from(schema.taskLists).where(eq(schema.taskLists.id, body.listId)),
+    db.select({ v: max(schema.tasks.sortOrder) }).from(schema.tasks).where(eq(schema.tasks.listId, body.listId)),
   ])
   if (list.length === 0) {
     return c.json({ error: '指定的任务列表不存在' }, 400)
   }
 
   // 新任务排在列表末尾：sortOrder 取当前列表最大值 + 1
-  const maxSort = existingTasks.reduce((m, t) => Math.max(m, t.sortOrder ?? 0), 0)
+  const maxSort = Number(maxRow[0]?.v ?? 0)
 
   const id = crypto.randomUUID()
   await db.insert(schema.tasks).values({
@@ -701,6 +755,25 @@ app.delete('/api/tasks/:id/myday', async (c) => {
     updatedAt: nowBeijing(),
   }).where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
+})
+
+// 任务批量排序（拖拽后，1 次 roundtrip 代替 N 次单任务 PUT）
+app.put('/api/tasks/reorder', async (c) => {
+  try {
+    const { orders } = await c.req.json() as { orders: { id: string; sortOrder: number }[] }
+    if (!orders || !Array.isArray(orders)) return c.json({ error: 'orders required' }, 400)
+    const db = drizzle(c.env.DB, { schema })
+    const valid = orders.filter((o) => o && typeof o.sortOrder === 'number')
+    if (valid.length === 0) return c.json({ ok: true })
+    const now = nowBeijing()
+    // 逐条更新；D1/D1-like drizzle batch 类型严格，顺序执行更稳且数量有限
+    for (const o of valid) {
+      await db.update(schema.tasks).set({ sortOrder: o.sortOrder, updatedAt: now }).where(eq(schema.tasks.id, o.id))
+    }
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: '排序失败', detail: e.message }, 500)
+  }
 })
 
 // ========== 子任务 ==========

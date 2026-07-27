@@ -164,10 +164,10 @@ export function TasksPage() {
     staleTime: 2 * 60 * 1000,
   })
 
-  // 获取任务列表名称（列表视图时）
+  // 获取任务列表名称 + 计数（列表总览时 listWithStats 避免前端扫全部任务算 badge）
   const { data: lists = [] } = useQuery({
-    queryKey: ['taskLists'],
-    queryFn: taskListsApi.list,
+    queryKey: isListsOverview ? ['taskLists', { stats: 1 }] : ['taskLists'],
+    queryFn: isListsOverview ? taskListsApi.listWithStats : taskListsApi.list,
     staleTime: 2 * 60 * 1000,
   })
 
@@ -341,7 +341,8 @@ export function TasksPage() {
     onError: (err: Error) => toast.error(`创建失败: ${err.message}`),
   })
 
-  // 更新任务（含勾选完成）。乐观更新：勾选后立即在列表里变，后台静默同步。
+  // 更新任务（含勾选完成）。乐观更新：本地立即反映，成功后静默回源单条对齐即可。
+  // 注意：禁止使用宽前缀 invalidateQueries(['tasks']) — 会同时重拉 all/myday/important/planned/list* 共 6+ 缓存。
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Task> }) => tasksApi.update(id, data),
     onMutate: async ({ id, data }) => {
@@ -352,16 +353,21 @@ export function TasksPage() {
       )
       return { prev }
     },
-    onSuccess: (_data, variables) => {
-      // 任务完成态变化会影响其下子任务展示，刷新子任务与详情
-      queryClient.invalidateQueries({ queryKey: ['subtasks', variables.id] })
-      queryClient.invalidateQueries({ queryKey: ['task', variables.id] })
+    onSuccess: (returnedTask, variables) => {
+      // 子任务展示 / 详情页 单独刷新（列表有乐观更新兜底）
+      queryClient.invalidateQueries({ queryKey: ['subtasks', variables.id], exact: true })
+      // 用服务端返回值覆盖乐观数据，保证 updatedAt/lastSyncedAt 等字段准确
+      if (returnedTask) {
+        queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
+          old?.map((t) => (t.id === variables.id ? { ...t, ...returnedTask } : t))
+        )
+        queryClient.setQueryData<Task>(['task', variables.id], returnedTask as any)
+      }
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) ctx.prev.forEach(([key, val]) => queryClient.setQueryData(key, val))
       toast.error(`更新失败`)
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   })
 
   // 删除任务（支持撤销恢复）
@@ -415,18 +421,34 @@ export function TasksPage() {
   const activeTasks = useMemo(() => tasks.filter((t: Task) => !t.isCompleted), [tasks])
   const completedTasks = useMemo(() => tasks.filter((t: Task) => t.isCompleted), [tasks])
 
-  // 拖拽排序（仅活跃任务）
+  // 任务批量重排（drag 结束后 1 次请求代替 N 次单条 PUT）
+  const reorderMutation = useMutation({
+    mutationFn: (orders: { id: string; sortOrder: number }[]) => tasksApi.reorder(orders),
+    onMutate: async (orders) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      const prev = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
+      const map = new Map(orders.map(o => [o.id, o.sortOrder]))
+      queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
+        old?.map((t) => (map.has(t.id) ? { ...t, sortOrder: map.get(t.id)! } : t))
+      )
+      return { prev }
+    },
+    onError: (_err, _vars, ctx) => {
+      if ((ctx as any)?.prev) (ctx as any).prev.forEach(([key, val]: any) => queryClient.setQueryData(key, val))
+      toast.error(`排序失败`)
+    },
+  })
+
+  // 拖拽排序（仅活跃任务）— 批量重排 1 次 roundtrip，避免 N 次乐观更新互相覆盖导致"混乱"
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return
     const items = Array.from(activeTasks)
     const [reordered] = items.splice(result.source.index, 1)
     items.splice(result.destination.index, 0, reordered)
-    // 更新 sortOrder
-    items.forEach((item, idx) => {
-      if (item.sortOrder !== idx) {
-        updateMutation.mutate({ id: item.id, data: { sortOrder: idx } })
-      }
-    })
+    const orders = items
+      .map((item, idx) => ({ id: item.id, sortOrder: idx }))
+      .filter((o, i) => items[i].sortOrder !== o.sortOrder)
+    if (orders.length > 0) reorderMutation.mutate(orders)
   }
 
   const completedCount = completedTasks.length
@@ -982,7 +1004,7 @@ function TaskRow({
             {task.title}
           </span>
         )}
-        {/* 子任务展开/收起按钮 */}
+        {/* 子任务展开/收起按钮；有子任务时展示完成进度 x/y，避免 N+1 拉取再算进度 */}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -993,8 +1015,13 @@ function TaskRow({
           }}
         >
           {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-          {(task.subtaskCount ?? 0) > 0 && (
-            <span className="ml-0.5 text-xs tabular-nums">{task.subtaskCount}</span>
+          {((task.subtaskCount ?? 0) > 0) && (
+            (() => {
+              const total = task.subtaskCount!
+              const done = (task.completedSubtaskCount ?? 0)
+              if (total === 1) return <span className="ml-0.5 text-xs tabular-nums">{total}</span>
+              return <span className={cn('ml-0.5 text-xs tabular-nums', done === total && 'text-emerald-600 dark:text-emerald-400')}>{done}/{total}</span>
+            })()
           )}
         </Button>
         {task.isImportant && <Star className="size-4 fill-yellow-400 text-yellow-400" />}

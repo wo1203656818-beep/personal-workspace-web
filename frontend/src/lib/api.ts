@@ -11,6 +11,9 @@ export interface TaskList {
   msTodoListId?: string | null
   createdAt: string
   updatedAt: string
+  taskCount?: number
+  activeTaskCount?: number
+  completedTaskCount?: number
 }
 
 export interface Task {
@@ -30,6 +33,7 @@ export interface Task {
   createdAt: string
   updatedAt: string
   subtaskCount?: number
+  completedSubtaskCount?: number
 }
 
 export interface Subtask {
@@ -186,6 +190,7 @@ export const authApi = {
 // 任务列表
 export const taskListsApi = {
   list: () => api.get('tasks/lists').json<TaskList[]>(),
+  listWithStats: () => api.get('tasks/lists', { searchParams: { stats: '1' } }).json<TaskList[]>(),
   create: (data: { name: string; color?: string }) => api.post('tasks/lists', { json: data }).json<TaskList>(),
   update: (id: string, data: { name?: string; color?: string }) => api.put(`tasks/lists/${id}`, { json: data }).json<TaskList>(),
   delete: (id: string) => api.delete(`tasks/lists/${id}`).json(),
@@ -206,6 +211,7 @@ export const tasksApi = {
   delete: (id: string) => api.delete(`tasks/${id}`).json(),
   addToMyDay: (id: string) => api.post(`tasks/${id}/myday`).json(),
   removeFromMyDay: (id: string) => api.delete(`tasks/${id}/myday`).json(),
+  reorder: (orders: { id: string; sortOrder: number }[]) => api.put('tasks/reorder', { json: { orders } }).json(),
 }
 
 // 子任务
