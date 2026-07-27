@@ -8,7 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi } from '@/lib/api'
+import { tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi, type NoteSummary, type KbSummary } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatCST, parseStoredTime } from '@/lib/datetime'
 
@@ -25,15 +25,15 @@ export function DashboardPage() {
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: notes = [] } = useQuery({
+  const { data: notes = [] } = useQuery<NoteSummary[]>({
     queryKey: ['notes'],
-    queryFn: notesApi.list,
+    queryFn: notesApi.listSummary,
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: kbDocs = [] } = useQuery({
+  const { data: kbDocs = [] } = useQuery<KbSummary[]>({
     queryKey: ['kbDocs'],
-    queryFn: kbApi.list,
+    queryFn: kbApi.listSummary,
     staleTime: 2 * 60 * 1000,
   })
 

@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, Save, ChevronDown, Bold, Italic, Heading, Link as LinkIcon, List, Sparkles, Columns2, CheckCircle2, AlertCircle } from 'lucide-react'
-import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type Note } from '@/lib/api'
+import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type Note, type NoteSummary } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatCST } from '@/lib/datetime'
 import { Button } from '@/components/ui/button'
@@ -148,9 +148,9 @@ export function NotesPage() {
 
   const trimmedQuery = searchQuery.trim()
 
-  const { data: notes = [] } = useQuery({
+  const { data: notes = [] } = useQuery<NoteSummary[]>({
     queryKey: ['notes'],
-    queryFn: notesApi.list,
+    queryFn: notesApi.listSummary,
     enabled: trimmedQuery.length === 0,
     staleTime: 2 * 60 * 1000,
   })
@@ -162,9 +162,18 @@ export function NotesPage() {
     staleTime: 2 * 60 * 1000,
   })
 
-  const displayedNotes = useMemo(() => {
+  const displayedNotes = useMemo<NoteSummary[]>(() => {
     const data = trimmedQuery ? searchResults : notes
-    return Array.isArray(data) ? data : []
+    return (Array.isArray(data) ? data : []).map((n) => ({
+      id: n.id,
+      title: n.title,
+      sourceFile: n.sourceFile,
+      importedAt: n.importedAt,
+      updatedAt: n.updatedAt,
+      snippet: 'snippet' in n
+        ? n.snippet
+        : (n.content || '').replace(/[#*`>[\]-]/g, '').slice(0, 100),
+    }))
   }, [trimmedQuery, searchResults, notes])
 
   const { data: selectedNote, isLoading: noteLoading } = useQuery({
@@ -219,8 +228,9 @@ export function NotesPage() {
 
   // 删除笔记（支持撤销恢复）
   const deleteNoteMutation = useMutation({
-    mutationFn: (noteId: string) => {
-      pendingDeleteNoteRef.current = notes.find((n) => n.id === noteId) ?? null
+    mutationFn: async (noteId: string) => {
+      // 列表是摘要，先取完整内容再删除，避免撤销时丢失正文
+      pendingDeleteNoteRef.current = await notesApi.get(noteId)
       return notesApi.delete(noteId)
     },
     onSuccess: () => {
@@ -816,7 +826,7 @@ export function NotesPage() {
             />
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {(displayedNotes || []).map((note: Note) => {
+              {(displayedNotes || []).map((note: NoteSummary) => {
                 const isIma = note.sourceFile === 'ima_openapi'
                 return (
                   <div
@@ -830,9 +840,9 @@ export function NotesPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{note.title}</p>
-                        {note.content && (
+                        {note.snippet && (
                           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {note.content.replace(/[#*`>[\]-]/g, '').slice(0, 100)}
+                            {note.snippet.replace(/[#*`>[\]-]/g, '').slice(0, 100)}
                           </p>
                         )}
                       </div>

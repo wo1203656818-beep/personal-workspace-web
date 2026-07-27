@@ -35,6 +35,8 @@ import { createMcpHandler } from 'agents/mcp'
 
 // 任务表的全部列（用于列表查询，避免 SELECT * 之余方便附加上 subtaskCount）
 const TASK_COLUMNS = getTableColumns(schema.tasks)
+// 任务列表用摘要列：排除可能很大的 note 字段，详情接口再返回完整内容
+const { note: _taskNote, ...TASK_SUMMARY_COLUMNS } = TASK_COLUMNS
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -501,7 +503,7 @@ app.get('/api/tasks/lists/:id/tasks', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoDeletedAt)))
@@ -514,7 +516,7 @@ app.get('/api/tasks/myday', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.myDayDate, today), isNull(schema.tasks.msTodoDeletedAt)))
@@ -526,7 +528,7 @@ app.get('/api/tasks/myday', async (c) => {
 app.get('/api/tasks/important', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(and(eq(schema.tasks.isImportant, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
@@ -538,7 +540,7 @@ app.get('/api/tasks/important', async (c) => {
 app.get('/api/tasks/planned', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(and(isNotNull(schema.tasks.dueDate), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
@@ -552,7 +554,7 @@ app.get('/api/tasks/search', async (c) => {
   if (!q) return c.json([])
   const db = drizzle(c.env.DB, { schema })
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(and(or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)), isNull(schema.tasks.msTodoDeletedAt)))
@@ -563,7 +565,7 @@ app.get('/api/tasks/search', async (c) => {
 app.get('/api/tasks', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await db.select({
-    ...TASK_COLUMNS,
+    ...TASK_SUMMARY_COLUMNS,
     subtaskCount: sql<number>`(SELECT COUNT(*) FROM ${schema.subtasks} WHERE ${schema.subtasks.taskId} = ${schema.tasks.id})`,
   }).from(schema.tasks)
     .where(isNull(schema.tasks.msTodoDeletedAt))
@@ -2767,6 +2769,21 @@ app.get('/api/notes', async (c) => {
   return c.json(rows)
 })
 
+// 笔记摘要列表：只返回列表需要的字段，避免传输大段 content
+app.get('/api/notes/summary', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10) || 50, 200)
+  const rows = await db.select({
+    id: schema.imaNotes.id,
+    title: schema.imaNotes.title,
+    sourceFile: schema.imaNotes.sourceFile,
+    importedAt: schema.imaNotes.importedAt,
+    updatedAt: schema.imaNotes.updatedAt,
+    snippet: sql<string>`substr(coalesce(${schema.imaNotes.content}, ''), 1, 200)`,
+  }).from(schema.imaNotes).orderBy(desc(schema.imaNotes.updatedAt)).limit(limit)
+  return c.json(rows)
+})
+
 // 搜索笔记
 app.get('/api/notes/search', async (c) => {
   const q = c.req.query('q') || ''
@@ -2827,6 +2844,27 @@ app.get('/api/kb', async (c) => {
     return c.json(rows)
   } catch (e: any) {
     console.error('[kb] list failed:', e?.message, e?.cause)
+    return c.json({ error: e.message || '查询知识库失败', detail: e.cause?.message }, 500)
+  }
+})
+
+// 知识库摘要列表：排除 content 大字段
+app.get('/api/kb/summary', async (c) => {
+  try {
+    const db = drizzle(c.env.DB, { schema })
+    const limit = Math.min(parseInt(c.req.query('limit') || '50', 10) || 50, 200)
+    const rows = await db.select({
+      id: schema.kbDocuments.id,
+      title: schema.kbDocuments.title,
+      fileType: schema.kbDocuments.fileType,
+      fileSize: schema.kbDocuments.fileSize,
+      r2Key: schema.kbDocuments.r2Key,
+      importedAt: schema.kbDocuments.importedAt,
+      updatedAt: schema.kbDocuments.updatedAt,
+    }).from(schema.kbDocuments).orderBy(desc(schema.kbDocuments.updatedAt)).limit(limit)
+    return c.json(rows)
+  } catch (e: any) {
+    console.error('[kb] summary failed:', e?.message, e?.cause)
     return c.json({ error: e.message || '查询知识库失败', detail: e.cause?.message }, 500)
   }
 })

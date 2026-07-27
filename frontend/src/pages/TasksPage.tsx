@@ -352,6 +352,11 @@ export function TasksPage() {
       )
       return { prev }
     },
+    onSuccess: (_data, variables) => {
+      // 任务完成态变化会影响其下子任务展示，刷新子任务与详情
+      queryClient.invalidateQueries({ queryKey: ['subtasks', variables.id] })
+      queryClient.invalidateQueries({ queryKey: ['task', variables.id] })
+    },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) ctx.prev.forEach(([key, val]) => queryClient.setQueryData(key, val))
       toast.error(`更新失败`)
@@ -361,8 +366,9 @@ export function TasksPage() {
 
   // 删除任务（支持撤销恢复）
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => {
-      pendingDeleteRef.current = tasks.find((t) => t.id === id) ?? null
+    mutationFn: async (id: string) => {
+      // 列表是摘要（不含 note 等大字段），先取完整任务再删除，避免撤销时丢失数据
+      pendingDeleteRef.current = await tasksApi.get(id)
       return tasksApi.delete(id)
     },
     onSuccess: () => {
@@ -661,6 +667,7 @@ export function TasksPage() {
               }}
               onDelete={setDeleteConfirmId}
               onDeleteList={(listId) => deleteListMutation.mutate(listId)}
+              completingTaskId={updateMutation.isPending ? updateMutation.variables?.id : null}
             />
           ) : activeTasks.length === 0 && (!showCompleted || completedTasks.length === 0) ? (
             <EmptyState
@@ -687,6 +694,7 @@ export function TasksPage() {
                                 updateMutation.mutate({ id: task.id, data: { isCompleted: !task.isCompleted } })
                               }
                               onDelete={() => setDeleteConfirmId(task.id)}
+                              isCompleting={updateMutation.isPending && updateMutation.variables?.id === task.id}
                             />
                           )}
                         </Draggable>
@@ -718,6 +726,7 @@ export function TasksPage() {
                         updateMutation.mutate({ id: task.id, data: { isCompleted: !task.isCompleted } })
                       }
                       onDelete={() => setDeleteConfirmId(task.id)}
+                      isCompleting={updateMutation.isPending && updateMutation.variables?.id === task.id}
                     />
                   ))}
                 </div>
@@ -845,6 +854,7 @@ function TaskRow({
   onSelect,
   onToggleComplete,
   onDelete,
+  isCompleting,
 }: {
   task: Task
   provided?: DraggableProvided
@@ -853,6 +863,7 @@ function TaskRow({
   onSelect: () => void
   onToggleComplete: () => void
   onDelete: () => void
+  isCompleting?: boolean
 }) {
   const queryClient = useQueryClient()
   const [isEditing, setIsEditing] = useState(false)
@@ -875,7 +886,12 @@ function TaskRow({
 
   const toggleSubtaskMutation = useMutation({
     mutationFn: (id: string) => subtasksApi.toggle(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['subtasks', task.id] }),
+    onSuccess: () => {
+      // 子任务完成态会反向决定父任务是否完成
+      queryClient.invalidateQueries({ queryKey: ['subtasks', task.id] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', task.id] })
+    },
   })
 
   // 重命名任务（双击标题进入编辑）
@@ -936,6 +952,7 @@ function TaskRow({
           checked={task.isCompleted}
           onCheckedChange={onToggleComplete}
           onClick={(e) => e.stopPropagation()}
+          disabled={isCompleting}
         />
         {isEditing ? (
           <Input
@@ -1011,6 +1028,7 @@ function TaskRow({
                   checked={st.isCompleted}
                   onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
                   onClick={(e) => e.stopPropagation()}
+                  disabled={toggleSubtaskMutation.isPending}
                 />
                 <span className={cn('flex-1 text-sm', st.isCompleted && 'line-through text-muted-foreground')}>
                   {st.title}
@@ -1066,6 +1084,7 @@ function ListsOverview({
   onToggleComplete,
   onDelete,
   onDeleteList,
+  completingTaskId,
 }: {
   tasksByList: { listId: string; listName: string; tasks: Task[] }[] | null
   expandedTaskIds: Set<string>
@@ -1074,6 +1093,7 @@ function ListsOverview({
   onToggleComplete: (taskId: string) => void
   onDelete: (taskId: string) => void
   onDeleteList: (listId: string) => void
+  completingTaskId?: string | null
 }) {
   if (!tasksByList || tasksByList.length === 0) {
     return (
@@ -1146,6 +1166,7 @@ function ListsOverview({
                   onSelect={() => onSelect(task.id)}
                   onToggleComplete={() => onToggleComplete(task.id)}
                   onDelete={() => onDelete(task.id)}
+                  isCompleting={completingTaskId === task.id}
                 />
               ))
             )}
@@ -1201,9 +1222,13 @@ function TaskDetailDialog({
   // 详情面板内的更新（含日期），需要同时刷新任务列表和详情
   const updateDetailMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Task> }) => tasksApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      // 完成态变化会影响子任务展示
+      if ('isCompleted' in variables.data) {
+        queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      }
     },
     onError: (err: Error) => toast.error(`更新失败: ${err.message}`),
   })
@@ -1222,6 +1247,8 @@ function TaskDetailDialog({
     mutationFn: ({ title, sortOrder }: { title: string; sortOrder?: number }) => subtasksApi.create(taskId!, title, sortOrder),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
       setNewSubtask('')
       setInsertAtPosition(null)
     },
@@ -1246,6 +1273,11 @@ function TaskDetailDialog({
       )
       return { prev }
     },
+    onSuccess: () => {
+      // 子任务完成态会反向决定父任务是否完成
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+    },
     onError: (_err, _id, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(['subtasks', taskId], ctx.prev)
       toast.error(`更新子任务失败`)
@@ -1257,6 +1289,8 @@ function TaskDetailDialog({
     mutationFn: (id: string) => subtasksApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
     },
   })
 
@@ -1399,6 +1433,7 @@ function TaskDetailDialog({
                     <Checkbox
                       checked={st.isCompleted}
                       onCheckedChange={() => toggleSubtaskMutation.mutate(st.id)}
+                      disabled={toggleSubtaskMutation.isPending}
                     />
                     <span className={cn('flex-1 text-sm truncate', st.isCompleted && 'line-through text-muted-foreground')}>
                       {st.title}

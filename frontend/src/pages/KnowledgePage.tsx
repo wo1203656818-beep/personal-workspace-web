@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'sonner'
 import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, CheckCircle2, AlertCircle, Sparkles, type LucideIcon } from 'lucide-react'
-import { kbApi, imaApi, type KbDocument } from '@/lib/api'
+import { kbApi, imaApi, type KbDocument, type KbSummary } from '@/lib/api'
 import { extractDocumentText } from '@/lib/doc-extract'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -96,9 +96,9 @@ export function KnowledgePage() {
 
   const trimmedQuery = searchQuery.trim()
 
-  const { data: docs = [], isLoading: docsLoading } = useQuery({
+  const { data: docs = [], isLoading: docsLoading } = useQuery<KbSummary[]>({
     queryKey: ['kb'],
-    queryFn: kbApi.list,
+    queryFn: kbApi.listSummary,
     enabled: trimmedQuery.length === 0,
     staleTime: 2 * 60 * 1000,
   })

@@ -17,7 +17,7 @@ export interface Task {
   id: string
   listId: string
   title: string
-  note: string
+  note?: string | null
   isCompleted: boolean
   isImportant: boolean
   isMyDay: boolean
@@ -50,11 +50,30 @@ export interface Note {
   updatedAt: string
 }
 
+export interface NoteSummary {
+  id: string
+  title: string
+  sourceFile?: string | null
+  importedAt?: string | null
+  updatedAt: string
+  snippet: string
+}
+
 export interface KbDocument {
   id: string
   title: string
   content?: string | null
   sourceFile?: string | null
+  fileType?: string | null
+  fileSize?: number | null
+  r2Key?: string | null
+  importedAt?: string | null
+  updatedAt?: string | null
+}
+
+export interface KbSummary {
+  id: string
+  title: string
   fileType?: string | null
   fileSize?: number | null
   r2Key?: string | null
@@ -348,6 +367,7 @@ export const syncLogsApi = {
 // 笔记
 export const notesApi = {
   list: () => api.get('notes').json<Note[]>(),
+  listSummary: () => api.get('notes/summary').json<NoteSummary[]>(),
   get: (id: string) => api.get(`notes/${id}`).json<Note>(),
   import: (data: { title: string; content: string; sourceFile?: string }) => api.post('notes/import', { json: data }).json<Note>(),
   update: (id: string, data: Partial<Note>) => api.put(`notes/${id}`, { json: data }).json<Note>(),
@@ -358,6 +378,7 @@ export const notesApi = {
 // 知识库
 export const kbApi = {
   list: () => api.get('kb').json<KbDocument[]>(),
+  listSummary: () => api.get('kb/summary').json<KbSummary[]>(),
   get: (id: string) => api.get(`kb/${id}`).json<KbDocument>(),
   upload: (file: File, title?: string, onProgress?: (pct: number) => void, content?: string) => {
     return new Promise<{ id: string }>((resolve, reject) => {
