@@ -10,6 +10,9 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { aiApi, type ChatSessionPreview } from '@/lib/api'
 import { copyChatAsMarkdown, downloadChatMarkdown, exportChatPdf } from '@/lib/chat-export'
 import { cn } from '@/lib/utils'
@@ -92,6 +95,9 @@ function BuiltinAIChat() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<any>(null)
+  const [tagPopoverOpen, setTagPopoverOpen] = useState(false)
+  const [editingTagSession, setEditingTagSession] = useState<ChatSessionPreview | null>(null)
+  const [tagInput, setTagInput] = useState('')
   const [speechSupported] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
     return !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition
@@ -217,13 +223,35 @@ function BuiltinAIChat() {
     } catch {}
   }
 
-  const addTag = async (s: ChatSessionPreview) => {
-    const input = window.prompt('给会话加标签（多个用空格分隔）：', (s.tags || []).join(' '))
-    if (input == null) return
-    const tags = input.split(/\s+/).map((t) => t.trim()).filter(Boolean).slice(0, 10)
+  const openTagPopover = (s: ChatSessionPreview) => {
+    setEditingTagSession(s)
+    setTagInput('')
+    setTagPopoverOpen(true)
+  }
+
+  const addTagFromInput = () => {
+    if (!editingTagSession) return
+    const t = tagInput.trim()
+    if (!t) return
+    const current = editingTagSession.tags || []
+    if (current.length >= 10 || current.includes(t)) { setTagInput(''); return }
+    const next = [...current, t]
+    saveTags(next)
+    setTagInput('')
+  }
+
+  const removeTagAt = (idx: number) => {
+    if (!editingTagSession) return
+    const next = (editingTagSession.tags || []).filter((_, i) => i !== idx)
+    saveTags(next)
+  }
+
+  const saveTags = async (tags: string[]) => {
+    if (!editingTagSession) return
     try {
-      await aiApi.updateChatSession(s.id, { tags })
-      setSessions((list) => list.map((x) => x.id === s.id ? { ...x, tags } : x))
+      await aiApi.updateChatSession(editingTagSession.id, { tags })
+      setSessions((list) => list.map((x) => x.id === editingTagSession.id ? { ...x, tags } : x))
+      setEditingTagSession((s) => s ? { ...s, tags } : s)
     } catch {}
   }
 
@@ -397,20 +425,89 @@ function BuiltinAIChat() {
                       {s.tags && s.tags.length > 0 && (
                         <div className="mt-0.5 flex flex-wrap gap-1">
                           {s.tags.map((t) => (
-                            <span key={t} className="rounded-full bg-primary/10 px-1.5 text-[10px] text-primary/70">{t}</span>
+                            <Badge key={t} variant="secondary" className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] text-primary/70">{t}</Badge>
                           ))}
                         </div>
                       )}
                       <div className="truncate text-[11px] text-white/30">{s.preview || '（空）'}</div>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => addTag(s)}
-                      className="shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
-                      title="加标签"
+                    <Popover
+                      open={tagPopoverOpen && editingTagSession?.id === s.id}
+                      onOpenChange={(v) => { if (!v) setTagPopoverOpen(false) }}
                     >
-                      <Tag className="size-3.5" />
-                    </button>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openTagPopover(s) }}
+                          className="shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
+                          title="编辑标签"
+                        >
+                          <Tag className="size-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        side="right"
+                        className="w-64 border-white/10 bg-[#1a1a1a] p-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <p className="mb-2 text-xs font-medium text-white/70">编辑标签</p>
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {(editingTagSession?.tags || []).length === 0 && (
+                            <span className="text-[11px] text-white/30">暂无标签</span>
+                          )}
+                          {(editingTagSession?.tags || []).map((t, idx) => (
+                            <Badge
+                              key={idx}
+                              variant="secondary"
+                              className="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary"
+                            >
+                              {t}
+                              <button
+                                type="button"
+                                onClick={() => removeTagAt(idx)}
+                                className="ml-0.5 text-primary/60 hover:text-primary"
+                              >
+                                <X className="size-2.5" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                        <div className="mb-2 flex gap-1.5">
+                          <Input
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTagFromInput() } }}
+                            placeholder="输入标签，回车添加"
+                            className="h-7 rounded-lg border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 shrink-0 rounded-lg px-2 text-xs"
+                            onClick={addTagFromInput}
+                            disabled={!tagInput.trim()}
+                          >
+                            添加
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {['工作', '学习', '闲聊', '重要'].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => {
+                                const cur = editingTagSession?.tags || []
+                                if (cur.length < 10 && !cur.includes(p)) saveTags([...cur, p])
+                              }}
+                              className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40 hover:border-white/20 hover:text-white/60"
+                            >
+                              + {p}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <Trash2
                       className="size-3.5 shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
                       onClick={(e) => removeSession(s.id, e)}

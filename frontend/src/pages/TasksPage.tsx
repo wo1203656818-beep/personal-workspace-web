@@ -4,7 +4,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { HTTPError } from 'ky'
 import { DragDropContext, Droppable, Draggable, type DropResult, type DraggableProvided } from '@hello-pangea/dnd'
-import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronUp, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, ListChecks, type LucideIcon } from 'lucide-react'
+import { Sun, Star, CalendarClock, ListTodo, Plus, Sparkles, X, Calendar, Trash2, Search, ChevronDown, ChevronUp, ChevronRight, Bell, CheckSquare, FileText, RefreshCw, CheckCircle2, AlertCircle, ListChecks, Repeat, type LucideIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
@@ -58,6 +58,20 @@ function toDatetimeLocal(iso: string) {
   const parts = fmt.formatToParts(d)
   const get = (type: string) => parts.find(p => p.type === type)?.value || '00'
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
+function parseRecurrence(r: string | null | undefined): { type: 'none' | 'daily' | 'weekly' | 'monthly'; days?: number[]; dayOfMonth?: number } {
+  if (!r) return { type: 'none' }
+  if (r === 'daily') return { type: 'daily' }
+  if (r.startsWith('weekly:')) {
+    const days = r.split(':')[1]?.split(',').map(Number).filter(n => !isNaN(n)) || []
+    return { type: 'weekly', days }
+  }
+  if (r.startsWith('monthly:')) {
+    const day = parseInt(r.split(':')[1]) || 1
+    return { type: 'monthly', dayOfMonth: day }
+  }
+  return { type: 'none' }
 }
 
 export function TasksPage() {
@@ -1222,6 +1236,10 @@ function TaskDetailDialog({
   const [aiLoading, setAiLoading] = useState(false)
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [reminderPickerOpen, setReminderPickerOpen] = useState(false)
+  const [recurrencePickerOpen, setRecurrencePickerOpen] = useState(false)
+  const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none')
+  const [weeklyDays, setWeeklyDays] = useState<number[]>([])
+  const [monthlyDay, setMonthlyDay] = useState<number>(1)
   const [noteDraft, setNoteDraft] = useState('')
   // 子任务中途插入：非空时表示在 sortOrder=insertAtPosition 处插入
   const [insertAtPosition, setInsertAtPosition] = useState<number | null>(null)
@@ -1245,6 +1263,16 @@ function TaskDetailDialog({
   useEffect(() => {
     if (task) setNoteDraft(task.note || '')
   }, [task?.id, task?.note])
+
+  // 任务切换时同步重复规则状态
+  useEffect(() => {
+    if (task) {
+      const r = parseRecurrence(task.recurrence)
+      setRecurrenceType(r.type)
+      setWeeklyDays(r.days || [])
+      setMonthlyDay(r.dayOfMonth || 1)
+    }
+  }, [task?.id, task?.recurrence])
 
   // 详情面板内的更新（含日期），需要同时刷新任务列表和详情
   const updateDetailMutation = useMutation({
@@ -1578,6 +1606,103 @@ onBlur={(e) => {
                   >
                     清除提醒
                   </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* 重复规则 */}
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Repeat className="size-4" /> 重复
+            </div>
+            <Popover open={recurrencePickerOpen} onOpenChange={setRecurrencePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Repeat className="size-4" />
+                  {(() => {
+                    const r = parseRecurrence(task.recurrence)
+                    if (r.type === 'none') return '设置重复'
+                    if (r.type === 'daily') return '每天'
+                    if (r.type === 'weekly') {
+                      const dayNames = ['日', '一', '二', '三', '四', '五', '六']
+                      return `每周 ${r.days?.map(d => dayNames[d]).join('、') || ''}`
+                    }
+                    if (r.type === 'monthly') return `每月 ${r.dayOfMonth} 号`
+                    return '设置重复'
+                  })()}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-3 space-y-3" align="start">
+                <div className="flex flex-wrap gap-1">
+                  {([
+                    { key: 'none' as const, label: '不重复' },
+                    { key: 'daily' as const, label: '每天' },
+                    { key: 'weekly' as const, label: '每周' },
+                    { key: 'monthly' as const, label: '每月' },
+                  ]).map(opt => (
+                    <Button
+                      key={opt.key}
+                      variant={recurrenceType === opt.key ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        if (opt.key === 'none') {
+                          updateDetailMutation.mutate({ id: task.id, data: { recurrence: null } })
+                          setRecurrencePickerOpen(false)
+                        } else if (opt.key === 'daily') {
+                          updateDetailMutation.mutate({ id: task.id, data: { recurrence: 'daily' } })
+                          setRecurrencePickerOpen(false)
+                        } else {
+                          setRecurrenceType(opt.key)
+                        }
+                      }}
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+                {recurrenceType === 'weekly' && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">选择星期</div>
+                    <div className="flex gap-1">
+                      {(['日', '一', '二', '三', '四', '五', '六'] as const).map((label, idx) => (
+                        <Button
+                          key={idx}
+                          variant={weeklyDays.includes(idx) ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-8 w-8 p-0 text-xs"
+                          onClick={() => {
+                            const next = weeklyDays.includes(idx)
+                              ? weeklyDays.filter(d => d !== idx)
+                              : [...weeklyDays, idx].sort()
+                            setWeeklyDays(next)
+                            if (next.length > 0) {
+                              updateDetailMutation.mutate({ id: task.id, data: { recurrence: `weekly:${next.join(',')}` } })
+                            }
+                          }}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {recurrenceType === 'monthly' && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">每月几号</div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={monthlyDay}
+                      onChange={(e) => {
+                        const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1))
+                        setMonthlyDay(v)
+                        updateDetailMutation.mutate({ id: task.id, data: { recurrence: `monthly:${v}` } })
+                      }}
+                      className="h-8 w-20"
+                    />
+                  </div>
                 )}
               </PopoverContent>
             </Popover>

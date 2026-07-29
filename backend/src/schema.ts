@@ -235,3 +235,19 @@ export const chatMessages = sqliteTable('chat_messages', {
   toolCalls: text('tool_calls'), // JSON：助手本次调用的工具 [{name, args}]
   createdAt: text('created_at').default(sql`(datetime('now'))`),
 })
+
+// 通用标签
+export const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  color: text('color').default('#6366f1'),
+  createdAt: text('created_at').notNull(),
+})
+
+// 标签关联（多态关联）
+export const tagRelations = sqliteTable('tag_relations', {
+  id: text('id').primaryKey(),
+  tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+  targetType: text('target_type').notNull(), // 'task' | 'note' | 'kb'
+  targetId: text('target_id').notNull(),
+})

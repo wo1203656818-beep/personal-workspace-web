@@ -697,6 +697,7 @@ function TelegramConfigCard() {
   const [chatId, setChatId] = useState('')
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [binding, setBinding] = useState(false)
 
   const { data: settings = {} } = useQuery({
     queryKey: ['settings'],
@@ -753,11 +754,44 @@ function TelegramConfigCard() {
 
   const configured = !!(settings.telegram_bot_token_set && settings.telegram_chat_id)
 
+  // 双向互通（Webhook）绑定状态
+  const { data: webhookInfo, refetch: refetchWebhook } = useQuery({
+    queryKey: ['telegramWebhookInfo'],
+    queryFn: () => api.get('telegram/webhook-info').json<{
+      ok: boolean
+      bound?: boolean
+      url?: string
+      urlMismatch?: boolean
+      pendingUpdateCount?: number
+      lastErrorMessage?: string | null
+      error?: string
+    }>(),
+    enabled: configured,
+    retry: false,
+  })
+
+  const handleBindWebhook = async () => {
+    try {
+      setBinding(true)
+      const j = await api.post('telegram/set-webhook').json<{ ok: boolean; url?: string; error?: string }>()
+      if (!j.ok) throw new Error(j.error || '绑定失败')
+      toast.success('双向对话已开启，现在可以在 Telegram 里给机器人发消息了')
+      refetchWebhook()
+    } catch (e: any) {
+      const msg = e?.response ? (await e.response.json().catch(() => ({})))?.error : null
+      toast.error(`绑定失败: ${msg || e.message}`)
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  const webhookOk = !!(webhookInfo?.ok && webhookInfo.bound && !webhookInfo.urlMismatch)
+
   return (
     <SettingCard
       icon={Send}
       title="电报推送"
-      description="紧急新闻自动推送到 Telegram"
+      description="新闻推送 + Telegram 双向对话（AI 管家）"
       gradient="from-sky-500 to-cyan-500"
     >
       <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-3">
@@ -820,7 +854,46 @@ function TelegramConfigCard() {
               {testing ? '推送中...' : '测试推送'}
             </Button>
           )}
+          {configured && (
+            <Button
+              size="sm"
+              variant={webhookOk ? 'outline' : 'default'}
+              disabled={binding}
+              onClick={handleBindWebhook}
+              className="rounded-lg"
+            >
+              {binding ? '绑定中...' : webhookOk ? '重新绑定双向对话' : '开启双向对话'}
+            </Button>
+          )}
         </div>
+
+        {configured && (
+          <div className="rounded-xl border bg-muted/20 p-3 text-xs space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-muted-foreground">双向对话（从 Telegram 发消息给机器人）</span>
+              {webhookOk ? (
+                <Badge className="rounded-full bg-emerald-500 px-2 py-0 hover:bg-emerald-500">已开启</Badge>
+              ) : (
+                <Badge variant="secondary" className="rounded-full px-2 py-0">未开启</Badge>
+              )}
+            </div>
+            {!webhookInfo?.bound && (
+              <p className="text-muted-foreground">尚未绑定 Webhook——这就是「发消息没回复」的原因。点击上方「开启双向对话」完成绑定。</p>
+            )}
+            {webhookInfo?.urlMismatch && (
+              <p className="text-amber-600">⚠️ Webhook 绑定到了错误的域名（{webhookInfo.url}），Telegram 消息可能被访问控制拦截。请点击「重新绑定双向对话」修正。</p>
+            )}
+            {!!webhookInfo?.lastErrorMessage && (
+              <p className="text-amber-600">最近投递错误：{webhookInfo.lastErrorMessage}</p>
+            )}
+            {!!webhookInfo?.pendingUpdateCount && webhookInfo.pendingUpdateCount > 0 && (
+              <p className="text-muted-foreground">待处理消息 {webhookInfo.pendingUpdateCount} 条</p>
+            )}
+            {webhookOk && !webhookInfo?.lastErrorMessage && (
+              <p className="text-muted-foreground">链路正常。支持命令 /tasks /add /news /digest，直接打字可与 AI 管家对话。</p>
+            )}
+          </div>
+        )}
       </div>
     </SettingCard>
   )

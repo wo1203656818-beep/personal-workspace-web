@@ -14,6 +14,10 @@ export interface Env {
   MS_TENANT_ID?: string
   ALLOWED_ORIGIN?: string
   MCP_TOKEN?: string
+  // Telegram webhook 注册用的公网基址（必须是 Telegram 服务器可直达、无 Cloudflare Access 的域名，
+  // 即 workers.dev 域名；自定义域名有 Access 会拦截 Telegram 的回调）
+  PUBLIC_API_BASE?: string
+  TAVILY_API_KEY?: string
 }
 
 // AI 聊天消息类型

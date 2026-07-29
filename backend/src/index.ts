@@ -41,6 +41,21 @@ import {
 } from './news-fetcher'
 import { PRESET_FEED_SOURCES } from './news-sources'
 
+// 解析存储的时间字符串为 Date 对象（兼容 ISO 格式和纯日期格式），统一 UTC
+function parseStoredTime(s: string): Date {
+  // 纯日期 yyyy-mm-dd → UTC 午夜
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return new Date(s + 'T00:00:00Z')
+  }
+  const cleaned = s.replace(/\+.*/, '').replace('Z', '')
+  const d = new Date(cleaned + 'Z')
+  return isNaN(d.getTime()) ? new Date() : d
+}
+
+// 将 Date 格式化为 yyyy-MM-dd（UTC）
+function fmtDate(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+}
 
 // 任务表的全部列（用于列表查询，避免 SELECT * 之余方便附加上 subtaskCount）
 const TASK_COLUMNS = getTableColumns(schema.tasks)
@@ -384,6 +399,7 @@ const PUBLIC_PATHS = new Set([
   '/api/news/refresh-status',
   '/api/news/refresh-reset',
   '/api/news/process',
+  '/api/telegram/webhook',
 ])
 app.use('/api/*', async (c, next) => {
   // 用 URL 解析获取纯路径，避免 c.req.path 行为差异
@@ -1624,7 +1640,381 @@ async function buildChatCtx(db: any): Promise<ChatCtx> {
 }
 
 // 工具定义：聊天端点不再使用工具调用，改为纯文本对话（MCP 端点仍可引用此数组）
-const CHAT_TOOLS: any[] = []
+const CHAT_TOOLS: any[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_task',
+      description: '创建新任务。可以指定标题、备注、截止日期、是否重要、是否加入我的一天、所属列表名称。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '任务标题' },
+          note: { type: 'string', description: '任务备注' },
+          dueDate: { type: 'string', description: '截止日期，格式 yyyy-MM-dd' },
+          isImportant: { type: 'boolean', description: '是否标记为重要' },
+          isMyDay: { type: 'boolean', description: '是否加入我的一天' },
+          listName: { type: 'string', description: '所属列表名称，不指定则用默认列表' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_tasks',
+      description: '搜索任务。根据关键词匹配未完成任务，可选包含已完成任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词' },
+          includeCompleted: { type: 'boolean', description: '是否包含已完成任务，默认只搜未完成' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'complete_task',
+      description: '标记任务为已完成。可通过 id 或关键词定位任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '任务 ID' },
+          keyword: { type: 'string', description: '任务标题关键词，用于模糊匹配' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task',
+      description: '更新任务信息。可通过 id 或关键词定位任务，然后修改标题、备注、截止日期、提醒、重要性、我的一天等字段。',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '任务 ID' },
+          keyword: { type: 'string', description: '任务标题关键词，用于模糊匹配' },
+          title: { type: 'string', description: '新标题' },
+          note: { type: 'string', description: '新备注' },
+          dueDate: { type: 'string', description: '新截止日期，格式 yyyy-MM-dd' },
+          reminder: { type: 'string', description: '新提醒时间' },
+          isImportant: { type: 'boolean', description: '是否标记为重要' },
+          isMyDay: { type: 'boolean', description: '是否加入我的一天' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_task',
+      description: '删除任务。可通过 id 或关键词定位任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '任务 ID' },
+          keyword: { type: 'string', description: '任务标题关键词，用于模糊匹配' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_overview',
+      description: '获取系统概览，包括未完成任务数、今日已完成数、逾期数、我的一天任务数、即将到期任务、各列表任务分布等。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_note',
+      description: '创建新笔记。可以指定标题和内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '笔记标题' },
+          content: { type: 'string', description: '笔记内容' },
+        },
+        required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_notes',
+      description: '搜索笔记。根据关键词匹配笔记标题和内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_note',
+      description: '更新笔记。可通过 noteId 或关键词定位笔记，然后修改标题和内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          noteId: { type: 'string', description: '笔记 ID' },
+          keyword: { type: 'string', description: '笔记标题关键词，用于模糊匹配' },
+          title: { type: 'string', description: '新标题' },
+          content: { type: 'string', description: '新内容' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_note',
+      description: '删除笔记。可通过 noteId 或关键词定位笔记。',
+      parameters: {
+        type: 'object',
+        properties: {
+          noteId: { type: 'string', description: '笔记 ID' },
+          keyword: { type: 'string', description: '笔记标题关键词，用于模糊匹配' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'coin_flip',
+      description: '抛硬币决策。随机返回正面或反面，可附带一个问题。',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: '与抛硬币相关的问题' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_theme',
+      description: '切换界面主题。',
+      parameters: {
+        type: 'object',
+        properties: {
+          value: { type: 'string', enum: ['light', 'dark', 'system'], description: '主题值：light（浅色）、dark（深色）、system（跟随系统）' },
+        },
+        required: ['value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'navigate',
+      description: '导航到指定页面路径。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '目标路径，如 /notes、/tasks 等' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_ai_config',
+      description: '查看当前生效的 AI 配置信息，包括类型、接口、模型、Key 是否已设置等。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_ai_config',
+      description: '创建或更新 AI 配置。可指定名称、类型（openai/cloudflare）、接口地址、API Key、模型名称，并设为默认配置。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '配置名称' },
+          type: { type: 'string', enum: ['openai', 'cloudflare'], description: '配置类型' },
+          baseUrl: { type: 'string', description: 'API 接口地址（openai 类型必填）' },
+          apiKey: { type: 'string', description: 'API Key' },
+          model: { type: 'string', description: '模型名称' },
+          setDefault: { type: 'boolean', description: '是否设为默认配置，默认 true' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_task_list',
+      description: '创建新的任务列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '列表名称' },
+          color: { type: 'string', description: '列表颜色，十六进制色值，如 #2563EB' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task_list',
+      description: '更新任务列表名称或颜色。可通过 listId 或关键词定位列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          listId: { type: 'string', description: '列表 ID' },
+          keyword: { type: 'string', description: '列表名称关键词，用于模糊匹配' },
+          name: { type: 'string', description: '新名称' },
+          color: { type: 'string', description: '新颜色，十六进制色值' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_task_list',
+      description: '删除任务列表及其下所有任务。可通过 listId 或关键词定位列表。',
+      parameters: {
+        type: 'object',
+        properties: {
+          listId: { type: 'string', description: '列表 ID' },
+          keyword: { type: 'string', description: '列表名称关键词，用于模糊匹配' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_subtask',
+      description: '为指定任务添加子任务。可通过 taskId 或 taskKeyword 定位父任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: '父任务 ID' },
+          taskKeyword: { type: 'string', description: '父任务标题关键词，用于模糊匹配' },
+          title: { type: 'string', description: '子任务标题' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'toggle_subtask',
+      description: '勾选或取消勾选子任务。可通过 subtaskId 或 taskKeyword+title 定位子任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          subtaskId: { type: 'string', description: '子任务 ID' },
+          taskKeyword: { type: 'string', description: '父任务标题关键词' },
+          title: { type: 'string', description: '子任务标题关键词' },
+          complete: { type: 'boolean', description: '指定勾选状态，不传则切换当前状态' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_subtask',
+      description: '删除子任务。可通过 subtaskId 或 taskKeyword+title 定位子任务。',
+      parameters: {
+        type: 'object',
+        properties: {
+          subtaskId: { type: 'string', description: '子任务 ID' },
+          taskKeyword: { type: 'string', description: '父任务标题关键词' },
+          title: { type: 'string', description: '子任务标题关键词' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_knowledge',
+      description: '搜索知识库文档。根据关键词匹配文档标题和内容。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'summarize_knowledge',
+      description: '总结知识库文档。可通过 docId 或关键词定位文档，调用 AI 生成摘要。',
+      parameters: {
+        type: 'object',
+        properties: {
+          docId: { type: 'string', description: '文档 ID' },
+          keyword: { type: 'string', description: '文档标题关键词，用于模糊匹配' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ask_knowledge',
+      description: '基于知识库文档进行问答。可通过 docId 或关键词定位文档，提出问题由 AI 基于文档内容回答。',
+      parameters: {
+        type: 'object',
+        properties: {
+          docId: { type: 'string', description: '文档 ID' },
+          keyword: { type: 'string', description: '文档标题关键词，用于模糊匹配' },
+          question: { type: 'string', description: '要提问的问题' },
+        },
+        required: ['question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: '联网搜索。根据关键词搜索互联网信息并返回结果。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '搜索关键词' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+]
 
 // 新工具名(+action) → 旧执行分支映射：executeChatTool 的 case 逻辑保持不变，零改动复用
 const TOOL_ACTION_MAP: Record<string, Record<string, string>> = {
@@ -3048,6 +3438,66 @@ app.post('/api/kb/:id/ask', async (c) => {
   }
 })
 
+// 跨文档知识库问答（RAG）
+app.post('/api/kb/ask', async (c) => {
+  try {
+    const { question, topK = 5 } = await c.req.json<{ question: string; topK?: number }>()
+    if (!question || !question.trim()) return c.json({ error: '请输入问题' }, 400)
+
+    const db = drizzle(c.env.DB, { schema })
+    const fetchK = Math.min(topK * 3, 20)
+
+    // 1. 使用 Vectorize 语义检索
+    let matches: VectorizeMatch[] = []
+    try {
+      const qVec = await embedText(c, question.trim())
+      const queryResult = await c.env.VECTORIZE.query(qVec, { topK: fetchK, returnMetadata: 'all' })
+      matches = (queryResult.matches || []).filter((m) => {
+        const meta = m.metadata as { type?: string } | null
+        return meta?.type === 'kb'
+      })
+    } catch (e: any) {
+      console.error('[kb/ask] vectorize error:', e?.message)
+    }
+
+    // 2. 从 matches 中提取匹配的知识库文档片段
+    const kbIds = [...new Set(matches.map((m) => (m.metadata as { targetId?: string })?.targetId).filter(Boolean))] as string[]
+    const kbDocs = kbIds.length
+      ? await db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments).where(inArray(schema.kbDocuments.id, kbIds))
+      : []
+    const docMap = new Map(kbDocs.map((d) => [d.id, d]))
+
+    // 按 score 排序，拼接 context
+    const sources: { title: string; snippet: string; score: number }[] = []
+    const contextParts: string[] = []
+    const sorted = matches.sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, topK)
+    for (const m of sorted) {
+      const meta = m.metadata as { targetId?: string } | null
+      const doc = meta?.targetId ? docMap.get(meta.targetId) : undefined
+      if (!doc) continue
+      const snippet = (doc.content || '').slice(0, 800)
+      sources.push({ title: doc.title, snippet, score: m.score ?? 0 })
+      contextParts.push(`【${doc.title}】\n${snippet}`)
+    }
+
+    if (contextParts.length === 0) {
+      return c.json({ answer: '未在知识库中找到相关内容，请尝试换个问题或先上传相关文档。', sources: [] })
+    }
+
+    const context = contextParts.join('\n\n---\n\n')
+    // 3. 调用 AI 生成回答
+    const answer = await callAI(c, [
+      { role: 'system', content: '你是知识库问答助手。请严格基于以下知识库文档片段回答问题，如果文档中没有相关信息，请明确说明。回答时请引用文档来源。' },
+      { role: 'user', content: `知识库文档片段：\n${context}\n\n问题：${question.trim()}` },
+    ], { maxTokens: 800 })
+
+    return c.json({ answer: answer.trim(), sources })
+  } catch (e: any) {
+    console.error('[kb/ask-global] error:', e)
+    return c.json({ error: '问答失败' }, 500)
+  }
+})
+
 app.post('/api/kb/import', async (c) => {
   const { title, content, fileType, fileSize } = await c.req.json()
   const db = drizzle(c.env.DB, { schema })
@@ -3543,7 +3993,7 @@ app.get('/', (c) => c.json({ name: 'Workbench API', version: '1.0.0' }))
 // ========== 新闻聚合 ==========
 // 获取新闻列表
 app.get('/api/news', async (c) => {
-  const { category, source, search, page = '1', pageSize = '20' } = c.req.query()
+  const { category, source, search, page = '1', pageSize = '20', sort = 'score' } = c.req.query()
   const db = drizzle(c.env.DB, { schema })
   const where: any[] = []
   if (category && category !== '全部') where.push(eq(schema.feedItems.category, category))
@@ -3554,10 +4004,27 @@ app.get('/api/news', async (c) => {
   const ps = Math.min(100, Math.max(1, parseInt(pageSize)))
   const offset = (p - 1) * ps
 
+  // 排序逻辑
+  let orderBy: any[]
+  if (sort === 'time') {
+    orderBy = [desc(schema.feedItems.fetchedAt)]
+  } else if (sort === 'personal') {
+    // 个性化排序：收藏 > 👍 > 无反馈 > 👎（隐藏到末尾）
+    const personalOrder = sql`CASE
+      WHEN EXISTS (SELECT 1 FROM news_feedback WHERE target_id = feed_items.id AND target_type = 'item' AND feedback = 'save') THEN 0
+      WHEN EXISTS (SELECT 1 FROM news_feedback WHERE target_id = feed_items.id AND target_type = 'item' AND feedback = 'up') THEN 1
+      WHEN EXISTS (SELECT 1 FROM news_feedback WHERE target_id = feed_items.id AND target_type = 'item' AND feedback = 'down') THEN 3
+      ELSE 2
+    END`
+    orderBy = [asc(personalOrder), desc(schema.feedItems.aiScore), desc(schema.feedItems.fetchedAt)]
+  } else {
+    orderBy = [desc(schema.feedItems.aiScore), desc(schema.feedItems.fetchedAt)]
+  }
+
   const items = await db.select()
     .from(schema.feedItems)
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(schema.feedItems.aiScore), desc(schema.feedItems.fetchedAt))
+    .orderBy(...orderBy)
     .limit(ps)
     .offset(offset)
 
@@ -3781,6 +4248,281 @@ app.post('/api/news/push-brief', async (c) => {
   return c.json(result)
 })
 
+// ============ Telegram 双向互通 ============
+
+// 读取 Telegram 配置（token 解密）
+async function getTelegramConfig(env: Env): Promise<{ botToken: string | null; chatId: string | null }> {
+  const db = drizzle(env.DB, { schema })
+  const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
+  const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
+  const botToken = tokenRow[0]?.value ? await decrypt(env.JWT_SECRET, tokenRow[0].value) : null
+  return { botToken, chatId: chatRow[0]?.value || null }
+}
+
+// webhook secret：从 JWT_SECRET 派生（HMAC-SHA256 hex），Telegram 回调会带
+// X-Telegram-Bot-Api-Secret-Token 头，用于防伪造请求
+let tgSecretCache: string | null = null
+async function telegramWebhookSecret(env: Env): Promise<string> {
+  if (tgSecretCache) return tgSecretCache
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', enc.encode(env.JWT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode('telegram-webhook'))
+  tgSecretCache = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return tgSecretCache
+}
+
+// 发送 Telegram 消息：纯文本（不用 parse_mode，避免 AI 输出含 <、_ 等字符导致 400 静默失败）、
+// 超长自动分段（Telegram 单条上限 4096 字符）、失败打日志
+async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<boolean> {
+  const t = (text || '').trim() || '（空回复）'
+  const chunks: string[] = []
+  for (let i = 0; i < t.length && chunks.length < 5; i += 3800) chunks.push(t.slice(i, i + 3800))
+  let allOk = true
+  for (const chunk of chunks) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
+      })
+      if (!res.ok) {
+        allOk = false
+        console.error('[telegram] sendMessage failed:', res.status, await res.text().catch(() => ''))
+      }
+    } catch (e: any) {
+      allOk = false
+      console.error('[telegram] sendMessage network error:', e.message)
+    }
+  }
+  return allOk
+}
+
+// 自然语言消息 → AI 管家（复用聊天工具集，多轮工具循环，非流式）
+async function telegramAIReply(c: Context<{ Bindings: Env }>, text: string): Promise<string> {
+  const db = drizzle(c.env.DB, { schema })
+  const ctx = await buildChatCtx(db)
+  const system = buildChatSystem(ctx)
+    + '\n当前通过 Telegram 对话：回复必须是纯文本（禁用 Markdown/HTML 格式符号），尽量简短直接。'
+  const messages: any[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: text },
+  ]
+  for (let round = 0; round < 4; round++) {
+    const result = await chatCompletion(c, messages, { tools: CHAT_TOOLS })
+    if (result.toolCalls?.length) {
+      const toolCalls = result.toolCalls.map((tc, i) => ({
+        id: tc.id || `call_${round}_${i}`,
+        type: 'function',
+        function: { name: tc.name, arguments: JSON.stringify(tc.args || {}) },
+      }))
+      const assistantMsg: any = { role: 'assistant', content: result.content || null, tool_calls: toolCalls }
+      if (result.reasoning) assistantMsg.reasoning_content = result.reasoning
+      messages.push(assistantMsg)
+      for (let i = 0; i < result.toolCalls.length; i++) {
+        const tc = result.toolCalls[i]
+        let observation = ''
+        try {
+          const r = await executeChatTool(c, db, tc.name, tc.args || {}, ctx)
+          observation = r.observation
+        } catch (e: any) {
+          observation = `工具执行失败: ${e.message}`
+        }
+        messages.push({ role: 'tool', tool_call_id: toolCalls[i].id, content: observation })
+      }
+      continue
+    }
+    return result.content?.trim() || '好的。'
+  }
+  return '操作步骤过多，已中止。请把请求拆小一点再试。'
+}
+
+// Telegram 入站消息处理（在 waitUntil 中异步执行，webhook 已先回 200）
+async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): Promise<void> {
+  try {
+    const message = body?.message
+    if (!message?.text) return
+
+    const { botToken, chatId: configChatId } = await getTelegramConfig(c.env)
+    // 未完成配置（token 或 chatId 缺失）一律不响应，杜绝匿名会话驱动系统
+    if (!botToken || !configChatId) return
+
+    const chatId = String(message.chat.id)
+    if (chatId !== configChatId) return
+
+    const db = drizzle(c.env.DB, { schema })
+    const text = String(message.text).trim()
+    let reply = ''
+
+    if (text === '/start' || text === '/help') {
+      reply = '📋 可用命令：\n/tasks - 查看待办\n/news - 最新资讯\n/add <标题> - 快速添加任务\n/digest - 今日简报\n/help - 帮助\n\n也可以直接打字和我对话：我是你的 AI 管家，能建任务、记笔记、查知识库、联网搜索。'
+    } else if (text === '/tasks') {
+      const tasks = await db.select({ title: schema.tasks.title, dueDate: schema.tasks.dueDate })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.isCompleted, false))
+        .orderBy(desc(schema.tasks.isImportant), asc(schema.tasks.sortOrder))
+        .limit(10)
+      if (tasks.length === 0) {
+        reply = '🎉 没有待办任务！'
+      } else {
+        reply = '📋 待办任务：\n' + tasks.map((t, i) =>
+          `${i + 1}. ${t.title}${t.dueDate ? ` (${t.dueDate})` : ''}`
+        ).join('\n')
+      }
+    } else if (text === '/news') {
+      const items = await db.select({ titleZh: schema.feedItems.titleZh, title: schema.feedItems.title, score: schema.feedItems.aiScore, url: schema.feedItems.url })
+        .from(schema.feedItems)
+        .where(sql`${schema.feedItems.aiScore} > 0`)
+        .orderBy(desc(schema.feedItems.aiScore))
+        .limit(5)
+      if (items.length === 0) {
+        reply = '📰 暂无新闻'
+      } else {
+        reply = '📰 最新资讯：\n' + items.map((item, i) =>
+          `${i + 1}. ${item.titleZh || item.title} (${item.score}分)\n${item.url}`
+        ).join('\n\n')
+      }
+    } else if (text.startsWith('/add ')) {
+      const title = text.slice(5).trim()
+      if (!title) {
+        reply = '请输入任务标题，例如：/add 买牛奶'
+      } else {
+        const lists = await db.select().from(schema.taskLists).limit(1)
+        const listId = lists[0]?.id
+        if (listId) {
+          const id = crypto.randomUUID()
+          await db.insert(schema.tasks).values({ id, listId, title, isCompleted: false, sortOrder: 0 })
+          reply = `✅ 已添加任务：${title}`
+        } else {
+          reply = '❌ 没有可用的任务列表'
+        }
+      }
+    } else if (text === '/digest') {
+      const today = todayCST()
+      const brief = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, today)).limit(1)
+      if (brief.length === 0) {
+        reply = '📰 今日简报尚未生成'
+      } else {
+        const b = brief[0]
+        const topItems = JSON.parse(b.topItems || '[]')
+        reply = `📰 ${b.title}\n\n${b.overview || ''}\n\n` +
+          topItems.slice(0, 5).map((item: any, i: number) =>
+            `${i + 1}. ${item.title}\n${item.summary || ''}`
+          ).join('\n\n')
+      }
+    } else if (text.startsWith('/')) {
+      reply = '🤔 未识别的命令，输入 /help 查看可用命令，或直接打字与 AI 管家对话'
+    } else {
+      // 非命令：交给 AI 管家（先发 typing 状态，AI 处理可能要几秒）
+      fetch(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+      }).catch(() => {})
+      try {
+        reply = await telegramAIReply(c, text)
+      } catch (e: any) {
+        console.error('[telegram] AI reply error:', e)
+        reply = '⚠️ AI 暂时不可用，请稍后再试。命令功能（/tasks /news /add /digest）不受影响。'
+      }
+    }
+
+    await sendTelegramMessage(botToken, chatId, reply)
+  } catch (e: any) {
+    console.error('[telegram] handleTelegramUpdate error:', e)
+  }
+}
+
+// Telegram Webhook 入口：验证 secret → 立即回 200 → waitUntil 异步处理
+// （Telegram 要求 webhook 快速响应，否则会重试造成消息重复）
+app.post('/api/telegram/webhook', async (c) => {
+  try {
+    const secret = await telegramWebhookSecret(c.env)
+    const gotSecret = c.req.header('X-Telegram-Bot-Api-Secret-Token') || ''
+    // 兼容旧注册（无 secret）：仅当来头带了 secret 且不匹配时拒绝；
+    // 未带 secret 的请求仍受 chatId 白名单约束（handleTelegramUpdate 内）
+    if (gotSecret && gotSecret !== secret) return c.json({ ok: true })
+
+    const body = await c.req.json().catch(() => null)
+    if (!body) return c.json({ ok: true })
+
+    c.executionCtx.waitUntil(handleTelegramUpdate(c, body))
+    return c.json({ ok: true })
+  } catch (e: any) {
+    console.error('[telegram/webhook] error:', e)
+    return c.json({ ok: true })
+  }
+})
+
+// 设置 Telegram Webhook（绑定双向互通）
+app.post('/api/telegram/set-webhook', async (c) => {
+  const { botToken } = await getTelegramConfig(c.env)
+  if (!botToken) return c.json({ ok: false, error: 'Telegram Bot Token 未配置' }, 400)
+
+  // 关键：webhook 必须注册到 Telegram 服务器可直达的域名。
+  // 自定义域名有 Cloudflare Access 会拦截 Telegram 回调（302 到登录页），
+  // 所以优先用 PUBLIC_API_BASE（workers.dev），仅在未配置时退回请求 origin。
+  const baseUrl = (c.env.PUBLIC_API_BASE || '').replace(/\/$/, '') || new URL(c.req.url).origin
+  const webhookUrl = `${baseUrl}/api/telegram/webhook`
+  const secret = await telegramWebhookSecret(c.env)
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: webhookUrl,
+      secret_token: secret,
+      allowed_updates: ['message'],
+      drop_pending_updates: true,
+    }),
+  })
+  const result = await res.json() as any
+  if (!result?.ok) {
+    return c.json({ ok: false, error: result?.description || 'setWebhook 失败', url: webhookUrl }, 502)
+  }
+
+  // 顺带注册命令菜单（失败不影响主流程）
+  await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      commands: [
+        { command: 'tasks', description: '查看待办任务' },
+        { command: 'add', description: '快速添加任务：/add 标题' },
+        { command: 'news', description: '最新资讯' },
+        { command: 'digest', description: '今日简报' },
+        { command: 'help', description: '帮助' },
+      ],
+    }),
+  }).catch(() => {})
+
+  return c.json({ ok: true, url: webhookUrl })
+})
+
+// 查询 Telegram Webhook 绑定状态（诊断双向链路）
+app.get('/api/telegram/webhook-info', async (c) => {
+  const { botToken, chatId } = await getTelegramConfig(c.env)
+  if (!botToken) return c.json({ ok: false, error: 'Telegram Bot Token 未配置' }, 400)
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`)
+    const data = await res.json() as any
+    const info = data?.result || {}
+    const expectedBase = (c.env.PUBLIC_API_BASE || '').replace(/\/$/, '')
+    return c.json({
+      ok: true,
+      bound: !!info.url,
+      url: info.url || '',
+      // webhook 指向了非预期域名（如被 Access 保护的自定义域名）时给出警告
+      urlMismatch: !!info.url && !!expectedBase && !info.url.startsWith(expectedBase),
+      pendingUpdateCount: info.pending_update_count || 0,
+      lastErrorDate: info.last_error_date || null,
+      lastErrorMessage: info.last_error_message || null,
+      chatIdConfigured: !!chatId,
+    })
+  } catch (e: any) {
+    return c.json({ ok: false, error: `查询失败: ${e.message}` }, 502)
+  }
+})
+
 // 用户反馈（👍/👎/收藏）
 app.post('/api/news/feedback', async (c) => {
   const db = drizzle(c.env.DB, { schema })
@@ -3868,6 +4610,61 @@ app.post('/api/news/init-sources', async (c) => {
     }
   }
   return c.json({ ok: true, inserted })
+})
+
+// 标签 CRUD
+app.get('/api/tags', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const allTags = await db.select().from(schema.tags).orderBy(schema.tags.name)
+  return c.json(allTags)
+})
+
+app.post('/api/tags', async (c) => {
+  const { name, color } = await c.req.json()
+  if (!name) return c.json({ error: '标签名不能为空' }, 400)
+  const db = drizzle(c.env.DB, { schema })
+  const id = crypto.randomUUID()
+  await db.insert(schema.tags).values({ id, name, color: color || '#6366f1', createdAt: nowBeijing() })
+  return c.json({ id, name, color }, 201)
+})
+
+app.delete('/api/tags/:id', async (c) => {
+  const { id } = c.req.param()
+  const db = drizzle(c.env.DB, { schema })
+  await db.delete(schema.tagRelations).where(eq(schema.tagRelations.tagId, id))
+  await db.delete(schema.tags).where(eq(schema.tags.id, id))
+  return c.json({ ok: true })
+})
+
+// 标签关联
+app.post('/api/tags/assign', async (c) => {
+  const { tagId, targetType, targetId } = await c.req.json()
+  const db = drizzle(c.env.DB, { schema })
+  const id = crypto.randomUUID()
+  await db.insert(schema.tagRelations).values({ id, tagId, targetType, targetId }).onConflictDoNothing()
+  return c.json({ ok: true })
+})
+
+app.delete('/api/tags/unassign', async (c) => {
+  const { tagId, targetType, targetId } = await c.req.json()
+  const db = drizzle(c.env.DB, { schema })
+  await db.delete(schema.tagRelations).where(
+    and(eq(schema.tagRelations.tagId, tagId), eq(schema.tagRelations.targetType, targetType), eq(schema.tagRelations.targetId, targetId))
+  )
+  return c.json({ ok: true })
+})
+
+// 查询某实体的标签
+app.get('/api/tags/of/:targetType/:targetId', async (c) => {
+  const { targetType, targetId } = c.req.param()
+  const db = drizzle(c.env.DB, { schema })
+  const relations = await db.select({ tagId: schema.tagRelations.tagId })
+    .from(schema.tagRelations)
+    .where(and(eq(schema.tagRelations.targetType, targetType), eq(schema.tagRelations.targetId, targetId)))
+  if (relations.length === 0) return c.json([])
+  const tagIds = relations.map(r => r.tagId)
+  const tagsList = await db.select().from(schema.tags).where(inArray(schema.tags.id, tagIds))
+  return c.json(tagsList)
 })
 
 // Cron Trigger — 每 30 分钟同步 MS Todo，每天 UTC 18:00 同步 IMA 笔记+知识库
@@ -3990,6 +4787,101 @@ export default {
         } catch (e: any) {
           console.error('[cron] ms-todo failed:', e)
           await logSync(env, 'ms_todo', { status: 'error', message: e.message })
+        }
+        // 任务提醒推送：查询 reminder 在当前时间 ±15 分钟内的未完成任务，通过 Telegram Bot 推送
+        try {
+          const reminderTasks = await db.select().from(schema.tasks)
+            .where(and(isNotNull(schema.tasks.reminder), eq(schema.tasks.isCompleted, false)))
+          if (reminderTasks.length > 0) {
+            const nowParts = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Shanghai',
+              year: 'numeric', month: '2-digit', day: '2-digit',
+              hour: '2-digit', minute: '2-digit',
+              hour12: false,
+            }).formatToParts(new Date())
+            const gn = (t: string) => nowParts.find(p => p.type === t)?.value || '00'
+            const nowMins = parseInt(gn('hour')) * 60 + parseInt(gn('minute'))
+            const due = reminderTasks.filter(t => {
+              const rTime = t.reminder!.replace(/\+.*/, '').replace('T', ' ')
+              const hm = rTime.split(' ')[1]?.split(':') || []
+              const rMins = parseInt(hm[0] || '0') * 60 + parseInt(hm[1] || '0')
+              return Math.abs(rMins - nowMins) <= 15
+            })
+            if (due.length > 0) {
+              const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
+              const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
+              const botToken = tokenRow[0]?.value ? await decrypt(env.JWT_SECRET, tokenRow[0].value) : null
+              const chatId = chatRow[0]?.value || null
+              if (botToken && chatId) {
+                const today = todayCST()
+                for (const task of due) {
+                  const pushed = await env.CACHE.get(`reminder_pushed:${task.id}:${today}`)
+                  if (pushed) continue
+                  let text = `⏰ 提醒：${task.title}`
+                  if (task.dueDate) text += `\n📅 截止：${task.dueDate}`
+                  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+                  }).catch(() => {})
+                  await env.CACHE.put(`reminder_pushed:${task.id}:${today}`, '1', { expirationTtl: 86400 })
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[cron] reminder push failed:', e)
+        }
+        // 重复任务自动续期：任务完成且有 recurrence 时，自动创建下一期
+        try {
+          const recurring = await db.select().from(schema.tasks)
+            .where(and(eq(schema.tasks.isCompleted, true), isNotNull(schema.tasks.recurrence)))
+          for (const task of recurring) {
+            if (!task.recurrence) continue
+            const already = await env.CACHE.get(`recurrence_done:${task.id}`)
+            if (already) continue
+            const raw = task.recurrence
+            let nextDate: string | null = null
+            const cur = parseStoredTime(task.dueDate || todayCST())
+            if (raw === 'daily') {
+              cur.setUTCDate(cur.getUTCDate() + 1)
+              nextDate = fmtDate(cur)
+            } else if (raw.startsWith('weekly:')) {
+              const days = raw.split(':')[1]?.split(',').map(Number).filter(n => !isNaN(n)) || []
+              if (days.length > 0) {
+                for (let i = 1; i <= 7; i++) {
+                  const d = new Date(cur.getTime())
+                  d.setUTCDate(d.getUTCDate() + i)
+                  if (days.includes(d.getUTCDay())) { nextDate = fmtDate(d); break }
+                }
+              }
+            } else if (raw.startsWith('monthly:')) {
+              const day = parseInt(raw.split(':')[1]) || 1
+              const y = cur.getUTCFullYear()
+              const m = cur.getUTCMonth() // 0-based
+              const nm = m + 1
+              const ny = nm > 11 ? y + 1 : y
+              const nmAdj = nm > 11 ? 0 : nm
+              const maxD = new Date(Date.UTC(ny, nmAdj + 1, 0)).getUTCDate()
+              nextDate = `${ny}-${String(nmAdj + 1).padStart(2, '0')}-${String(Math.min(day, maxD)).padStart(2, '0')}`
+            }
+            if (!nextDate) continue
+            await db.insert(schema.tasks).values({
+              id: crypto.randomUUID(),
+              listId: task.listId,
+              title: task.title,
+              note: task.note,
+              isCompleted: false,
+              isImportant: task.isImportant,
+              isMyDay: false,
+              dueDate: nextDate,
+              recurrence: task.recurrence,
+              sortOrder: 0,
+            })
+            await env.CACHE.put(`recurrence_done:${task.id}`, '1', { expirationTtl: 86400 })
+          }
+        } catch (e) {
+          console.error('[cron] recurrence failed:', e)
         }
         // 新闻抓取（第一级漏斗：关键词黑名单过滤在入库时完成）
         try {

@@ -421,6 +421,8 @@ export const kbApi = {
   summary: (id: string) => api.post(`kb/${id}/summary`).json<{ summary: string }>(),
   // 向知识库文档提问
   ask: (id: string, question: string) => api.post(`kb/${id}/ask`, { json: { question } }).json<{ answer: string }>(),
+  // 跨文档知识库全局问答（RAG）
+  globalAsk: (question: string, topK?: number) => api.post('kb/ask', { json: { question, topK } }).json<{ answer: string; sources: { title: string; snippet: string; score: number }[] }>(),
   search: (q: string) => api.get('kb/search', { searchParams: { q } }).json<KbDocument[]>(),
   // 带 Authorization 头获取 ArrayBuffer（避免裸 fetch 401）
   getArrayBuffer: (id: string) =>
@@ -506,4 +508,15 @@ export const imaApi = {
       headers: { 'Content-Type': contentType },
       timeout: 60000,
     }).json<{ ok: boolean; r2Key?: string; size?: number; skipped?: boolean; error?: string }>(),
+}
+
+// 标签
+export interface Tag { id: string; name: string; color: string }
+export const tagsApi = {
+  list: () => api.get('tags').json<Tag[]>(),
+  create: (data: { name: string; color?: string }) => api.post('tags', { json: data }).json<Tag>(),
+  delete: (id: string) => api.delete(`tags/${id}`).json(),
+  assign: (data: { tagId: string; targetType: string; targetId: string }) => api.post('tags/assign', { json: data }).json(),
+  unassign: (data: { tagId: string; targetType: string; targetId: string }) => api.delete('tags/unassign', { json: data }).json(),
+  of: (targetType: string, targetId: string) => api.get(`tags/of/${targetType}/${targetId}`).json<Tag[]>(),
 }

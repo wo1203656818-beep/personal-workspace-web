@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'sonner'
-import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, CheckCircle2, AlertCircle, Sparkles, type LucideIcon } from 'lucide-react'
+import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, CheckCircle2, AlertCircle, Sparkles, Loader2, MessageSquareText, Send, type LucideIcon } from 'lucide-react'
 import { kbApi, imaApi, type KbDocument, type KbSummary } from '@/lib/api'
 import { extractDocumentText } from '@/lib/doc-extract'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { PageSkeleton, DetailSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
@@ -93,6 +94,29 @@ export function KnowledgePage() {
   const [summary, setSummary] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
+  const [cardSummaryDoc, setCardSummaryDoc] = useState<KbDocument | null>(null)
+  const [cardSummaryText, setCardSummaryText] = useState<string | null>(null)
+
+  // 跨文档知识库全局问答
+  const [globalAskOpen, setGlobalAskOpen] = useState(false)
+  const [globalQuestion, setGlobalQuestion] = useState('')
+  const [globalAnswer, setGlobalAnswer] = useState<string | null>(null)
+  const [globalSources, setGlobalSources] = useState<{ title: string; snippet: string; score: number }[]>([])
+
+  const globalAskMutation = useMutation({
+    mutationFn: (q: string) => kbApi.globalAsk(q),
+    onSuccess: (data) => {
+      setGlobalAnswer(data.answer)
+      setGlobalSources(data.sources || [])
+    },
+    onError: (err: Error) => toast.error(`问答失败: ${err.message}`),
+  })
+
+  const cardSummaryMutation = useMutation({
+    mutationFn: (docId: string) => kbApi.summary(docId),
+    onSuccess: (data) => setCardSummaryText(data.summary),
+    onError: (err: Error) => toast.error(`总结失败: ${err.message}`),
+  })
 
   const trimmedQuery = searchQuery.trim()
 
@@ -358,6 +382,15 @@ export function KnowledgePage() {
               {syncFeedback.message}
             </span>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { setGlobalAskOpen(true); setGlobalQuestion(''); setGlobalAnswer(null); setGlobalSources([]) }}
+            className="gap-2 rounded-lg"
+          >
+            <MessageSquareText className="size-4" />
+            向知识库提问
+          </Button>
           <Button size="sm" onClick={open} disabled={uploadMutation.isPending} className="rounded-lg gap-1">
             <File className="size-4" /> 上传
           </Button>
@@ -451,6 +484,23 @@ export function KnowledgePage() {
                     variant="ghost"
                     size="icon"
                     className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                    title="AI 总结"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setCardSummaryDoc(doc)
+                      setCardSummaryText(null)
+                      cardSummaryMutation.mutate(doc.id)
+                    }}
+                    disabled={cardSummaryMutation.isPending}
+                  >
+                    {cardSummaryMutation.isPending && cardSummaryDoc?.id === doc.id
+                      ? <Loader2 className="size-3.5 animate-spin" />
+                      : <Sparkles className="size-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation()
                       setDeleteConfirmId(doc.id)
@@ -485,6 +535,96 @@ export function KnowledgePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!cardSummaryDoc} onOpenChange={(v) => { if (!v) { setCardSummaryDoc(null); setCardSummaryText(null) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="size-4 text-violet-500" />
+              AI 总结 — {cardSummaryDoc?.title}
+            </DialogTitle>
+            <DialogDescription>{cardSummaryDoc?.fileType?.toUpperCase()}</DialogDescription>
+          </DialogHeader>
+          <div className="mt-2 min-h-[80px] text-sm leading-relaxed">
+            {cardSummaryMutation.isPending && !cardSummaryText && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                正在生成总结…
+              </div>
+            )}
+            {cardSummaryText && (
+              <p className="whitespace-pre-wrap">{cardSummaryText}</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={globalAskOpen} onOpenChange={(v) => { if (!v) { setGlobalAskOpen(false); setGlobalAnswer(null); setGlobalSources([]) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquareText className="size-4 text-emerald-500" />
+              向知识库提问
+            </DialogTitle>
+            <DialogDescription>基于知识库中的所有文档，智能回答你的问题</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!globalQuestion.trim()) return
+              setGlobalAnswer(null)
+              setGlobalSources([])
+              globalAskMutation.mutate(globalQuestion.trim())
+            }}
+            className="flex items-center gap-2"
+          >
+            <Input
+              placeholder="输入你的问题..."
+              value={globalQuestion}
+              onChange={(e) => setGlobalQuestion(e.target.value)}
+              className="rounded-xl flex-1"
+              disabled={globalAskMutation.isPending}
+              autoFocus
+            />
+            <Button type="submit" disabled={globalAskMutation.isPending || !globalQuestion.trim()} className="rounded-lg gap-1 shrink-0">
+              {globalAskMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              发送
+            </Button>
+          </form>
+          {globalAskMutation.isPending && !globalAnswer && (
+            <div className="flex items-center gap-2 py-4 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              正在检索知识库并生成回答…
+            </div>
+          )}
+          {globalAnswer && (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-muted/50 p-3 text-sm leading-relaxed">
+                <span className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Sparkles className="size-3" /> 回答
+                </span>
+                <p className="whitespace-pre-wrap">{globalAnswer}</p>
+              </div>
+              {globalSources.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-medium text-muted-foreground">引用来源</span>
+                  {globalSources.map((src, i) => (
+                    <div key={i} className="rounded-lg border bg-card/50 px-3 py-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium truncate">{src.title}</span>
+                        <Badge variant="secondary" className="ml-2 shrink-0 text-[10px]">{(src.score * 100).toFixed(0)}%</Badge>
+                      </div>
+                      {src.snippet && (
+                        <p className="mt-1 line-clamp-2 text-muted-foreground">{src.snippet}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

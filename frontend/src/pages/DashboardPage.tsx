@@ -3,14 +3,31 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ListTodo, FileText, BookOpen, CheckCircle2, Clock, Star,
-  Plus, ArrowRight, Calendar,
+  Plus, ArrowRight, Calendar, Newspaper,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi, type NoteSummary, type KbSummary } from '@/lib/api'
+import { api, tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi, type NoteSummary, type KbSummary } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatCST, parseStoredTime } from '@/lib/datetime'
+
+interface NewsTopItem {
+  title: string
+  url: string
+  summary: string
+  reason?: string
+  category?: string
+}
+
+interface TodayNews {
+  id: string
+  date: string
+  title: string
+  overview: string
+  topItems: string
+  pushedAt: string
+}
 
 export function DashboardPage() {
   const { data: lists = [] } = useQuery({
@@ -51,6 +68,21 @@ export function DashboardPage() {
     refetchInterval: 60000,
     staleTime: 60 * 1000,
   })
+
+  const { data: todayNews } = useQuery<TodayNews | null>({
+    queryKey: ['news', 'today'],
+    queryFn: () => api.get('news/today').json<TodayNews | null>(),
+    staleTime: 10 * 60 * 1000,
+  })
+
+  const parsedTopItems = useMemo<NewsTopItem[]>(() => {
+    if (!todayNews?.topItems) return []
+    try {
+      return JSON.parse(todayNews.topItems)
+    } catch {
+      return []
+    }
+  }, [todayNews])
 
   // Stats
   const stats = useMemo(() => {
@@ -275,6 +307,55 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Today's news digest */}
+      <Card className="mt-4">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <Newspaper className="size-5" />
+            今日简报
+          </CardTitle>
+          <Button asChild variant="ghost" size="sm" className="h-8">
+            <Link to="/news">
+              查看全部
+              <ArrowRight className="ml-1 size-4" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {!todayNews ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Newspaper className="mb-2 size-8 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">今日简报尚未生成</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">{todayNews.overview}</p>
+              {parsedTopItems.length > 0 && (
+                <div className="space-y-2">
+                  {parsedTopItems.slice(0, 3).map((item, idx) => (
+                    <a
+                      key={idx}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50"
+                    >
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                        <Newspaper className="size-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="line-clamp-1 text-sm font-medium">{item.title}</p>
+                        <p className="line-clamp-1 text-xs text-muted-foreground">{item.summary}</p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Task lists overview */}
       {lists.length > 0 && (

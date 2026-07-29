@@ -15,11 +15,45 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Settings,
+  Rss,
+  CalendarDays,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
 
 interface RefreshStatus {
   status: 'idle' | 'running' | 'done' | 'failed'
@@ -61,6 +95,35 @@ interface FeedbackRow {
   reason: string | null
 }
 
+interface NewsSource {
+  id: string
+  name: string
+  url: string
+  type: string
+  category: string
+  lang: string
+  enabled: boolean
+  weight: number
+}
+
+interface TodayBrief {
+  id: string
+  date: string
+  title: string
+  overview: string
+  topItems: string
+  pushedAt: string | null
+}
+
+interface DigestItem {
+  id: string
+  date: string
+  title: string
+  overview: string
+  topItems: string
+  pushedAt: string | null
+}
+
 const newsApi = {
   list: (params: { category?: string; search?: string; page?: number; pageSize?: number }) =>
     api.get('news', { searchParams: params }).json<{ items: FeedItem[]; pagination: { page: number; pageSize: number; total: number } }>(),
@@ -70,6 +133,13 @@ const newsApi = {
   feedback: (body: { targetType: 'item' | 'brief'; targetId: string; feedback: 'up' | 'down' | 'save'; reason?: string }) =>
     api.post('news/feedback', { json: body }).json<{ ok: boolean }>(),
   feedbackList: () => api.get('news/feedback').json<FeedbackRow[]>(),
+  sources: () => api.get('news/sources').json<NewsSource[]>(),
+  updateSources: (body: Array<{ id: string; enabled: boolean }>) => api.put('news/sources', { json: body }).json<{ ok: boolean }>(),
+  addSource: (body: { name: string; url: string; type: string; category: string; lang: string; enabled: boolean }) =>
+    api.post('news/sources', { json: body }).json<{ ok: boolean; id: string }>(),
+  deleteSource: (id: string) => api.delete(`news/sources/${id}`).json<{ ok: boolean }>(),
+  today: () => api.get('news/today').json<TodayBrief | null>(),
+  digests: () => api.get('news/digests').json<DigestItem[]>(),
 }
 
 function NewsPage() {
@@ -78,6 +148,17 @@ function NewsPage() {
   const [page, setPage] = useState(1)
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
   const queryClient = useQueryClient()
+
+  // 功能1：订阅源管理
+  const [sourcesOpen, setSourcesOpen] = useState(false)
+  const [newSource, setNewSource] = useState({ name: '', url: '', type: 'rss', category: '综合', lang: 'en', enabled: true })
+
+  // 功能2：历史简报
+  const [digestDialogOpen, setDigestDialogOpen] = useState(false)
+  const [expandedDigestId, setExpandedDigestId] = useState<string | null>(null)
+
+  // 功能3：反馈原因 Popover
+  const [downvotePopoverId, setDownvotePopoverId] = useState<string | null>(null)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['news', 'list', category, search, page],
@@ -214,18 +295,85 @@ function NewsPage() {
     onError: (e: any) => toast.error(`处理失败: ${e.message}`),
   })
 
+  // 功能1：订阅源 queries / mutations
+  const { data: sources } = useQuery({
+    queryKey: ['news', 'sources'],
+    queryFn: newsApi.sources,
+    enabled: sourcesOpen,
+  })
+
+  const updateSourcesMutation = useMutation({
+    mutationFn: newsApi.updateSources,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['news', 'sources'] })
+      toast.success('已更新')
+    },
+    onError: (e: any) => toast.error(`更新失败: ${e.message}`),
+  })
+
+  const addSourceMutation = useMutation({
+    mutationFn: newsApi.addSource,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['news', 'sources'] })
+      setNewSource({ name: '', url: '', type: 'rss', category: '综合', lang: 'en', enabled: true })
+      toast.success('已添加')
+    },
+    onError: (e: any) => toast.error(`添加失败: ${e.message}`),
+  })
+
+  const deleteSourceMutation = useMutation({
+    mutationFn: newsApi.deleteSource,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['news', 'sources'] })
+      toast.success('已删除')
+    },
+    onError: (e: any) => toast.error(`删除失败: ${e.message}`),
+  })
+
+  const handleSourceToggle = (source: NewsSource, enabled: boolean) => {
+    updateSourcesMutation.mutate([{ id: source.id, enabled }])
+  }
+
+  const handleAddSource = () => {
+    if (!newSource.name || !newSource.url) {
+      toast.error('名称和 URL 不能为空')
+      return
+    }
+    addSourceMutation.mutate(newSource)
+  }
+
+  // 功能1：按分类分组
+  const sourcesByCategory = (sources || []).reduce<Record<string, NewsSource[]>>((acc, s) => {
+    const cat = s.category || '未分类'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(s)
+    return acc
+  }, {})
+
+  // 功能2：今日简报 & 历史简报
+  const { data: todayBrief } = useQuery({
+    queryKey: ['news', 'today'],
+    queryFn: newsApi.today,
+  })
+
+  const { data: digests } = useQuery({
+    queryKey: ['news', 'digests'],
+    queryFn: newsApi.digests,
+    enabled: digestDialogOpen,
+  })
+
   const feedbackMap = new Map<string, string>()
   feedbackList?.forEach(f => {
     if (f.targetType === 'item') feedbackMap.set(f.targetId, f.feedback)
   })
 
-  const handleFeedback = (item: FeedItem, type: 'up' | 'down') => {
+  const handleFeedback = (item: FeedItem, type: 'up' | 'down', reason?: string) => {
     const current = feedbackMap.get(item.id)
     if (current === type) {
       toast.info('已反馈过')
       return
     }
-    feedbackMutation.mutate({ targetType: 'item', targetId: item.id, feedback: type })
+    feedbackMutation.mutate({ targetType: 'item', targetId: item.id, feedback: type, reason })
     toast.success(type === 'up' ? '已标记"有用"' : '已标记"没用"')
   }
 
@@ -241,6 +389,15 @@ function NewsPage() {
   const categories = ['全部', '加密', '财经', '科技', '综合']
 
   const isRefreshing = refreshStatus?.status === 'running'
+
+  // 功能2：解析 topItems
+  const parseTopItems = (json: string): Array<{ title: string; summary?: string; url?: string }> => {
+    try {
+      return JSON.parse(json)
+    } catch {
+      return []
+    }
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -265,6 +422,13 @@ function NewsPage() {
           >
             {processMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lightbulb className="w-4 h-4" />}
             AI 分析
+          </button>
+          <button
+            onClick={() => setSourcesOpen(true)}
+            className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted flex items-center gap-2"
+          >
+            <Rss className="w-4 h-4" />
+            订阅源
           </button>
         </div>
       </div>
@@ -304,6 +468,41 @@ function NewsPage() {
                   {cat.status === 'running' && '抓取中...'}
                   {cat.status === 'done' && `${cat.fetched ?? 0} 条`}
                   {cat.status === 'failed' && '失败'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 功能2：今日简报卡片 */}
+      {todayBrief && (
+        <div className="border rounded-xl p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-blue-500" />
+              <h2 className="font-semibold">{todayBrief.title || `今日简报 · ${todayBrief.date}`}</h2>
+            </div>
+            <button
+              onClick={() => setDigestDialogOpen(true)}
+              className="px-2.5 py-1 text-xs border rounded-lg hover:bg-muted flex items-center gap-1.5"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              查看历史
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground mb-3">{todayBrief.overview}</p>
+          <div className="space-y-2">
+            {parseTopItems(todayBrief.topItems).slice(0, 3).map((t, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm">
+                <span className="shrink-0 w-5 h-5 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center mt-0.5">{i + 1}</span>
+                <div className="min-w-0">
+                  {t.url ? (
+                    <a href={t.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">{t.title}</a>
+                  ) : (
+                    <span className="font-medium">{t.title}</span>
+                  )}
+                  {t.summary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{t.summary}</p>}
                 </div>
               </div>
             ))}
@@ -391,16 +590,37 @@ function NewsPage() {
                     >
                       <ThumbsUp className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => handleFeedback(item, 'down')}
-                      className={cn(
-                        'p-1.5 rounded hover:bg-muted transition-colors',
-                        feedbackMap.get(item.id) === 'down' ? 'text-red-500' : 'text-muted-foreground'
-                      )}
-                      title="没用"
-                    >
-                      <ThumbsDown className="w-4 h-4" />
-                    </button>
+                    {/* 功能3：👎 带原因选择器 */}
+                    <Popover open={downvotePopoverId === item.id} onOpenChange={(open) => setDownvotePopoverId(open ? item.id : null)}>
+                      <PopoverTrigger asChild>
+                        <button
+                          className={cn(
+                            'p-1.5 rounded hover:bg-muted transition-colors',
+                            feedbackMap.get(item.id) === 'down' ? 'text-red-500' : 'text-muted-foreground'
+                          )}
+                          title="没用"
+                        >
+                          <ThumbsDown className="w-4 h-4" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-auto p-2">
+                        <p className="text-xs text-muted-foreground mb-2 px-1">选择原因：</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['重复', '无关', '低质', '已知道'].map(reason => (
+                            <button
+                              key={reason}
+                              onClick={() => {
+                                handleFeedback(item, 'down', reason)
+                                setDownvotePopoverId(null)
+                              }}
+                              className="px-2.5 py-1 text-xs rounded-full border hover:bg-muted transition-colors"
+                            >
+                              {reason}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <button
                       onClick={() => handleSave(item)}
                       className={cn(
@@ -443,6 +663,176 @@ function NewsPage() {
           )}
         </>
       )}
+
+      {/* 功能1：订阅源管理 Sheet */}
+      <Sheet open={sourcesOpen} onOpenChange={setSourcesOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              订阅源管理
+            </SheetTitle>
+            <SheetDescription>管理新闻订阅源的启用状态，或添加新的订阅源。</SheetDescription>
+          </SheetHeader>
+
+          <div className="px-4 space-y-4 flex-1 overflow-y-auto">
+            {/* 源列表 */}
+            {sources ? (
+              Object.entries(sourcesByCategory).map(([cat, catSources]) => (
+                <div key={cat}>
+                  <h3 className="text-sm font-semibold mb-2">{cat}</h3>
+                  <div className="space-y-1.5">
+                    {catSources.map(source => (
+                      <div key={source.id} className="flex items-center gap-2 p-2 rounded-lg border bg-background text-sm">
+                        <Switch
+                          checked={source.enabled}
+                          onCheckedChange={(checked) => handleSourceToggle(source, checked)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium truncate">{source.name}</span>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{source.type}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{source.url}</p>
+                        </div>
+                        <button
+                          onClick={() => deleteSourceMutation.mutate(source.id)}
+                          className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                          title="删除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {/* 添加订阅源表单 */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+                <Plus className="w-4 h-4" />
+                添加订阅源
+              </h3>
+              <div className="space-y-2">
+                <Input
+                  placeholder="名称"
+                  value={newSource.name}
+                  onChange={(e) => setNewSource(s => ({ ...s, name: e.target.value }))}
+                />
+                <Input
+                  placeholder="URL"
+                  value={newSource.url}
+                  onChange={(e) => setNewSource(s => ({ ...s, url: e.target.value }))}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={newSource.type} onValueChange={(v) => setNewSource(s => ({ ...s, type: v }))}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="类型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rss">RSS</SelectItem>
+                      <SelectItem value="rsshub">RSSHub</SelectItem>
+                      <SelectItem value="api">API</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={newSource.category} onValueChange={(v) => setNewSource(s => ({ ...s, category: v }))}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="分类" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="加密">加密</SelectItem>
+                      <SelectItem value="财经">财经</SelectItem>
+                      <SelectItem value="科技">科技</SelectItem>
+                      <SelectItem value="综合">综合</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  placeholder="语言 (如 en, zh)"
+                  value={newSource.lang}
+                  onChange={(e) => setNewSource(s => ({ ...s, lang: e.target.value }))}
+                />
+                <button
+                  onClick={handleAddSource}
+                  disabled={addSourceMutation.isPending}
+                  className="w-full px-3 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {addSourceMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  添加
+                </button>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* 功能2：历史简报 Dialog */}
+      <Dialog open={digestDialogOpen} onOpenChange={setDigestDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5" />
+              历史简报
+            </DialogTitle>
+            <DialogDescription>浏览过往的每日资讯简报。</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 mt-2">
+            {digests && digests.length > 0 ? (
+              digests.map(digest => {
+                const topItems = parseTopItems(digest.topItems)
+                const isExpanded = expandedDigestId === digest.id
+                return (
+                  <div key={digest.id} className="border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedDigestId(isExpanded ? null : digest.id)}
+                      className="w-full text-left p-3 hover:bg-muted/50 transition-colors flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-xs text-muted-foreground">{digest.date}</span>
+                        <p className="font-medium text-sm truncate">{digest.title}</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {isExpanded ? '收起' : '展开'}
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-3 pb-3 border-t">
+                        <p className="text-sm text-muted-foreground mt-2 mb-2">{digest.overview}</p>
+                        <div className="space-y-1.5">
+                          {topItems.map((t, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm">
+                              <span className="shrink-0 w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center mt-0.5">{i + 1}</span>
+                              <div className="min-w-0">
+                                {t.url ? (
+                                  <a href={t.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">{t.title}</a>
+                                ) : (
+                                  <span className="font-medium">{t.title}</span>
+                                )}
+                                {t.summary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{t.summary}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+                {digests ? '暂无历史简报' : <Loader2 className="w-5 h-5 animate-spin" />}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
