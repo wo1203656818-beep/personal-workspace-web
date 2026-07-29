@@ -6,7 +6,7 @@ import {
   BarChart3, Coins, Settings, Plus, Search, CheckSquare,
   User, LogOut, Moon, Monitor, KeyRound, Unlink, Download,
   LayoutDashboard, Sparkles, ChevronDown, ChevronsUpDown,
-  Home, AlertTriangle, X, ListChecks,
+  Home, AlertTriangle, X, ListChecks, Newspaper,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
@@ -90,6 +90,7 @@ const navGroups = [
     label: '工具',
     items: [
       { title: '决策工具', href: '/tools', icon: Coins },
+      { title: '资讯', href: '/news', icon: Newspaper },
       { title: '语义搜索', href: '/search', icon: Sparkles },
     ],
   },
@@ -130,9 +131,10 @@ function getBreadcrumbs(
   if (pathname.startsWith('/notes')) return [{ label: '笔记' }]
   if (pathname.startsWith('/knowledge')) return [{ label: '知识库' }]
   if (pathname.startsWith('/analysis')) return [{ label: '分析' }]
-  if (pathname.startsWith('/tools')) return [{ label: '决策工具' }]
-  if (pathname.startsWith('/search')) return [{ label: '语义搜索' }]
+  if (pathname.startsWith('/tools')) return [{ label: '工具' }, { label: '决策工具' }]
+  if (pathname.startsWith('/search')) return [{ label: '工具' }, { label: '语义搜索' }]
   if (pathname.startsWith('/settings')) return [{ label: '设置' }]
+  if (pathname.startsWith('/news')) return [{ label: '工具' }, { label: '资讯' }]
   return [{ label: '仪表盘' }]
 }
 

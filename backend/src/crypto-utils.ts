@@ -116,7 +116,7 @@ export async function hashPassword(password: string): Promise<string> {
 /**
  * settings 表中需要加密的敏感键
  */
-export const SENSITIVE_KEYS = ['ai_api_key', 'custom_ai_api_key', 'ima_api_key', 'ms_refresh_token', 'ms_client_secret', 'password_hash']
+export const SENSITIVE_KEYS = ['ai_api_key', 'custom_ai_api_key', 'ima_api_key', 'ms_refresh_token', 'ms_client_secret', 'password_hash', 'telegram_bot_token']
 
 /**
  * 判断某个 settings key 是否为敏感键（需要加密存储）

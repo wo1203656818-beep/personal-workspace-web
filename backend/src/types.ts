@@ -6,6 +6,7 @@ export interface Env {
   CACHE: KVNamespace
   AI: Ai
   STORAGE: R2Bucket
+  VECTORIZE: VectorizeIndex
   JWT_SECRET: string
   PASSWORD_HASH: string
   MS_CLIENT_ID?: string

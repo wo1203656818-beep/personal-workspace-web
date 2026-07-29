@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './schema'
 import type { Env } from './types'
 
-export type SyncSource = 'ms_todo' | 'ima_notes' | 'ima_kb'
+export type SyncSource = 'ms_todo' | 'ima_notes' | 'ima_kb' | 'news_fetch' | 'news_digest' | 'news_ai' | 'news_push'
 export type SyncStatus = 'success' | 'partial' | 'error'
 
 export interface SyncLogInput {

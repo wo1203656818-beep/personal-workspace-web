@@ -31,6 +31,15 @@ import { nowBeijing, todayBeijing, nowCST, todayCST } from './time'
 import { logSync } from './sync-logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { createMcpHandler } from 'agents/mcp'
+import {
+  fetchAllSources,
+  fetchSourcesByCategory,
+  fetchSingleSource,
+  processPendingItems,
+  generateDailyDigest,
+  pushDailyBrief,
+} from './news-fetcher'
+import { PRESET_FEED_SOURCES } from './news-sources'
 
 
 // 任务表的全部列（用于列表查询，避免 SELECT * 之余方便附加上 subtaskCount）
@@ -125,12 +134,20 @@ async function callAI(
 
   // 默认：Cloudflare Workers AI（cfg 为 null 时也走这里，用兜底模型）
   const cfModel = model || CF_MODELS.DEFAULT
-  try {
-    const response = await c.env.AI.run(cfModel, { messages, max_tokens: maxTokens })
-    // 兼容不同模型的响应结构（string / { response } / { result: { response } } / 流式对象）
+  // 统一的响应文本提取：兼容新旧 Workers AI 返回格式
+  const extractAI = (response: any): string => {
     if (typeof response === 'string') return response
     const r = response as any
-    return r.response?.response || r.response || r.result?.response || r.output || JSON.stringify(response)
+    if (r.choices?.[0]?.message?.content) return String(r.choices[0].message.content)
+    if (typeof r.response === 'string') return r.response
+    if (r.response !== undefined) return JSON.stringify(r.response)
+    if (r.result?.response) return String(r.result.response)
+    if (r.output) return typeof r.output === 'string' ? r.output : JSON.stringify(r.output)
+    return JSON.stringify(response)
+  }
+  try {
+    const response = await c.env.AI.run(cfModel, { messages, max_tokens: maxTokens })
+    return extractAI(response)
   } catch (aiErr: any) {
     const detail = (aiErr?.message || aiErr?.toString() || JSON.stringify(aiErr)).toLowerCase()
     // 若主模型在当前账户不可用，自动降级到兜底模型
@@ -138,9 +155,7 @@ async function callAI(
     if (isModelUnavailable && cfModel !== CF_MODELS.FALLBACK) {
       try {
         const response = await c.env.AI.run(CF_MODELS.FALLBACK, { messages, max_tokens: maxTokens })
-        if (typeof response === 'string') return response
-        const r = response as any
-        return r.response?.response || r.response || r.result?.response || r.output || JSON.stringify(response)
+        return extractAI(response)
       } catch (fallbackErr: any) {
         const fallbackDetail = fallbackErr?.message || fallbackErr?.toString() || JSON.stringify(fallbackErr)
         throw new Error(`AI 调用失败，请检查 AI 配置或稍后重试`)
@@ -161,18 +176,6 @@ async function embedText(c: Context<{ Bindings: Env }>, text: string): Promise<n
   if (Array.isArray(vec)) return vec as number[]
   if (Array.isArray(r)) return r as number[]
   throw new Error('embedding 解析失败')
-}
-
-// 余弦相似度
-function cosine(a: number[], b: number[]): number {
-  let dot = 0, na = 0, nb = 0
-  const len = Math.min(a.length, b.length)
-  for (let i = 0; i < len; i++) {
-    dot += a[i] * b[i]
-    na += a[i] * a[i]
-    nb += b[i] * b[i]
-  }
-  return na > 0 && nb > 0 ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0
 }
 
 function normalizeSearchText(text: string): string {
@@ -231,27 +234,22 @@ function buildSnippet(query: string, text: string): string {
   return plain.slice(0, 140) + (plain.length > 140 ? '…' : '')
 }
 
-// 增量嵌入：用 upsert 避免 delete+insert 两次写；文本为空则删除旧向量。AI 异常由调用方 catch，不阻断主流程。
-// 增量嵌入：AI/向量异常一律吞掉，绝不让主流程（创建/更新任务、子任务）因此 500。
+// 增量嵌入：写入 Vectorize 向量索引。AI/向量异常一律吞掉，绝不让主流程因此 500。
+// 文本为空时从 Vectorize 删除对应向量。vector id 用 `${type}:${id}` 保证稳定可更新。
 async function indexTarget(c: Context<{ Bindings: Env }>, type: 'note' | 'task' | 'kb' | 'subtask', id: string, text: string) {
   try {
-    const db = drizzle(c.env.DB, { schema })
     const t = (text || '').trim()
+    const vectorId = `${type}:${id}`
     if (!t) {
-      await db.delete(schema.embeddings).where(and(eq(schema.embeddings.targetType, type), eq(schema.embeddings.targetId, id)))
+      await c.env.VECTORIZE.deleteByIds([vectorId])
       return
     }
     const vec = await embedText(c, t.slice(0, 4000))
-    await db.insert(schema.embeddings).values({
-      id: crypto.randomUUID(),
-      targetType: type,
-      targetId: id,
-      model: EMBED_MODEL,
-      vector: JSON.stringify(vec),
-    }).onConflictDoUpdate({
-      target: [schema.embeddings.targetType, schema.embeddings.targetId],
-      set: { vector: JSON.stringify(vec), model: EMBED_MODEL },
-    })
+    await c.env.VECTORIZE.upsert([{
+      id: vectorId,
+      values: vec,
+      metadata: { type, targetId: id },
+    }])
   } catch (e: any) {
     console.error('[embed] indexTarget failed (ignored):', e?.message)
   }
@@ -286,7 +284,7 @@ function getISOWeek(d: Date): { year: number; week: number } {
   return { year: date.getUTCFullYear(), week }
 }
 
-// KV 缓存辅助函数：优先用 Cloudflare KV（低延迟、高并发），回退到 D1 kv_cache 表
+// KV 缓存辅助函数：仅用 Cloudflare KV（低延迟、高并发），不再双写 D1 以节省 D1 写额度
 async function kvCacheGet<T>(env: Env, key: string): Promise<T | null> {
   try {
     const value = await env.CACHE.get(key)
@@ -294,35 +292,15 @@ async function kvCacheGet<T>(env: Env, key: string): Promise<T | null> {
       try { return JSON.parse(value) as T } catch { return null }
     }
   } catch (e) { console.error('[kv] get failed:', e) }
-  // 回退 D1（兼容旧缓存）
-  try {
-    const db = drizzle(env.DB, { schema })
-    const [row] = await db.select().from(schema.kvCache).where(and(eq(schema.kvCache.key, key), gt(schema.kvCache.expiresAt, Date.now())))
-    if (row) {
-      try { return JSON.parse(row.value) as T } catch { return null }
-    }
-  } catch { }
   return null
 }
 
 async function kvCacheSet(env: Env, key: string, value: unknown, ttlMs: number): Promise<void> {
   const json = JSON.stringify(value)
-  // KV 写入（主缓存，TTL 至少 60 秒）
+  // 仅写 KV（TTL 至少 60 秒，符合 KV 限制）
   try {
     await env.CACHE.put(key, json, { expirationTtl: Math.max(60, Math.ceil(ttlMs / 1000)) })
   } catch (e) { console.error('[kv] put failed:', e) }
-  // 同时写入 D1 保持兼容，失败不阻断
-  try {
-    const db = drizzle(env.DB, { schema })
-    await db.insert(schema.kvCache).values({
-      key,
-      value: json,
-      expiresAt: Date.now() + ttlMs,
-    }).onConflictDoUpdate({
-      target: schema.kvCache.key,
-      set: { value: json, expiresAt: Date.now() + ttlMs },
-    })
-  } catch (e) { console.error('[kv] D1 fallback write failed:', e) }
 }
 
 async function kvCacheDeletePrefix(env: Env, prefix: string, limit = 1000): Promise<void> {
@@ -398,9 +376,19 @@ app.post('/api/auth/change-password', async (c) => {
 })
 
 // JWT 中间件（hono/jwt）— 保护所有 /api 路由，白名单内的路径免认证
-const PUBLIC_PATHS = new Set(['/api/auth/login', '/api/settings/ms-todo/callback'])
+const PUBLIC_PATHS = new Set([
+  '/api/auth/login',
+  '/api/settings/ms-todo/callback',
+  '/api/news/init-sources',
+  '/api/news/refresh',
+  '/api/news/refresh-status',
+  '/api/news/refresh-reset',
+  '/api/news/process',
+])
 app.use('/api/*', async (c, next) => {
-  if (PUBLIC_PATHS.has(c.req.path)) return next()
+  // 用 URL 解析获取纯路径，避免 c.req.path 行为差异
+  const path = new URL(c.req.url).pathname
+  if (PUBLIC_PATHS.has(path)) return next()
   return jwt({ secret: c.env.JWT_SECRET, alg: 'HS256' })(c, next)
 })
 
@@ -514,7 +502,7 @@ app.delete('/api/tasks/lists/:id', async (c) => {
     db.delete(schema.tasks).where(and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoId))),
     db.delete(schema.taskLists).where(eq(schema.taskLists.id, id)),
   ])
-  // 批量清理列表下所有任务及子任务的向量嵌入
+  // 批量清理列表下所有任务及子任务的向量嵌入（Vectorize deleteByIds）
   const allTargetIds = [
     ...tasksInList.map((t) => ({ type: 'task' as const, id: t.id })),
     ...subtaskIds.map((st) => ({ type: 'subtask' as const, id: st.id })),
@@ -523,8 +511,8 @@ app.delete('/api/tasks/lists/:id', async (c) => {
     const batchSize = 50
     for (let i = 0; i < allTargetIds.length; i += batchSize) {
       const chunk = allTargetIds.slice(i, i + batchSize)
-      const conditions = chunk.map((x) => and(eq(schema.embeddings.targetType, x.type), eq(schema.embeddings.targetId, x.id)))
-      await db.delete(schema.embeddings).where(or(...conditions)).catch((e) =>
+      const vectorIds = chunk.map((x) => `${x.type}:${x.id}`)
+      await c.env.VECTORIZE.deleteByIds(vectorIds).catch((e) =>
         console.error('[embed] list delete batch cleanup failed:', e?.message)
       )
     }
@@ -720,13 +708,13 @@ app.delete('/api/tasks/:id', async (c) => {
     // 未关联 MS Todo：直接硬删（子任务走 onDelete cascade）
     await db.delete(schema.tasks).where(eq(schema.tasks.id, id))
   }
-  // 批量清理任务及子任务的向量嵌入（软删除任务也清理，避免语义搜索命中已删除内容）
+  // 批量清理任务及子任务的向量嵌入（Vectorize deleteByIds）
   const allTargetIds = [{ type: 'task' as const, id }, ...subtaskIds.map((st) => ({ type: 'subtask' as const, id: st.id }))]
   const batchSize = 50
   for (let i = 0; i < allTargetIds.length; i += batchSize) {
     const chunk = allTargetIds.slice(i, i + batchSize)
-    const conditions = chunk.map((x) => and(eq(schema.embeddings.targetType, x.type), eq(schema.embeddings.targetId, x.id)))
-    await db.delete(schema.embeddings).where(or(...conditions)).catch((e) =>
+    const vectorIds = chunk.map((x) => `${x.type}:${x.id}`)
+    await c.env.VECTORIZE.deleteByIds(vectorIds).catch((e) =>
       console.error('[embed] task delete batch cleanup failed:', e?.message)
     )
   }
@@ -1228,7 +1216,7 @@ app.post('/api/ai/note-summary', async (c) => {
   }
 })
 
-// 跨模块语义检索（RAG-lite）：向量存 D1，按需增量嵌入，暴力余弦，不引外部向量库
+// 跨模块语义检索（RAG）：向量存 Cloudflare Vectorize，语义检索 + 词法加权
 app.post('/api/ai/semantic-search', async (c) => {
   const { query, topK = 5 } = await c.req.json<{ query: string; topK?: number }>()
   if (!query || !query.trim()) return c.json({ results: [] })
@@ -1245,7 +1233,7 @@ app.post('/api/ai/semantic-search', async (c) => {
   const cached = await kvCacheGet<{ results: unknown[] }>(c.env, cacheKey)
   if (cached) return c.json(cached)
 
-  // 1. 嵌入查询
+  // 1. 嵌入查询向量
   let qVec: number[]
   try {
     qVec = await embedText(c, query)
@@ -1253,66 +1241,65 @@ app.post('/api/ai/semantic-search', async (c) => {
     return c.json({ error: '嵌入模型不可用: ' + e.message }, 500)
   }
 
-  // 2. 收集语料（笔记 + 任务 + 子任务 + 知识库有正文的）
-  let notes: any[], tasks: any[], subtasks: any[], kb: any[]
+  // 2. Vectorize 向量检索（替代全表扫 + JSON.parse），取 topK*3 候选用于二次排序
+  const fetchK = Math.min(topK * 3, 50)
+  let matches: VectorizeMatch[]
   try {
-    notes = await db.select({ id: schema.imaNotes.id, title: schema.imaNotes.title, content: schema.imaNotes.content }).from(schema.imaNotes)
-    tasks = await db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note, isCompleted: schema.tasks.isCompleted, isImportant: schema.tasks.isImportant, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(isNull(schema.tasks.msTodoDeletedAt))
-    subtasks = await db.select({ id: schema.subtasks.id, title: schema.subtasks.title, taskId: schema.subtasks.taskId }).from(schema.subtasks)
-    kb = await db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments)
+    const queryResult = await c.env.VECTORIZE.query(qVec, { topK: fetchK, returnMetadata: 'all' })
+    matches = queryResult.matches || []
   } catch (e: any) {
-    return c.json({ error: '数据库查询失败: ' + e.message }, 500)
+    return c.json({ error: '向量检索失败: ' + e.message }, 500)
   }
 
-  type Item = { type: 'note' | 'task' | 'subtask' | 'kb'; id: string; title: string; text: string }
-  const items: Item[] = []
-  for (const n of notes) items.push({ type: 'note', id: n.id, title: n.title, text: `${n.title}\n${n.content || ''}`.slice(0, 4000) })
+  if (matches.length === 0) {
+    const emptyResponse = { results: [] }
+    await kvCacheSet(c.env, cacheKey, emptyResponse, cacheTTLMs)
+    return c.json(emptyResponse)
+  }
+
+  // 3. 按 type 分组，批量从 D1 查具体记录（避免 N+1）
+  const idsByType: Record<string, string[]> = { note: [], task: [], subtask: [], kb: [] }
+  for (const m of matches) {
+    const meta = m.metadata as { type: string; targetId: string } | null
+    if (meta?.type && meta.targetId && idsByType[meta.type]) {
+      idsByType[meta.type].push(meta.targetId)
+    }
+  }
+
+  const [notes, tasks, subtasks, kbDocs] = await Promise.all([
+    idsByType.note.length ? db.select({ id: schema.imaNotes.id, title: schema.imaNotes.title, content: schema.imaNotes.content }).from(schema.imaNotes).where(inArray(schema.imaNotes.id, idsByType.note)) : [],
+    idsByType.task.length ? db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note, isCompleted: schema.tasks.isCompleted, isImportant: schema.tasks.isImportant, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(and(inArray(schema.tasks.id, idsByType.task), isNull(schema.tasks.msTodoDeletedAt))) : [],
+    idsByType.subtask.length ? db.select({ id: schema.subtasks.id, title: schema.subtasks.title, taskId: schema.subtasks.taskId }).from(schema.subtasks).where(inArray(schema.subtasks.id, idsByType.subtask)) : [],
+    idsByType.kb.length ? db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments).where(inArray(schema.kbDocuments.id, idsByType.kb)) : [],
+  ])
+
+  // 4. 构建 D1 记录查找表 + 文本
+  const recordMap = new Map<string, { title: string; text: string }>()
+  for (const n of notes) recordMap.set(`note:${n.id}`, { title: n.title, text: `${n.title}\n${n.content || ''}`.slice(0, 4000) })
   for (const t of tasks) {
     const meta = `${t.isCompleted ? '已完成' : '未完成'}\n${t.isImportant ? '重要' : ''}\n${t.dueDate ? '截止: ' + t.dueDate : ''}`
-    items.push({ type: 'task', id: t.id, title: t.title, text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000) })
+    recordMap.set(`task:${t.id}`, { title: t.title, text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000) })
   }
-  for (const st of subtasks) items.push({ type: 'subtask', id: st.id, title: st.title, text: st.title })
-  for (const k of kb) { if (k.content && k.content.trim()) items.push({ type: 'kb', id: k.id, title: k.title, text: `${k.title}\n${k.content}`.slice(0, 4000) }) }
+  for (const st of subtasks) recordMap.set(`subtask:${st.id}`, { title: st.title, text: st.title })
+  for (const k of kbDocs) recordMap.set(`kb:${k.id}`, { title: k.title, text: `${k.title}\n${k.content}`.slice(0, 4000) })
 
-  if (items.length === 0) return c.json({ results: [] })
-
-  // 3. 增量嵌入：缺失才编码并缓存到 embeddings 表，后续查询直接走缓存
-  let existing: any[]
-  try {
-    existing = await db.select().from(schema.embeddings)
-  } catch (e: any) {
-    return c.json({ error: '向量缓存查询失败: ' + e.message }, 500)
-  }
-  // 预解析所有向量到 Map，避免循环中重复 JSON.parse
-  const embMap = new Map<string, number[]>()
-  for (const e of existing) {
-    try { embMap.set(`${e.targetType}:${e.targetId}`, JSON.parse(e.vector)) } catch { /* skip corrupt */ }
-  }
-
-  // 4. 评分（语义 + 词法 + 标题加权）
+  // 5. 综合评分（语义 + 词法 + 标题加权），Vectorize score 已是余弦相似度
   const scored: { type: string; id: string; title: string; snippet: string; score: number }[] = []
-  for (const it of items) {
-    const key = `${it.type}:${it.id}`
-    let vec = embMap.get(key)
-    if (!vec) {
-      try {
-        vec = await embedText(c, it.text)
-        await db.insert(schema.embeddings).values({ id: crypto.randomUUID(), targetType: it.type, targetId: it.id, model: EMBED_MODEL, vector: JSON.stringify(vec) })
-        embMap.set(key, vec)
-      } catch (e: any) {
-        console.error('[semantic-search] 嵌入失败，跳过', key, e?.message)
-        continue
-      }
-    }
-    const semantic = cosine(qVec, vec)
-    const lexical = lexicalScore(query, it.title, it.text)
-    const titleBoost = normalizeSearchText(it.title).includes(normalizeSearchText(query)) ? 0.08 : 0
+  for (const m of matches) {
+    const meta = m.metadata as { type: string; targetId: string } | null
+    if (!meta?.type || !meta.targetId) continue
+    const key = `${meta.type}:${meta.targetId}`
+    const record = recordMap.get(key)
+    if (!record) continue // D1 中已删除的记录，跳过
+    const semantic = m.score
+    const lexical = lexicalScore(query, record.title, record.text)
+    const titleBoost = normalizeSearchText(record.title).includes(normalizeSearchText(query)) ? 0.08 : 0
     const finalScore = Math.min(1, semantic * 0.72 + lexical + titleBoost)
     scored.push({
-      type: it.type,
-      id: it.id,
-      title: it.title,
-      snippet: buildSnippet(query, it.text),
+      type: meta.type,
+      id: meta.targetId,
+      title: record.title,
+      snippet: buildSnippet(query, record.text),
       score: finalScore,
     })
   }
@@ -1327,25 +1314,52 @@ app.post('/api/ai/semantic-search', async (c) => {
   return c.json(response)
 })
 
-// 一次性重建全部向量（首跑语义检索前可调用，预热嵌入缓存，避免首次查询过慢）
-// 先清空再逐条写入，单条失败不中断整体；返回成功索引条数。
-// 语义检索重索引（同步执行，带 try/catch + 限量，避免超时/500）
+// 一次性重建全部向量索引到 Vectorize（批量 upsert，覆盖旧向量）。
+// 不先清空：已删除的 D1 记录对应的孤儿向量会在 semantic-search 时被 recordMap 过滤。
 app.post('/api/ai/reindex', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
-    await db.delete(schema.embeddings)
     const notes = await db.select({ id: schema.imaNotes.id, title: schema.imaNotes.title, content: schema.imaNotes.content }).from(schema.imaNotes)
     const tasks = await db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note, isCompleted: schema.tasks.isCompleted, isImportant: schema.tasks.isImportant, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(isNull(schema.tasks.msTodoDeletedAt))
     const subtasks = await db.select({ id: schema.subtasks.id, title: schema.subtasks.title }).from(schema.subtasks)
     const kb = await db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments)
-    let count = 0
-    for (const n of notes) try { await indexTarget(c, 'note', n.id, `${n.title}\n${n.content || ''}`); count++ } catch (e: any) { console.error('[reindex] 跳过 note', n.id, e?.message) }
+
+    // 构建全部待索引文本
+    type Pending = { type: 'note' | 'task' | 'kb' | 'subtask'; id: string; text: string }
+    const pending: Pending[] = []
+    for (const n of notes) pending.push({ type: 'note', id: n.id, text: `${n.title}\n${n.content || ''}`.slice(0, 4000) })
     for (const t of tasks) {
       const meta = `${t.isCompleted ? '已完成' : '未完成'}\n${t.isImportant ? '重要' : ''}\n${t.dueDate ? '截止: ' + t.dueDate : ''}`
-      try { await indexTarget(c, 'task', t.id, `${t.title}\n${t.note || ''}\n${meta}`); count++ } catch (e: any) { console.error('[reindex] 跳过 task', t.id, e?.message) }
+      pending.push({ type: 'task', id: t.id, text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000) })
     }
-    for (const st of subtasks) try { await indexTarget(c, 'subtask', st.id, st.title); count++ } catch (e: any) { console.error('[reindex] 跳过 subtask', st.id, e?.message) }
-    for (const k of kb) { if (k.content?.trim()) try { await indexTarget(c, 'kb', k.id, `${k.title}\n${k.content}`); count++ } catch (e: any) { console.error('[reindex] 跳过 kb', k.id, e?.message) } }
+    for (const st of subtasks) pending.push({ type: 'subtask', id: st.id, text: st.title })
+    for (const k of kb) { if (k.content?.trim()) pending.push({ type: 'kb', id: k.id, text: `${k.title}\n${k.content}`.slice(0, 4000) }) }
+
+    // 批量嵌入 + upsert（每批 25 条，控制 AI 调用并发）
+    let count = 0
+    const BATCH = 25
+    for (let i = 0; i < pending.length; i += BATCH) {
+      const batch = pending.slice(i, i + BATCH)
+      const vectors: VectorizeVector[] = []
+      // 嵌入是串行的（Workers AI 单次 embed 支持单条），但 upsert 批量
+      for (const item of batch) {
+        try {
+          const vec = await embedText(c, item.text)
+          vectors.push({ id: `${item.type}:${item.id}`, values: vec, metadata: { type: item.type, targetId: item.id } })
+          count++
+        } catch (e: any) {
+          console.error('[reindex] 嵌入失败，跳过', item.type, item.id, e?.message)
+        }
+      }
+      if (vectors.length > 0) {
+        try { await c.env.VECTORIZE.upsert(vectors) } catch (e: any) {
+          console.error('[reindex] 批量 upsert 失败，降级逐条', e?.message)
+          for (const v of vectors) {
+            try { await c.env.VECTORIZE.upsert([v]) } catch { /* skip */ }
+          }
+        }
+      }
+    }
     return c.json({ ok: true, indexed: count })
   } catch (e: any) {
     console.error('[reindex] failed:', e)
@@ -1884,7 +1898,8 @@ async function chatCompletionCF(
   opts: { tools?: any[]; images?: string[] }
 ): Promise<ChatResult> {
   const model = cfg.model || CF_MODELS.DEFAULT
-  const body: any = { messages }
+  // 设置 max_tokens 上限，避免聊天回复过长无谓消耗 Workers AI neurons
+  const body: any = { messages, max_tokens: 2048 }
   if (opts.tools && opts.tools.length) body.tools = opts.tools
   const parse = (response: any): ChatResult => {
     const r = response as any
@@ -2017,13 +2032,40 @@ app.get('/api/ai/chat/sessions', async (c) => {
       pinned: schema.chatSessions.pinned,
       tags: schema.chatSessions.tags,
     }).from(schema.chatSessions).orderBy(desc(schema.chatSessions.pinned), desc(schema.chatSessions.updatedAt)).limit(50)
-    const withPreview = await Promise.all(sessions.map(async (s: any) => {
-      const last = await db.select({ content: schema.chatMessages.content }).from(schema.chatMessages)
-        .where(eq(schema.chatMessages.sessionId, s.id)).orderBy(desc(schema.chatMessages.createdAt)).limit(1)
+
+    if (sessions.length === 0) return c.json([])
+
+    // 批量查每个 session 的最后一条消息（INNER JOIN，消除 N+1）
+    const sessionIds = sessions.map((s: any) => s.id)
+    const placeholders = sessionIds.map(() => '?').join(',')
+    const lastMsgResult = await c.env.DB.prepare(
+      `SELECT m.sessionId as sid, m.content as content
+       FROM chat_messages m
+       INNER JOIN (
+         SELECT sessionId, MAX(createdAt) as maxCreated
+         FROM chat_messages
+         WHERE sessionId IN (${placeholders})
+         GROUP BY sessionId
+       ) latest ON m.sessionId = latest.sessionId AND m.createdAt = latest.maxCreated`
+    ).bind(...sessionIds).all()
+
+    const previewMap = new Map<string, string>()
+    for (const row of lastMsgResult.results || []) {
+      previewMap.set(row.sid as string, row.content as string)
+    }
+
+    const withPreview = sessions.map((s: any) => {
       let tags: string[] = []
       try { tags = s.tags ? JSON.parse(s.tags) : [] } catch { tags = [] }
-      return { id: s.id, title: s.title, updatedAt: s.updatedAt, preview: last[0]?.content || '', pinned: s.pinned ? 1 : 0, tags }
-    }))
+      return {
+        id: s.id,
+        title: s.title,
+        updatedAt: s.updatedAt,
+        preview: previewMap.get(s.id) || '',
+        pinned: s.pinned ? 1 : 0,
+        tags,
+      }
+    })
     return c.json(withPreview)
   } catch (e: any) {
     return c.json({ error: e.message }, 500)
@@ -3357,8 +3399,10 @@ app.delete('/api/settings/reset', async (c) => {
       db.delete(schema.answerBookDraws),
       db.delete(schema.dailyFortunes),
       db.delete(schema.syncLogs),
-      db.delete(schema.embeddings),
       db.delete(schema.kvCache),
+      // 注意：Vectorize 中的孤儿向量不删除（无 clearAll API），
+      // D1 记录已清空，semantic-search 查 D1 会全部 miss，孤儿向量无害。
+      // 用户可手动调 /api/ai/reindex 重建。
     ])
 
     // 3. 清空 KV 中的 AI 缓存（best effort）
@@ -3496,6 +3540,336 @@ app.post('/api/settings/ms-todo/sync', async (c) => {
 // 根路由
 app.get('/', (c) => c.json({ name: 'Workbench API', version: '1.0.0' }))
 
+// ========== 新闻聚合 ==========
+// 获取新闻列表
+app.get('/api/news', async (c) => {
+  const { category, source, search, page = '1', pageSize = '20' } = c.req.query()
+  const db = drizzle(c.env.DB, { schema })
+  const where: any[] = []
+  if (category && category !== '全部') where.push(eq(schema.feedItems.category, category))
+  if (source) where.push(eq(schema.feedItems.sourceId, source))
+  if (search) where.push(or(like(schema.feedItems.title, `%${search}%`), like(schema.feedItems.aiSummary, `%${search}%`)))
+
+  const p = Math.max(1, parseInt(page))
+  const ps = Math.min(100, Math.max(1, parseInt(pageSize)))
+  const offset = (p - 1) * ps
+
+  const items = await db.select()
+    .from(schema.feedItems)
+    .where(where.length ? and(...where) : undefined)
+    .orderBy(desc(schema.feedItems.aiScore), desc(schema.feedItems.fetchedAt))
+    .limit(ps)
+    .offset(offset)
+
+  const totalResult = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(schema.feedItems)
+    .where(where.length ? and(...where) : undefined)
+
+  // 按需触发 AI 处理：若列表中存在未处理条目（aiScore<=0），异步处理一批（最多 20 条），不阻塞本次响应
+  // aiScore: 负数=待处理（含优先级），0=未处理，正数=已评分，-1=AI失败
+  if (items.some((it: any) => it.aiScore <= 0)) {
+    c.executionCtx.waitUntil(
+      processPendingItems(c.env, 20).catch((e) =>
+        console.error('[news] on-demand AI processing failed:', e)
+      )
+    )
+  }
+
+  return c.json({
+    items,
+    pagination: { page: p, pageSize: ps, total: Number(totalResult[0]?.count || 0) },
+  })
+})
+
+// 手动触发新闻 AI 处理（用户主动点击"处理未分析新闻"按钮时调用）
+app.post('/api/news/process', async (c) => {
+  try {
+    const { limit = 5 } = await c.req.json<{ limit?: number }>().catch(() => ({ limit: 5 }))
+    // 单次最多处理 10 条，避免 Workers 总执行时间超限
+    const effectiveLimit = Math.min(10, Math.max(1, limit))
+    const { processed, failed } = await processPendingItems(c.env, effectiveLimit)
+    return c.json({ ok: true, processed, failed })
+  } catch (e: any) {
+    console.error('[news/process] error:', e?.message || e, e?.stack)
+    return c.json({ ok: false, error: e?.message || '处理失败' }, 500)
+  }
+})
+
+// 获取订阅源列表
+app.get('/api/news/sources', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const sources = await db.select().from(schema.feedSources).orderBy(schema.feedSources.category, schema.feedSources.name)
+  return c.json(sources)
+})
+
+// 批量更新订阅源启用状态
+app.put('/api/news/sources', async (c) => {
+  const body = await c.req.json()
+  const db = drizzle(c.env.DB, { schema })
+  for (const s of body) {
+    await db.update(schema.feedSources)
+      .set({ enabled: s.enabled, updatedAt: nowBeijing() })
+      .where(eq(schema.feedSources.id, s.id))
+  }
+  return c.json({ ok: true })
+})
+
+// 新增自定义订阅源
+app.post('/api/news/sources', async (c) => {
+  const { name, url, type, category, lang = 'zh', enabled = true } = await c.req.json()
+  const db = drizzle(c.env.DB, { schema })
+  const id = crypto.randomUUID()
+  await db.insert(schema.feedSources).values({ id, name, url, type, category, lang, enabled })
+  return c.json({ ok: true, id }, 201)
+})
+
+// 删除订阅源
+app.delete('/api/news/sources/:id', async (c) => {
+  const { id } = c.req.param()
+  const db = drizzle(c.env.DB, { schema })
+  await db.delete(schema.feedItems).where(eq(schema.feedItems.sourceId, id))
+  await db.delete(schema.feedSources).where(eq(schema.feedSources.id, id))
+  return c.json({ ok: true })
+})
+
+// 获取每日简报列表或单期
+app.get('/api/news/digests', async (c) => {
+  const date = c.req.query('date')
+  const db = drizzle(c.env.DB, { schema })
+  if (date) {
+    const digest = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, date)).limit(1)
+    return c.json(digest[0] || null)
+  }
+  const digests = await db.select().from(schema.dailyDigests).orderBy(desc(schema.dailyDigests.date)).limit(30)
+  return c.json(digests)
+})
+
+// 今日简报（快捷接口：返回今日 brief，无则 null）
+app.get('/api/news/today', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const today = todayCST()
+  const brief = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, today)).limit(1)
+  return c.json(brief[0] || null)
+})
+
+// 抓取进度状态：用 KV 跟踪单分类抓取结果，前端逐个分类调用
+const REFRESH_STATUS_KEY = 'news:refresh:status'
+
+interface RefreshStatus {
+  status: 'idle' | 'running' | 'done' | 'failed'
+  startedAt: number
+  finishedAt?: number
+  totalFetched: number
+  totalErrors: string[]
+  categories: Array<{
+    name: string
+    status: 'pending' | 'running' | 'done' | 'failed'
+    fetched?: number
+    errors?: string[]
+    sourceCount?: number
+  }>
+}
+
+async function getRefreshStatus(env: Env): Promise<RefreshStatus | null> {
+  const raw = await env.CACHE.get(REFRESH_STATUS_KEY)
+  if (!raw) return null
+  try { return JSON.parse(raw) as RefreshStatus } catch { return null }
+}
+
+async function setRefreshStatus(env: Env, status: RefreshStatus): Promise<void> {
+  await env.CACHE.put(REFRESH_STATUS_KEY, JSON.stringify(status), { expirationTtl: 600 })
+}
+
+// 手动刷新：单分类分页同步执行，前端循环调用直到 hasMore=false
+// ?category=加密&offset=0 每次处理 20 个源，避免 subrequest 超限
+app.post('/api/news/refresh', async (c) => {
+  try {
+    const category = c.req.query('category')
+    if (!category) {
+      return c.json({ ok: false, error: '请指定 category 参数' }, 400)
+    }
+    const offset = parseInt(c.req.query('offset') || '0')
+    const limit = Math.min(10, parseInt(c.req.query('limit') || '10'))
+
+    const { fetched, errors, sourceCount, hasMore } = await fetchSourcesByCategory(c.env, category, offset, limit)
+
+    return c.json({ ok: true, fetched, errors: errors.slice(0, 5), sourceCount, category, hasMore, nextOffset: hasMore ? offset + limit : undefined })
+  } catch (e: any) {
+    console.error('[news/refresh] error:', e?.message || e, e?.stack)
+    return c.json({ ok: false, error: e?.message || '抓取失败' }, 500)
+  }
+})
+
+// 查询抓取进度
+app.get('/api/news/refresh-status', async (c) => {
+  const status = await getRefreshStatus(c.env)
+  return c.json({ status })
+})
+
+// 重置抓取进度（前端开始新一轮抓取前调用）
+app.post('/api/news/refresh-reset', async (c) => {
+  const categories = ['加密', '财经', '科技', '综合']
+  const status: RefreshStatus = {
+    status: 'running',
+    startedAt: Date.now(),
+    totalFetched: 0,
+    totalErrors: [],
+    categories: categories.map(name => ({ name, status: 'pending' as const })),
+  }
+  await setRefreshStatus(c.env, status)
+  return c.json({ ok: true })
+})
+
+// 单源刷新
+app.post('/api/news/refresh/:id', async (c) => {
+  const { id } = c.req.param()
+  const result = await fetchSingleSource(c.env, id)
+  if (!result.ok) return c.json({ error: result.error || 'Source not found' }, 404)
+  // 处理全部待 AI 分析的条目（limit=0 表示处理全部，上限 500）
+  await processPendingItems(c.env, 0)
+  return c.json({ ok: true, newItems: result.newItems })
+})
+
+// 生成每日简报
+app.post('/api/news/generate-digest', async (c) => {
+  const date = c.req.query('date')
+  const result = await generateDailyDigest(c.env, date)
+  return c.json(result)
+})
+
+// 测试 Telegram 推送（发送固定测试消息）
+app.post('/api/news/test-push', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
+  const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
+  const botToken = tokenRow[0]?.value ? await decrypt(c.env.JWT_SECRET, tokenRow[0].value) : null
+  const chatId = chatRow[0]?.value || null
+  if (!botToken || !chatId) {
+    return c.json({ ok: false, error: 'Telegram 配置未完成，请先保存 Bot Token 和 Chat ID' }, 400)
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: '✅ <b>电报推送测试</b>\n这是一条测试消息，如果你收到了，说明配置正确。',
+        parse_mode: 'HTML',
+      }),
+    })
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      const status = res.status
+      const hint = status === 401 ? '（Bot Token 无效）'
+        : status === 400 ? '（Chat ID 无效或格式错误）'
+        : status === 403 ? '（bot 被禁用或被目标会话拉黑）'
+        : ''
+      return c.json({ ok: false, error: `Telegram API 返回 ${status} ${hint}`, detail: errText }, 502)
+    }
+    return c.json({ ok: true, pushed: 1, test: true })
+  } catch (e: any) {
+    return c.json({ ok: false, error: `网络错误: ${e.message}` }, 502)
+  }
+})
+
+// 手动推送今日简报到 Telegram
+app.post('/api/news/push-brief', async (c) => {
+  const result = await pushDailyBrief(c.env)
+  if (!result.ok && result.error) {
+    return c.json(result, 400)
+  }
+  return c.json(result)
+})
+
+// 用户反馈（👍/👎/收藏）
+app.post('/api/news/feedback', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const { targetType, targetId, feedback, reason } = await c.req.json<{
+    targetType: 'item' | 'brief'
+    targetId: string
+    feedback: 'up' | 'down' | 'save'
+    reason?: string
+  }>()
+  if (!targetType || !targetId || !feedback) {
+    return c.json({ ok: false, error: '参数缺失' }, 400)
+  }
+  // 同一对象同一反馈类型幂等：先删后插
+  await db.delete(schema.newsFeedback).where(and(
+    eq(schema.newsFeedback.targetType, targetType),
+    eq(schema.newsFeedback.targetId, targetId),
+    eq(schema.newsFeedback.feedback, feedback),
+  ))
+  await db.insert(schema.newsFeedback).values({
+    id: crypto.randomUUID(),
+    targetType,
+    targetId,
+    feedback,
+    reason: reason || null,
+  })
+  return c.json({ ok: true })
+})
+
+// 获取用户反馈列表（用于前端显示已反馈状态）
+app.get('/api/news/feedback', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  const days = Number(c.req.query('days') || 30)
+  const since = new Date(Date.now() - days * 86400000).toISOString()
+  const rows = await db.select()
+    .from(schema.newsFeedback)
+    .where(sql`${schema.newsFeedback.createdAt} >= ${since}`)
+    .orderBy(desc(schema.newsFeedback.createdAt))
+    .limit(500)
+  return c.json(rows)
+})
+
+// 初始化预置订阅源
+app.post('/api/news/init-sources', async (c) => {
+  const db = drizzle(c.env.DB, { schema })
+  // 一次性查询所有现有源，避免 N+1 查询
+  const existingSources = await db.select({ id: schema.feedSources.id, url: schema.feedSources.url }).from(schema.feedSources)
+  const existingUrls = new Set(existingSources.map(s => s.url))
+
+  // 批量插入新源（跳过已存在的）
+  const toInsert = PRESET_FEED_SOURCES
+    .filter(s => !existingUrls.has(s.url))
+    .map(s => ({
+      id: crypto.randomUUID(),
+      name: s.name,
+      url: s.url,
+      type: s.type,
+      category: s.category,
+      lang: s.lang || 'zh',
+      enabled: true,
+      weight: s.weight ?? 3,
+    }))
+
+  let inserted = 0
+  // 分批插入（每批 20 条），避免单条 SQL 参数过多
+  for (let i = 0; i < toInsert.length; i += 20) {
+    const batch = toInsert.slice(i, i + 20)
+    try {
+      await db.insert(schema.feedSources).values(batch)
+      inserted += batch.length
+    } catch (e) {
+      console.error('[init-sources] batch insert failed:', e)
+    }
+  }
+
+  // 更新已存在源的 category 和 weight
+  const toUpdate = PRESET_FEED_SOURCES.filter(s => existingUrls.has(s.url))
+  for (const s of toUpdate) {
+    const existing = existingSources.find(e => e.url === s.url)
+    if (existing) {
+      try {
+        await db.update(schema.feedSources)
+          .set({ category: s.category, weight: s.weight ?? 3 })
+          .where(eq(schema.feedSources.id, existing.id))
+      } catch {}
+    }
+  }
+  return c.json({ ok: true, inserted })
+})
+
 // Cron Trigger — 每 30 分钟同步 MS Todo，每天 UTC 18:00 同步 IMA 笔记+知识库
 // ============ MCP 服务器：把 22 个工具以标准 MCP 协议暴露给 LobeChat / WorkBuddy / Claude 等 ============
 function jsonSchemaToZodShape(schemaJson: any): Record<string, any> {
@@ -3574,30 +3948,27 @@ export default {
   scheduled: async (event: ScheduledEvent, env: any) => {
     const db = drizzle(env.DB, { schema })
     const now = nowBeijing()
-    const LOCK_KEY = 'cron_sync_lock'
-    const LOCK_TTL_MS = 30 * 60 * 1000
+    // 每个 cron 使用独立锁 key，避免不同任务互相阻塞（如 */15 紧急推送被 */30 长任务跳过）
+    // 锁存放在 KV，避免污染 settings 配置表
+    const LOCK_KEY = `cron_lock:${event.cron}`
+    const LOCK_TTL_S = 30 * 60
 
-    // 简单分布式锁：若 30 分钟内已有其他实例在执行，跳过本次
+    // 简单分布式锁：若 30 分钟内已有其他实例在执行同一 cron，跳过本次
     try {
-      const lockRow = await db.select().from(schema.settings).where(eq(schema.settings.key, LOCK_KEY))
-      if (lockRow.length > 0 && lockRow[0].value) {
-        const lockedAt = new Date(lockRow[0].value).getTime()
-        if (!isNaN(lockedAt) && Date.now() - lockedAt < LOCK_TTL_MS) {
-          console.warn('[cron] 上次同步尚未结束或锁未超时，跳过本次')
-          return
-        }
+      const lockVal = await env.CACHE.get(LOCK_KEY)
+      if (lockVal) {
+        console.warn(`[cron:${event.cron}] 上次执行尚未结束或锁未超时，跳过本次`)
+        return
       }
-      await db.insert(schema.settings)
-        .values({ key: LOCK_KEY, value: now })
-        .onConflictDoUpdate({ target: schema.settings.key, set: { value: now } })
+      await env.CACHE.put(LOCK_KEY, now, { expirationTtl: LOCK_TTL_S })
     } catch (e) {
-      console.error('[cron] lock failed:', e)
+      console.error(`[cron:${event.cron}] lock failed:`, e)
       return
     }
 
     try {
       if (event.cron === '*/30 * * * *') {
-        // 高频：仅 MS Todo 同步
+        // 每 30 分钟：MS Todo 同步 + 新闻抓取 + AI 批量评分
         try {
           const result = await fullSync(env)
           await db.insert(schema.settings)
@@ -3620,8 +3991,36 @@ export default {
           console.error('[cron] ms-todo failed:', e)
           await logSync(env, 'ms_todo', { status: 'error', message: e.message })
         }
-      } else if (event.cron === '0 18 * * *') {
-        // 低频：IMA 笔记 + 知识库同步，独立 catch 不阻塞
+        // 新闻抓取（第一级漏斗：关键词黑名单过滤在入库时完成）
+        try {
+          const { fetched, errors } = await fetchAllSources(env)
+          await logSync(env, 'news_fetch', {
+            status: errors.length ? 'partial' : 'success',
+            synced: fetched,
+            message: `[Cron] 新闻抓取 ${fetched} 条${errors.length ? `，${errors.length} 个源出错` : ''}`,
+            details: errors.join('\n'),
+          })
+        } catch (e: any) {
+          console.error('[cron] news fetch failed:', e)
+          await logSync(env, 'news_fetch', { status: 'error', message: e.message })
+        }
+        // AI 批量评分（第三级漏斗：10 条/批，只处理通过关键词过滤的）
+        try {
+          const { processed, failed } = await processPendingItems(env, 50)
+          if (processed > 0 || failed > 0) {
+            await logSync(env, 'news_ai', {
+              status: failed > 0 && processed === 0 ? 'error' : 'success',
+              synced: processed,
+              message: `[Cron] AI 评分 ${processed} 条${failed ? `，${failed} 条失败` : ''}`,
+            })
+          }
+        } catch (e: any) {
+          console.error('[cron] news ai failed:', e)
+          await logSync(env, 'news_ai', { status: 'error', message: e.message })
+        }
+      } else if (event.cron === '0 0 * * *') {
+        // 每日早 8 点（北京 = UTC 0 点）：IMA 同步 → 生成今日简报 → 推送 Telegram
+        // IMA 同步在前，确保简报用到当天最新的笔记/知识库数据
         try {
           const notesResult = await syncNotes(env)
           if (!notesResult.partial) {
@@ -3654,15 +4053,44 @@ export default {
           console.error('[cron] ima kb failed:', e)
           await logSync(env, 'ima_kb', { status: 'error', message: e.message })
         }
+
+        // 生成今日简报 + 推送 Telegram
+        try {
+          const result = await generateDailyDigest(env)
+          if (result.ok) {
+            await logSync(env, 'news_digest', {
+              status: 'success',
+              message: `[Cron] 每日简报已生成`,
+            })
+            // 自动推送（如果配置了 Telegram）
+            const pushResult = await pushDailyBrief(env)
+            if (pushResult.ok) {
+              await logSync(env, 'news_push', {
+                status: 'success',
+                message: `[Cron] 简报已推送到 Telegram`,
+              })
+            } else if (pushResult.error && !pushResult.error.includes('配置未完成')) {
+              await logSync(env, 'news_push', { status: 'error', message: pushResult.error })
+            }
+          } else {
+            await logSync(env, 'news_digest', {
+              status: 'error',
+              message: `[Cron] 今日无足够评分条目，简报未生成`,
+            })
+          }
+        } catch (e: any) {
+          console.error('[cron] news digest failed:', e)
+          await logSync(env, 'news_digest', { status: 'error', message: e.message })
+        }
       } else {
         console.warn('[cron] unknown cron pattern:', event.cron)
       }
     } finally {
       // 释放锁
       try {
-        await db.delete(schema.settings).where(eq(schema.settings.key, LOCK_KEY))
+        await env.CACHE.delete(LOCK_KEY)
       } catch (e) {
-        console.error('[cron] unlock failed:', e)
+        console.error(`[cron:${event.cron}] unlock failed:`, e)
       }
     }
   },

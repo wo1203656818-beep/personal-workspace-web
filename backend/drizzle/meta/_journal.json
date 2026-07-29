@@ -78,6 +78,48 @@
       "when": 1784921639747,
       "tag": "0010_whole_mattie_franklin",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785254017293,
+      "tag": "0011_light_gideon",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785294000000,
+      "tag": "0014_add_source_weight",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1785295000000,
+      "tag": "0015_redesign_news_v3",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1785300000000,
+      "tag": "0016_replace_sources_v4",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1785310000000,
+      "tag": "0017_expand_sources_v5",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1785320000000,
+      "tag": "0018_add_title_zh",
+      "breakpoints": true
     }
   ]
 }

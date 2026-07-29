@@ -7,8 +7,10 @@ import { nowBeijing } from './time'
 
 export type AiConfigType = 'cloudflare' | 'openai'
 
-const DEFAULT_CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
-const FALLBACK_CF_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
+// 使用更小更快的模型，避免 Workers AI 大模型 cold start 超时
+// 注意：llama-3.1-8b-instruct 和 qwen1.5-14b-chat-awq 已于 2025-2026 年弃用
+const DEFAULT_CF_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast'
+const FALLBACK_CF_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast'
 
 export const CF_MODELS = { DEFAULT: DEFAULT_CF_MODEL, FALLBACK: FALLBACK_CF_MODEL }
 
@@ -241,7 +243,12 @@ export async function testAiConfig(
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 8,
       })
-      const text = typeof res === 'string' ? res : res?.response?.response || res?.response || res?.result?.response || res?.output
+      // 兼容新旧 Workers AI 返回格式
+      const text = typeof res === 'string' ? res
+        : res?.choices?.[0]?.message?.content
+        ?? (typeof res?.response === 'string' ? res.response : undefined)
+        ?? res?.result?.response
+        ?? res?.output
       if (text === undefined && res === undefined) return { ok: false, error: 'Cloudflare AI 返回为空' }
       return { ok: true, latency_ms: Date.now() - start, model: m }
     }

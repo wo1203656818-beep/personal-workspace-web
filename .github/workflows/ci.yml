@@ -1,10 +1,14 @@
-name: CI
+name: CI & Deploy
 
 on:
   pull_request:
     branches: [main, master]
   push:
     branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -17,23 +21,98 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck frontend
-        run: npm run typecheck --workspace frontend
+        run: pnpm typecheck --filter frontend
 
       - name: Typecheck backend
-        run: npm run typecheck --workspace backend
+        run: pnpm typecheck --filter backend
 
       - name: Lint
-        run: npm run lint
+        run: pnpm lint
 
       - name: Build frontend
-        run: npm run build --workspace frontend
+        run: pnpm build --filter frontend
 
       - name: Build backend (dry-run)
-        run: npm run deploy --workspace backend -- --dry-run
+        run: pnpm --filter backend exec wrangler deploy --dry-run
         continue-on-error: true
+
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: quality
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build --filter frontend
+
+      - name: Apply D1 migrations & Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_D1_database_id_DB: ${{ secrets.D1_DATABASE_ID }}
+          WRANGLER_KV_id_CACHE: ${{ secrets.KV_NAMESPACE_ID }}
+        run: |
+          cd backend
+          # 写入 wrangler.jsonc 中的实际 ID
+          cat wrangler.jsonc | \
+            sed "s|YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" | \
+            sed "s|YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" > wrangler.resolved.jsonc
+          mv wrangler.resolved.jsonc wrangler.jsonc
+          cat wrangler.jsonc
+          # 执行迁移 + 部署
+          pnpm exec wrangler d1 migrations apply personal-workspace-db --remote
+          pnpm exec wrangler deploy

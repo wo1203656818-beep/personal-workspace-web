@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Sun, Moon, Monitor, Cloud, Zap, TestTube, Save, Plus, Pencil, Check, FileText, ExternalLink, BookOpen, Trash2, ShieldAlert, Database, CheckCircle2, AlertCircle, Clock, Loader2 } from 'lucide-react'
-import { settingsApi, imaApi, aiConfigsApi, syncLogsApi, type AiConfig, type SyncLog } from '@/lib/api'
+import { Sun, Moon, Monitor, Cloud, Zap, TestTube, Save, Plus, Pencil, Check, FileText, ExternalLink, BookOpen, Trash2, ShieldAlert, Database, CheckCircle2, AlertCircle, Clock, Loader2, Send } from 'lucide-react'
+import { api, settingsApi, imaApi, aiConfigsApi, syncLogsApi, type AiConfig, type SyncLog } from '@/lib/api'
 import { useTheme } from '@/lib/theme'
 import { SettingsSkeleton } from '@/components/PageSkeleton'
 import { Button } from '@/components/ui/button'
@@ -133,6 +133,7 @@ export function SettingsPage() {
           <TabsContent value="sync" className="mt-4 space-y-5">
             <MsTodoSyncCard />
             <ImaSyncCard />
+            <TelegramConfigCard />
           </TabsContent>
 
           <TabsContent value="logs" className="mt-4 space-y-5">
@@ -679,12 +680,150 @@ const SOURCE_LABELS: Record<SyncLog['source'], string> = {
   ms_todo: 'MS Todo',
   ima_notes: 'IMA 笔记',
   ima_kb: 'IMA 知识库',
+  news_fetch: '新闻抓取',
+  news_digest: '每日简报',
 }
 
 const STATUS_VARIANTS: Record<SyncLog['status'], { label: string; className: string }> = {
   success: { label: '成功', className: 'bg-emerald-500 hover:bg-emerald-500 text-white' },
   partial: { label: '部分', className: 'bg-amber-500 hover:bg-amber-500 text-white' },
   error: { label: '失败', className: 'bg-destructive hover:bg-destructive text-destructive-foreground' },
+}
+
+// 电报推送配置卡片
+function TelegramConfigCard() {
+  const queryClient = useQueryClient()
+  const [botToken, setBotToken] = useState('')
+  const [chatId, setChatId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+
+  const { data: settings = {} } = useQuery({
+    queryKey: ['settings'],
+    queryFn: settingsApi.get,
+  })
+
+  useEffect(() => {
+    // bot token 是敏感字段，后端只返回 telegram_bot_token_set 标记
+    if (settings.telegram_bot_token_set && !botToken) setBotToken('••••••••')
+    if (settings.telegram_chat_id) setChatId(settings.telegram_chat_id)
+  }, [settings])
+
+  const saveMutation = useMutation({
+    mutationFn: (data: Record<string, string>) => settingsApi.update(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      toast.success('电报配置已保存')
+    },
+    onError: (err: Error) => toast.error(`保存失败: ${err.message}`),
+  })
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const payload: Record<string, string> = {
+        telegram_chat_id: chatId,
+      }
+      // 仅在用户输入了真实 token 时才回写，避免占位符覆盖已保存的值
+      if (botToken && botToken !== '••••••••') {
+        payload.telegram_bot_token = botToken
+      }
+      await saveMutation.mutateAsync(payload)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTestPush = async () => {
+    try {
+      setTesting(true)
+      const j = await api.post('news/test-push')
+        .json<{ ok: boolean; pushed?: number; error?: string; detail?: string }>()
+      if (!j.ok) {
+        throw new Error(j.error || '推送失败')
+      }
+      toast.success('测试消息已推送，请检查电报')
+    } catch (e: any) {
+      const msg = e?.response ? await e.response.json().catch(() => ({})) : null
+      toast.error(`推送失败: ${msg?.error || e.message}`)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const configured = !!(settings.telegram_bot_token_set && settings.telegram_chat_id)
+
+  return (
+    <SettingCard
+      icon={Send}
+      title="电报推送"
+      description="紧急新闻自动推送到 Telegram"
+      gradient="from-sky-500 to-cyan-500"
+    >
+      <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-3">
+        <span className="text-sm font-medium text-muted-foreground">推送状态</span>
+        {configured ? (
+          <Badge className="rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">已配置</Badge>
+        ) : (
+          <Badge variant="secondary" className="rounded-full px-2.5 py-0.5">未配置</Badge>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-4">
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Bot Token</Label>
+          <Input
+            type="password"
+            placeholder="通过 @BotFather 获取的 Bot Token"
+            value={botToken}
+            onFocus={() => { if (botToken === '••••••••') setBotToken('') }}
+            onChange={(e) => setBotToken(e.target.value)}
+            className="rounded-lg"
+          />
+          {settings.telegram_bot_token_set && botToken === '••••••••' && (
+            <p className="text-xs text-muted-foreground">已保存，点击输入框可修改</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            在 Telegram 中找 @BotFather，发送 /newbot 创建机器人后获取
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Chat ID</Label>
+          <Input
+            placeholder="接收推送的会话 ID，如 123456789"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            className="rounded-lg"
+          />
+          <p className="text-xs text-muted-foreground">
+            可向 @userinfobot 发消息获取个人 Chat ID；群组需把机器人加入后用负数 ID
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={saving || (!botToken && !settings.telegram_bot_token_set) || !chatId}
+            onClick={handleSave}
+            className="rounded-lg"
+          >
+            {saving ? '保存中...' : '保存配置'}
+          </Button>
+          {configured && (
+            <Button
+              size="sm"
+              disabled={testing}
+              onClick={handleTestPush}
+              className="rounded-lg"
+            >
+              {testing ? '推送中...' : '测试推送'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </SettingCard>
+  )
 }
 
 function SyncLogCenter() {
@@ -727,6 +866,8 @@ function SyncLogCenter() {
               <SelectItem value="ms_todo">MS Todo</SelectItem>
               <SelectItem value="ima_notes">IMA 笔记</SelectItem>
               <SelectItem value="ima_kb">IMA 知识库</SelectItem>
+              <SelectItem value="news_fetch">新闻抓取</SelectItem>
+              <SelectItem value="news_digest">每日简报</SelectItem>
             </SelectContent>
           </Select>
 

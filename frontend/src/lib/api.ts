@@ -118,7 +118,7 @@ export interface DailyFortune {
 
 export interface SyncLog {
   id: string
-  source: 'ms_todo' | 'ima_notes' | 'ima_kb'
+  source: 'ms_todo' | 'ima_notes' | 'ima_kb' | 'news_fetch' | 'news_digest'
   status: 'success' | 'partial' | 'error'
   synced: number
   failed: number
@@ -152,6 +152,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 export const api = ky.create({
   prefix: API_BASE,
   retry: 0,
+  timeout: 120000,
   hooks: {
     beforeRequest: [
       ({ request }) => {
