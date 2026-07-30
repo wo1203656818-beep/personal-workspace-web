@@ -520,3 +520,51 @@ export const tagsApi = {
   unassign: (data: { tagId: string; targetType: string; targetId: string }) => api.delete('tags/unassign', { json: data }).json(),
   of: (targetType: string, targetId: string) => api.get(`tags/of/${targetType}/${targetId}`).json<Tag[]>(),
 }
+
+// ========== 自媒体对标监控（Layer A）==========
+export interface MonitorTarget {
+  id: string
+  type: 'hotlist' | 'youtube'
+  platform: string
+  label: string
+  targetId?: string | null
+  keyword?: string | null
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface MonitorSnapshot {
+  id: string
+  date: string
+  type: string
+  platform: string
+  targetId?: string | null
+  items: any[]
+  fetchedAt?: string
+}
+export interface MonitorBrief {
+  id: string
+  date: string
+  title: string
+  content: string
+  sourceCount: number
+  pushedAt?: string | null
+  createdAt?: string
+}
+
+export const monitorApi = {
+  listTargets: () => api.get('monitor/targets').json<MonitorTarget[]>(),
+  createTarget: (data: Partial<MonitorTarget>) => api.post('monitor/targets', { json: data }).json<{ ok: boolean; id: string }>(),
+  updateTarget: (id: string, data: Partial<MonitorTarget>) => api.put(`monitor/targets/${id}`, { json: data }).json(),
+  deleteTarget: (id: string) => api.delete(`monitor/targets/${id}`).json(),
+  getBrief: () => api.get('monitor/brief').json<MonitorBrief | { ok: false; message: string }>(),
+  getSnapshots: (params?: { date?: string; type?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.date) qs.set('date', params.date)
+    if (params?.type) qs.set('type', params.type)
+    const q = qs.toString()
+    return api.get(`monitor/snapshots${q ? `?${q}` : ''}`).json<MonitorSnapshot[]>()
+  },
+  runNow: () => api.post('monitor/run-now', { json: {} }).json(),
+  push: () => api.post('monitor/push', { json: {} }).json(),
+}

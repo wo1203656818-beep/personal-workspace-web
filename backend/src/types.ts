@@ -18,6 +18,8 @@ export interface Env {
   // 即 workers.dev 域名；自定义域名有 Access 会拦截 Telegram 的回调）
   PUBLIC_API_BASE?: string
   TAVILY_API_KEY?: string
+  // 监控手动触发/推送的密钥（设置了才校验，未设置则不校验）
+  CRON_SECRET?: string
 }
 
 // AI 聊天消息类型

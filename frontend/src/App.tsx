@@ -17,6 +17,7 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ de
 const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })))
 const MsTodoCallback = lazy(() => import('@/pages/MsTodoCallback').then((m) => ({ default: m.MsTodoCallback })))
 const NewsPage = lazy(() => import('@/pages/NewsPage'))
+const MonitorPage = lazy(() => import('@/pages/MonitorPage').then((m) => ({ default: m.MonitorPage })))
 
 function ProtectedRoutes() {
   const { isAuthenticated } = useAuth()
@@ -43,6 +44,7 @@ function ProtectedRoutes() {
         <Route path="/tools" element={<RouteBoundary><ToolsPage /></RouteBoundary>} />
         <Route path="/settings" element={<RouteBoundary><SettingsPage /></RouteBoundary>} />
         <Route path="/news/*" element={<RouteBoundary><NewsPage /></RouteBoundary>} />
+        <Route path="/monitor" element={<RouteBoundary><MonitorPage /></RouteBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

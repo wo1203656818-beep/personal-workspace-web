@@ -39,6 +39,10 @@ import {
   generateDailyDigest,
   pushDailyBrief,
 } from './news-fetcher'
+import {
+  listTargets, createTarget, updateTarget, deleteTarget,
+  getSnapshots, getTodayBrief, runMonitor, pushMonitorBrief,
+} from './monitor-service'
 import { PRESET_FEED_SOURCES } from './news-sources'
 
 // 解析存储的时间字符串为 Date 对象（兼容 ISO 格式和纯日期格式），统一 UTC
@@ -4523,6 +4527,77 @@ app.get('/api/telegram/webhook-info', async (c) => {
   }
 })
 
+// ============ 自媒体对标监控（Layer A）============
+// 监控目标 CRUD
+app.get('/api/monitor/targets', async (c) => {
+  const rows = await listTargets(c.env)
+  return c.json(rows)
+})
+
+app.post('/api/monitor/targets', async (c) => {
+  const body = await c.req.json<{ type: string; platform: string; label: string; targetId?: string; keyword?: string; enabled?: boolean }>()
+  if (!body.type || !body.platform || !body.label) {
+    return c.json({ ok: false, error: 'type / platform / label 为必填' }, 400)
+  }
+  const id = await createTarget(c.env, body)
+  return c.json({ ok: true, id })
+})
+
+app.put('/api/monitor/targets/:id', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.json<{ type: string; platform: string; label: string; targetId?: string; keyword?: string; enabled?: boolean }>()
+  await updateTarget(c.env, id, body)
+  return c.json({ ok: true })
+})
+
+app.delete('/api/monitor/targets/:id', async (c) => {
+  const id = c.req.param('id')
+  await deleteTarget(c.env, id)
+  return c.json({ ok: true })
+})
+
+// 今日简报
+app.get('/api/monitor/brief', async (c) => {
+  const brief = await getTodayBrief(c.env)
+  return c.json(brief || { ok: false, message: '今日简报尚未生成' })
+})
+
+// 快照（原始抓取数据，供前端预览；?type=hotlist|youtube）
+app.get('/api/monitor/snapshots', async (c) => {
+  const date = c.req.query('date') || undefined
+  const type = c.req.query('type') || undefined
+  const rows = await getSnapshots(c.env, date, type)
+  return c.json(rows)
+})
+
+// 手动触发一次监控（cron 密钥或登录态均可）
+app.post('/api/monitor/run-now', async (c) => {
+  const secret = c.req.header('x-cron-secret')
+  if (c.env.CRON_SECRET && secret !== c.env.CRON_SECRET) {
+    return c.json({ ok: false, error: 'secret 不匹配' }, 403)
+  }
+  try {
+    const result = await runMonitor(c.env)
+    return c.json(result)
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500)
+  }
+})
+
+// 手动推送今日简报到 Telegram
+app.post('/api/monitor/push', async (c) => {
+  const secret = c.req.header('x-cron-secret')
+  if (c.env.CRON_SECRET && secret !== c.env.CRON_SECRET) {
+    return c.json({ ok: false, error: 'secret 不匹配' }, 403)
+  }
+  try {
+    const result = await pushMonitorBrief(c.env)
+    return c.json(result)
+  } catch (e: any) {
+    return c.json({ ok: false, error: e.message }, 500)
+  }
+})
+
 // 用户反馈（👍/👎/收藏）
 app.post('/api/news/feedback', async (c) => {
   const db = drizzle(c.env.DB, { schema })
@@ -4973,6 +5048,25 @@ export default {
         } catch (e: any) {
           console.error('[cron] news digest failed:', e)
           await logSync(env, 'news_digest', { status: 'error', message: e.message })
+        }
+
+        // 自媒体对标监控：热榜选题 + YouTube 竞品 → 生成选题简报 → 推送 Telegram
+        try {
+          const mRes = await runMonitor(env)
+          if (mRes.ok) {
+            await logSync(env, 'monitor', { status: 'success', message: `[Cron] 监控简报已生成（热榜${mRes.hotTargets}/对标${mRes.ytTargets}）` })
+            const pRes = await pushMonitorBrief(env)
+            if (pRes.ok) {
+              await logSync(env, 'monitor_push', { status: 'success', message: `[Cron] 监控简报已推送 Telegram` })
+            } else if (pRes.error && !pRes.error.includes('配置未完成') && !pRes.error.includes('尚未生成')) {
+              await logSync(env, 'monitor_push', { status: 'error', message: pRes.error })
+            }
+          } else {
+            await logSync(env, 'monitor', { status: 'error', message: mRes.error || '[Cron] 监控简报生成失败' })
+          }
+        } catch (e: any) {
+          console.error('[cron] monitor failed:', e)
+          await logSync(env, 'monitor', { status: 'error', message: e.message })
         }
       } else {
         console.warn('[cron] unknown cron pattern:', event.cron)

@@ -6,7 +6,7 @@ import {
   BarChart3, Coins, Settings, Plus, Search, CheckSquare,
   User, LogOut, Moon, Monitor, KeyRound, Unlink, Download,
   LayoutDashboard, Sparkles, ChevronDown, ChevronsUpDown,
-  Home, AlertTriangle, X, ListChecks, Newspaper,
+  Home, AlertTriangle, X, ListChecks, Newspaper, Radio,
 } from 'lucide-react'
 import {
   Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
@@ -91,6 +91,7 @@ const navGroups = [
     items: [
       { title: '决策工具', href: '/tools', icon: Coins },
       { title: '资讯', href: '/news', icon: Newspaper },
+      { title: '监控中心', href: '/monitor', icon: Radio },
       { title: '语义搜索', href: '/search', icon: Sparkles },
     ],
   },

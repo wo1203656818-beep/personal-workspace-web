@@ -251,3 +251,39 @@ export const tagRelations = sqliteTable('tag_relations', {
   targetType: text('target_type').notNull(), // 'task' | 'note' | 'kb'
   targetId: text('target_id').notNull(),
 })
+
+// ============ 自媒体对标监控（Layer A）============
+// 监控目标：热榜选题（douyin/weibo/zhihu/bilibili…）与 YouTube 竞品频道对标
+export const monitorTargets = sqliteTable('monitor_targets', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(), // 'hotlist' | 'youtube'
+  platform: text('platform').notNull(), // douyin/weibo/zhihu/bilibili/x/youtube
+  label: text('label').notNull(), // 展示名，如「抖音热榜」「竞品A频道」
+  targetId: text('target_id'), // YouTube 频道 ID（type=youtube 时）
+  keyword: text('keyword'), // 可选：仅抓取含关键词的条目（用于关键词雷达）
+  enabled: integer('enabled', { mode: 'boolean' }).default(true),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// 抓取快照：每次定时抓取的原始数据（按日期+平台+类型唯一）
+export const monitorSnapshots = sqliteTable('monitor_snapshots', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(), // yyyy-MM-dd（北京日期）
+  type: text('type').notNull(),
+  platform: text('platform').notNull(),
+  targetId: text('target_id'),
+  items: text('items').notNull(), // JSON 数组：[{title, url?, heat?, desc?}]
+  fetchedAt: text('fetched_at').default(sql`(datetime('now'))`),
+})
+
+// 每日监控简报：AI 从各平台热榜/对标中提炼「今日可写选题 / 创作灵感」
+export const monitorBriefs = sqliteTable('monitor_briefs', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull().unique(), // yyyy-MM-dd（北京时间），每天一份
+  title: text('title').notNull(),
+  content: text('content').notNull(), // AI 生成的选题/灵感正文
+  sourceCount: integer('source_count').default(0), // 参与生成的条目数
+  pushedAt: text('pushed_at'), // 已推送 Telegram 的时间
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
