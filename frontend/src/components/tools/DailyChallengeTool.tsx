@@ -6,15 +6,15 @@ import { Loader2, CheckCircle, Trophy } from 'lucide-react'
 import { toast } from 'sonner'
 
 const CATEGORY_COLORS: Record<string, string> = {
-  '健康': 'text-green-500',
-  '社交': 'text-blue-500',
-  '创造': 'text-purple-500',
-  '学习': 'text-amber-500',
-  '生活': 'text-pink-500',
-  '心态': 'text-indigo-500',
-  '探索': 'text-cyan-500',
-  '效率': 'text-orange-500',
-  '思考': 'text-teal-500',
+  健康: 'text-green-500',
+  社交: 'text-blue-500',
+  创造: 'text-purple-500',
+  学习: 'text-amber-500',
+  生活: 'text-pink-500',
+  心态: 'text-indigo-500',
+  探索: 'text-cyan-500',
+  效率: 'text-orange-500',
+  思考: 'text-teal-500',
 }
 
 export function DailyChallengeTool() {
@@ -32,12 +32,15 @@ export function DailyChallengeTool() {
   })
 
   const completeMutation = useMutation({
-    mutationFn: () => entertainmentApi.completeChallenge({
-      challenge: challenge!.challenge,
-      category: challenge!.category,
-    }),
+    mutationFn: () =>
+      entertainmentApi.completeChallenge({
+        challenge: challenge!.challenge,
+        category: challenge!.category,
+      }),
     onSuccess: () => {
-      setChallenge(prev => prev ? { ...prev, completed: true, completedAt: new Date().toISOString() } : prev)
+      setChallenge((prev) =>
+        prev ? { ...prev, completed: true, completedAt: new Date().toISOString() } : prev,
+      )
       queryClient.invalidateQueries({ queryKey: ['challenge-stats'] })
       toast.success('挑战完成！')
     },
@@ -51,9 +54,13 @@ export function DailyChallengeTool() {
       </div>
 
       {challenge ? (
-        <div className={`rounded-xl border p-5 space-y-3 ${challenge.completed ? 'bg-green-500/5 border-green-500/30' : ''}`}>
+        <div
+          className={`rounded-xl border p-5 space-y-3 ${challenge.completed ? 'bg-green-500/5 border-green-500/30' : ''}`}
+        >
           <div className="flex items-center justify-between">
-            <span className={`text-xs font-medium ${CATEGORY_COLORS[challenge.category] || 'text-muted-foreground'}`}>
+            <span
+              className={`text-xs font-medium ${CATEGORY_COLORS[challenge.category] || 'text-muted-foreground'}`}
+            >
               {challenge.category}
             </span>
             {challenge.completed && <CheckCircle className="size-4 text-green-500" />}
@@ -73,7 +80,11 @@ export function DailyChallengeTool() {
           )}
         </div>
       ) : (
-        <Button onClick={() => getMutation.mutate()} disabled={getMutation.isPending} className="w-full">
+        <Button
+          onClick={() => getMutation.mutate()}
+          disabled={getMutation.isPending}
+          className="w-full"
+        >
           {getMutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : null}
           获取今日挑战
         </Button>

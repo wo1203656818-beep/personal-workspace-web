@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 
 const tabs = [
   { href: '/', icon: Home, label: '首页' },
-  { href: '/tasks/today', icon: ListTodo, label: '任务' },
+  { href: '/tasks', icon: ListTodo, label: '任务' },
   { href: '/notes', icon: FileText, label: '笔记' },
   { href: '/knowledge', icon: BookOpen, label: '知识' },
   { href: '/news', icon: MoreHorizontal, label: '更多' },
@@ -29,9 +29,7 @@ export function MobileBottomNav() {
               to={tab.href}
               className={cn(
                 'flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-[10px] font-medium transition-colors',
-                active
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                active ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <tab.icon className={cn('size-5', active && 'text-primary')} />

@@ -2,12 +2,20 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ListTodo, FileText, CheckCircle2, Clock,
-  Plus, ArrowRight, Calendar, Newspaper,
+  ListTodo,
+  FileText,
+  CheckCircle2,
+  Clock,
+  Plus,
+  ArrowRight,
+  Calendar,
+  Newspaper,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { tasksApi, notesApi, type NoteSummary } from '@/lib/api'
+import { STALE_TIME } from '@/lib/query'
+import { newsApi, type NewsTodayBrief } from '@/lib/api/news'
 import { formatCST, parseStoredTime } from '@/lib/datetime'
 import { PageSkeleton } from '@/components/PageSkeleton'
 
@@ -19,43 +27,38 @@ interface NewsTopItem {
   category?: string
 }
 
-interface TodayNews {
-  id: string
-  date: string
-  title: string
-  overview: string
-  topItems: string
-  pushedAt: string
-}
-
 export function DashboardPage() {
   const { data: taskStats, isLoading: statsLoading } = useQuery({
     queryKey: ['tasks', 'stats'],
     queryFn: tasksApi.stats,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const { data: allTasks = [], isLoading: recentTasksLoading } = useQuery({
     queryKey: ['tasks'],
     queryFn: tasksApi.list,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const { data: notes = [], isLoading: notesLoading } = useQuery<NoteSummary[]>({
     queryKey: ['notes'],
     queryFn: notesApi.listSummary,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
-  const { data: todayNews, isLoading: newsLoading } = useQuery<TodayNews | null>({
+  const { data: todayNews, isLoading: newsLoading } = useQuery<NewsTodayBrief | null>({
     queryKey: ['news', 'today'],
-    queryFn: () => fetch('/api/news/today', { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } }).then(r => r.ok ? r.json() : null),
+    queryFn: () => newsApi.today(),
     staleTime: 10 * 60 * 1000,
   })
 
   const parsedTopItems = useMemo<NewsTopItem[]>(() => {
     if (!todayNews?.topItems) return []
-    try { return JSON.parse(todayNews.topItems) } catch { return [] }
+    try {
+      return JSON.parse(todayNews.topItems)
+    } catch {
+      return []
+    }
   }, [todayNews])
 
   const stats = useMemo(() => {
@@ -72,20 +75,34 @@ export function DashboardPage() {
   const recentTasks = useMemo(() => {
     return allTasks
       .filter((t) => !t.isCompleted)
-      .sort((a, b) => (parseStoredTime(b.createdAt)?.getTime() ?? 0) - (parseStoredTime(a.createdAt)?.getTime() ?? 0))
+      .sort(
+        (a, b) =>
+          (parseStoredTime(b.createdAt)?.getTime() ?? 0) -
+          (parseStoredTime(a.createdAt)?.getTime() ?? 0),
+      )
       .slice(0, 5)
   }, [allTasks])
 
   const recentNotes = useMemo(() => {
     return [...notes]
-      .sort((a, b) => (parseStoredTime(b.updatedAt)?.getTime() ?? 0) - (parseStoredTime(a.updatedAt)?.getTime() ?? 0))
+      .sort(
+        (a, b) =>
+          (parseStoredTime(b.updatedAt)?.getTime() ?? 0) -
+          (parseStoredTime(a.updatedAt)?.getTime() ?? 0),
+      )
       .slice(0, 5)
   }, [notes])
 
   const isLoading = statsLoading || recentTasksLoading || notesLoading || newsLoading
   if (isLoading) return <PageSkeleton />
 
-  const todayFormatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+  const todayFormatter = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  })
   const today = todayFormatter.format(new Date())
 
   return (
@@ -99,7 +116,7 @@ export function DashboardPage() {
       {/* Quick actions */}
       <div className="mb-6 flex flex-wrap gap-2">
         <Button asChild size="sm">
-          <Link to="/tasks/today">
+          <Link to="/tasks?new=1">
             <Plus className="mr-1.5 size-4" />
             新建任务
           </Link>
@@ -127,9 +144,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingTasks}</div>
-            <p className="text-xs text-muted-foreground">
-              今日完成 {stats.todayCompleted} 个
-            </p>
+            <p className="text-xs text-muted-foreground">今日完成 {stats.todayCompleted} 个</p>
           </CardContent>
         </Card>
         <Card>
@@ -153,7 +168,7 @@ export function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base font-semibold">待办任务</CardTitle>
             <Button asChild variant="ghost" size="sm" className="h-8">
-              <Link to="/tasks/today">
+              <Link to="/tasks">
                 查看全部
                 <ArrowRight className="ml-1 size-4" />
               </Link>
@@ -170,7 +185,7 @@ export function DashboardPage() {
                 {recentTasks.map((task) => (
                   <Link
                     key={task.id}
-                    to={`/tasks/list/${task.listId}?selected=${task.id}`}
+                    to={`/tasks?selected=${task.id}`}
                     className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50"
                   >
                     <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">

@@ -9,15 +9,18 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Badge } from '@/components/ui/badge'
 
-const QUICK_COLORS = ['#3b82f6', '#22c55e', '#ef4444', '#eab308', '#a855f7', '#f97316', '#ec4899', '#6b7280']
+const QUICK_COLORS = [
+  '#3b82f6',
+  '#22c55e',
+  '#ef4444',
+  '#eab308',
+  '#a855f7',
+  '#f97316',
+  '#ec4899',
+  '#6b7280',
+]
 
-export function TagAssignment({
-  targetType,
-  targetId,
-}: {
-  targetType: string
-  targetId: string
-}) {
+export function TagAssignment({ targetType, targetId }: { targetType: string; targetId: string }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -84,7 +87,11 @@ export function TagAssignment({
             key={tag.id}
             variant="secondary"
             className="gap-1 px-2 py-0.5 text-xs"
-            style={{ backgroundColor: tag.color + '20', color: tag.color, border: `1px solid ${tag.color}40` }}
+            style={{
+              backgroundColor: tag.color + '20',
+              color: tag.color,
+              border: `1px solid ${tag.color}40`,
+            }}
           >
             <span className="size-1.5 rounded-full" style={{ backgroundColor: tag.color }} />
             {tag.name}
@@ -96,9 +103,7 @@ export function TagAssignment({
             </button>
           </Badge>
         ))}
-        {assignedTags.length === 0 && (
-          <span className="text-xs text-muted-foreground">无标签</span>
-        )}
+        {assignedTags.length === 0 && <span className="text-xs text-muted-foreground">无标签</span>}
       </div>
 
       <Popover open={open} onOpenChange={setOpen}>
@@ -172,11 +177,18 @@ export function TagAssignment({
                       size="sm"
                       className="h-6 flex-1 text-xs"
                       disabled={!newName.trim()}
-                      onClick={() => createMutation.mutate({ name: newName.trim(), color: newColor })}
+                      onClick={() =>
+                        createMutation.mutate({ name: newName.trim(), color: newColor })
+                      }
                     >
                       创建
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setCreating(false)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-xs"
+                      onClick={() => setCreating(false)}
+                    >
                       取消
                     </Button>
                   </div>

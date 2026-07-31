@@ -52,19 +52,30 @@ export function InspirationDrawerTool() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => saveMutation.mutate({ content: current.content, category: current.category })}
+              onClick={() =>
+                saveMutation.mutate({ content: current.content, category: current.category })
+              }
               disabled={saveMutation.isPending}
             >
               <Bookmark className="size-3 mr-1" />
               收藏
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => drawMutation.mutate()} disabled={drawMutation.isPending}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => drawMutation.mutate()}
+              disabled={drawMutation.isPending}
+            >
               再抽一张
             </Button>
           </div>
         </div>
       ) : (
-        <Button onClick={() => drawMutation.mutate()} disabled={drawMutation.isPending} className="w-full">
+        <Button
+          onClick={() => drawMutation.mutate()}
+          disabled={drawMutation.isPending}
+          className="w-full"
+        >
           {drawMutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : null}
           打开灵感抽屉
         </Button>

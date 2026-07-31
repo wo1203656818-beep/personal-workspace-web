@@ -14,7 +14,8 @@ export function ImportNoteForm({ onDone }: { onDone: () => void }) {
   const [zipImporting, setZipImporting] = useState(false)
 
   const importMutation = useMutation({
-    mutationFn: (data: { title: string; content: string; sourceFile?: string }) => notesApi.import(data),
+    mutationFn: (data: { title: string; content: string; sourceFile?: string }) =>
+      notesApi.import(data),
     onSuccess: onDone,
   })
 
@@ -36,7 +37,11 @@ export function ImportNoteForm({ onDone }: { onDone: () => void }) {
       for (const [path, data] of Object.entries(files)) {
         if (path.endsWith('.md') || path.endsWith('.markdown')) {
           const mdContent = strFromU8(data)
-          const mdTitle = path.split('/').pop()!.replace(/\.md$/, '').replace(/\.markdown$/, '')
+          const mdTitle = path
+            .split('/')
+            .pop()!
+            .replace(/\.md$/, '')
+            .replace(/\.markdown$/, '')
           await notesApi.import({ title: mdTitle, content: mdContent, sourceFile: path })
         }
       }
@@ -57,16 +62,29 @@ export function ImportNoteForm({ onDone }: { onDone: () => void }) {
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label className="text-xs">笔记标题</Label>
-            <Input placeholder="输入笔记标题" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              placeholder="输入笔记标题"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
             <Label className="text-xs">上传 Markdown 文件</Label>
-            <Input type="file" accept=".md,.markdown" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+            <Input
+              type="file"
+              accept=".md,.markdown"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
           </div>
         </div>
         <div className="space-y-2">
           <Label className="text-xs">或上传 ZIP 批量导入</Label>
-          <Input type="file" accept=".zip" onChange={(e) => e.target.files?.[0] && handleZip(e.target.files[0])} disabled={zipImporting} />
+          <Input
+            type="file"
+            accept=".zip"
+            onChange={(e) => e.target.files?.[0] && handleZip(e.target.files[0])}
+            disabled={zipImporting}
+          />
           {zipImporting && <p className="text-xs text-muted-foreground">解压导入中...</p>}
         </div>
         <div className="space-y-2">

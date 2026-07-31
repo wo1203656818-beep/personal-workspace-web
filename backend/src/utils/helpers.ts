@@ -35,7 +35,7 @@ export function getISOWeek(d: Date): { year: number; week: number } {
   const dayNum = date.getUTCDay() || 7
   date.setUTCDate(date.getUTCDate() + 4 - dayNum)
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
-  const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
   return { year: date.getUTCFullYear(), week }
 }
 
@@ -47,22 +47,31 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const parts = stored.split('$')
   if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false
   const iterations = parseInt(parts[1], 10)
-  const salt = new Uint8Array(parts[2].match(/.{2}/g)!.map(b => parseInt(b, 16)))
+  const salt = new Uint8Array(parts[2].match(/.{2}/g)!.map((b) => parseInt(b, 16)))
   const keyMaterial = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
   )
   const bits = await crypto.subtle.deriveBits(
     { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
-    keyMaterial, 256
+    keyMaterial,
+    256,
   )
   const computed = Array.from(new Uint8Array(bits))
-    .map(b => b.toString(16).padStart(2, '0')).join('')
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
   return computed === parts[3]
 }
 
 export async function getStoredPasswordHash(env: Env): Promise<string> {
   const db = drizzle(env.DB, { schema })
-  const row = await db.select().from(schema.settings).where(eq(schema.settings.key, 'password_hash'))
+  const row = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'password_hash'))
   if (row.length > 0) {
     const { decrypt } = await import('../crypto-utils')
     return decrypt(env.JWT_SECRET, row[0].value)
@@ -81,7 +90,8 @@ export { TASK_SUMMARY_COLUMNS_REST as TASK_SUMMARY_COLUMNS }
 export function buildSubtaskAgg(db: ReturnType<typeof drizzle<any>>) {
   return {
     async counts(taskIds: string[]) {
-      if (!taskIds.length) return new Map<string, { subtaskCount: number; completedSubtaskCount: number }>()
+      if (!taskIds.length)
+        return new Map<string, { subtaskCount: number; completedSubtaskCount: number }>()
       const rows = await db
         .select({
           taskId: schema.subtasks.taskId,
@@ -92,17 +102,24 @@ export function buildSubtaskAgg(db: ReturnType<typeof drizzle<any>>) {
         .where(inArray(schema.subtasks.taskId, taskIds))
         .groupBy(schema.subtasks.taskId)
       const m = new Map<string, { subtaskCount: number; completedSubtaskCount: number }>()
-      for (const r of rows) m.set(r.taskId, { subtaskCount: Number(r.subtaskCount), completedSubtaskCount: Number(r.completedSubtaskCount) ?? 0 })
+      for (const r of rows)
+        m.set(r.taskId, {
+          subtaskCount: Number(r.subtaskCount),
+          completedSubtaskCount: Number(r.completedSubtaskCount) || 0,
+        })
       return m
     },
   }
 }
 
 export async function syncParentCompletion(db: any, taskId: string) {
-  const subs = await db.select({ isCompleted: schema.subtasks.isCompleted })
-    .from(schema.subtasks).where(eq(schema.subtasks.taskId, taskId))
+  const subs = await db
+    .select({ isCompleted: schema.subtasks.isCompleted })
+    .from(schema.subtasks)
+    .where(eq(schema.subtasks.taskId, taskId))
   const allDone = subs.length > 0 && subs.every((s: any) => s.isCompleted)
-  await db.update(schema.tasks)
+  await db
+    .update(schema.tasks)
     .set({ isCompleted: allDone, updatedAt: (await import('../time')).nowBeijing() })
     .where(eq(schema.tasks.id, taskId))
 }

@@ -36,26 +36,34 @@ export interface AiConfigView {
 
 // 运行时确保表存在（避免依赖 drizzle migration apply 的部署连通性）
 export async function ensureAiConfigsTable(dbRaw: any): Promise<void> {
-  await dbRaw.prepare(
-    `CREATE TABLE IF NOT EXISTS ai_configs (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT, api_key TEXT, model TEXT, is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)`
-  ).run()
+  await dbRaw
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS ai_configs (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT, api_key TEXT, model TEXT, is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)`,
+    )
+    .run()
 }
 
 // 运行时确保 AI 聊天记录表存在
 export async function ensureChatTables(dbRaw: any): Promise<void> {
-  await dbRaw.prepare(
-    `CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '新对话', created_at TEXT, updated_at TEXT)`
-  ).run()
-  await dbRaw.prepare(
-    `CREATE TABLE IF NOT EXISTS chat_messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', tool_calls TEXT, created_at TEXT)`
-  ).run()
+  await dbRaw
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS chat_sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '新对话', created_at TEXT, updated_at TEXT)`,
+    )
+    .run()
+  await dbRaw
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS chat_messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', tool_calls TEXT, created_at TEXT)`,
+    )
+    .run()
   // 增量加列（已存在则忽略错误）
   const alters = [
     `ALTER TABLE chat_sessions ADD COLUMN tags TEXT DEFAULT '[]'`,
     `ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
   ]
   for (const sql of alters) {
-    try { await dbRaw.prepare(sql).run() } catch {}
+    try {
+      await dbRaw.prepare(sql).run()
+    } catch {}
   }
 }
 
@@ -146,13 +154,16 @@ export async function createAiConfig(env: Env, input: AiConfigInput): Promise<st
   const isDefault = input.isDefault ?? count.length === 0
 
   if (isDefault) {
-    await db.update(schema.aiConfigs).set({ isDefault: false }).where(eq(schema.aiConfigs.isDefault, true))
+    await db
+      .update(schema.aiConfigs)
+      .set({ isDefault: false })
+      .where(eq(schema.aiConfigs.isDefault, true))
   }
   await db.insert(schema.aiConfigs).values({
     id,
     name: input.name,
     type: input.type,
-    baseUrl: input.type === 'cloudflare' ? null : (input.baseUrl || null),
+    baseUrl: input.type === 'cloudflare' ? null : input.baseUrl || null,
     apiKey,
     model: input.model || (input.type === 'cloudflare' ? DEFAULT_CF_MODEL : null),
     isDefault,
@@ -160,19 +171,31 @@ export async function createAiConfig(env: Env, input: AiConfigInput): Promise<st
   return id
 }
 
-export async function updateAiConfig(env: Env, id: string, input: Partial<AiConfigInput>): Promise<void> {
+export async function updateAiConfig(
+  env: Env,
+  id: string,
+  input: Partial<AiConfigInput>,
+): Promise<void> {
   const db = drizzle(env.DB, { schema })
   await ensureAiConfigsTable(env.DB)
-  const existing = await db.select().from(schema.aiConfigs).where(eq(schema.aiConfigs.id, id)).limit(1)
+  const existing = await db
+    .select()
+    .from(schema.aiConfigs)
+    .where(eq(schema.aiConfigs.id, id))
+    .limit(1)
   if (existing.length === 0) throw new Error('配置不存在')
 
   if (input.isDefault) {
-    await db.update(schema.aiConfigs).set({ isDefault: false }).where(eq(schema.aiConfigs.isDefault, true))
+    await db
+      .update(schema.aiConfigs)
+      .set({ isDefault: false })
+      .where(eq(schema.aiConfigs.isDefault, true))
   }
   const patch: any = { updatedAt: nowBeijing() }
   if (input.name !== undefined) patch.name = input.name
   if (input.type !== undefined) patch.type = input.type
-  if (input.baseUrl !== undefined) patch.baseUrl = input.type === 'cloudflare' ? null : (input.baseUrl || null)
+  if (input.baseUrl !== undefined)
+    patch.baseUrl = input.type === 'cloudflare' ? null : input.baseUrl || null
   if (input.model !== undefined) patch.model = input.model
   if (input.apiKey !== undefined && input.apiKey !== '') {
     patch.apiKey = await encrypt(env.JWT_SECRET, input.apiKey)
@@ -184,15 +207,26 @@ export async function updateAiConfig(env: Env, id: string, input: Partial<AiConf
 export async function deleteAiConfig(env: Env, id: string): Promise<void> {
   const db = drizzle(env.DB, { schema })
   await ensureAiConfigsTable(env.DB)
-  const existing = await db.select().from(schema.aiConfigs).where(eq(schema.aiConfigs.id, id)).limit(1)
+  const existing = await db
+    .select()
+    .from(schema.aiConfigs)
+    .where(eq(schema.aiConfigs.id, id))
+    .limit(1)
   if (existing.length === 0) return
   const wasDefault = !!existing[0].isDefault
   await db.delete(schema.aiConfigs).where(eq(schema.aiConfigs.id, id))
   // 若删除的是默认项，提升剩余第一条为默认
   if (wasDefault) {
-    const remaining = await db.select().from(schema.aiConfigs).orderBy(asc(schema.aiConfigs.createdAt)).limit(1)
+    const remaining = await db
+      .select()
+      .from(schema.aiConfigs)
+      .orderBy(asc(schema.aiConfigs.createdAt))
+      .limit(1)
     if (remaining.length > 0) {
-      await db.update(schema.aiConfigs).set({ isDefault: true }).where(eq(schema.aiConfigs.id, remaining[0].id))
+      await db
+        .update(schema.aiConfigs)
+        .set({ isDefault: true })
+        .where(eq(schema.aiConfigs.id, remaining[0].id))
     }
   }
 }
@@ -200,9 +234,16 @@ export async function deleteAiConfig(env: Env, id: string): Promise<void> {
 export async function setDefaultAiConfig(env: Env, id: string): Promise<void> {
   const db = drizzle(env.DB, { schema })
   await ensureAiConfigsTable(env.DB)
-  const existing = await db.select({ id: schema.aiConfigs.id }).from(schema.aiConfigs).where(eq(schema.aiConfigs.id, id)).limit(1)
+  const existing = await db
+    .select({ id: schema.aiConfigs.id })
+    .from(schema.aiConfigs)
+    .where(eq(schema.aiConfigs.id, id))
+    .limit(1)
   if (existing.length === 0) throw new Error('配置不存在')
-  await db.update(schema.aiConfigs).set({ isDefault: false }).where(eq(schema.aiConfigs.isDefault, true))
+  await db
+    .update(schema.aiConfigs)
+    .set({ isDefault: false })
+    .where(eq(schema.aiConfigs.isDefault, true))
   await db.update(schema.aiConfigs).set({ isDefault: true }).where(eq(schema.aiConfigs.id, id))
 }
 
@@ -216,7 +257,7 @@ export interface AiTestResult {
 // 测试某条配置（或一次性参数）的连通性
 export async function testAiConfig(
   env: Env,
-  params: { id?: string; type?: AiConfigType; baseUrl?: string; apiKey?: string; model?: string }
+  params: { id?: string; type?: AiConfigType; baseUrl?: string; apiKey?: string; model?: string },
 ): Promise<AiTestResult> {
   let type = params.type ?? 'openai'
   let baseUrl = params.baseUrl ?? ''
@@ -226,7 +267,11 @@ export async function testAiConfig(
   if (params.id) {
     const db = drizzle(env.DB, { schema })
     await ensureAiConfigsTable(env.DB)
-    const rows = await db.select().from(schema.aiConfigs).where(eq(schema.aiConfigs.id, params.id)).limit(1)
+    const rows = await db
+      .select()
+      .from(schema.aiConfigs)
+      .where(eq(schema.aiConfigs.id, params.id))
+      .limit(1)
     if (rows.length === 0) return { ok: false, error: '配置不存在' }
     const r = rows[0]
     type = r.type as AiConfigType
@@ -244,12 +289,15 @@ export async function testAiConfig(
         max_tokens: 8,
       })
       // 兼容新旧 Workers AI 返回格式
-      const text = typeof res === 'string' ? res
-        : res?.choices?.[0]?.message?.content
-        ?? (typeof res?.response === 'string' ? res.response : undefined)
-        ?? res?.result?.response
-        ?? res?.output
-      if (text === undefined && res === undefined) return { ok: false, error: 'Cloudflare AI 返回为空' }
+      const text =
+        typeof res === 'string'
+          ? res
+          : (res?.choices?.[0]?.message?.content ??
+            (typeof res?.response === 'string' ? res.response : undefined) ??
+            res?.result?.response ??
+            res?.output)
+      if (text === undefined && res === undefined)
+        return { ok: false, error: 'Cloudflare AI 返回为空' }
       return { ok: true, latency_ms: Date.now() - start, model: m }
     }
     if (!baseUrl) return { ok: false, error: '缺少 API Base URL' }

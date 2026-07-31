@@ -1,8 +1,14 @@
 import { Hono } from 'hono'
 import type { Env } from '../types'
 import {
-  listTargets, createTarget, updateTarget, deleteTarget,
-  getSnapshots, getTodayBrief, runMonitor, pushMonitorBrief,
+  listTargets,
+  createTarget,
+  updateTarget,
+  deleteTarget,
+  getSnapshots,
+  getTodayBrief,
+  runMonitor,
+  pushMonitorBrief,
 } from '../monitor-service'
 
 const monitor = new Hono<{ Bindings: Env }>()
@@ -20,7 +26,14 @@ monitor.get('/targets', async (c) => {
 
 monitor.post('/targets', async (c) => {
   try {
-    const body = await c.req.json<{ type: string; platform: string; label: string; targetId?: string; keyword?: string; enabled?: boolean }>()
+    const body = await c.req.json<{
+      type: string
+      platform: string
+      label: string
+      targetId?: string
+      keyword?: string
+      enabled?: boolean
+    }>()
     if (!body.type || !body.platform || !body.label) {
       return c.json({ ok: false, error: 'type / platform / label 为必填' }, 400)
     }
@@ -35,7 +48,14 @@ monitor.post('/targets', async (c) => {
 monitor.put('/targets/:id', async (c) => {
   try {
     const id = c.req.param('id')
-    const body = await c.req.json<{ type: string; platform: string; label: string; targetId?: string; keyword?: string; enabled?: boolean }>()
+    const body = await c.req.json<{
+      type: string
+      platform: string
+      label: string
+      targetId?: string
+      keyword?: string
+      enabled?: boolean
+    }>()
     await updateTarget(c.env, id, body)
     return c.json({ ok: true })
   } catch (e: any) {
@@ -100,7 +120,11 @@ monitor.post('/run-platform', async (c) => {
     return c.json({ ok: false, error: 'secret 不匹配' }, 403)
   }
   let body: any
-  try { body = await c.req.json() } catch { return c.json({ ok: false, error: '请求格式错误' }, 400) }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ ok: false, error: '请求格式错误' }, 400)
+  }
   const { platform } = body || {}
   if (!platform) return c.json({ ok: false, error: '缺少 platform 参数' }, 400)
   try {

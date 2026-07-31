@@ -16,7 +16,9 @@ export const taskLists = sqliteTable('task_lists', {
 // 任务
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
-  listId: text('list_id').notNull().references(() => taskLists.id, { onDelete: 'cascade' }),
+  listId: text('list_id')
+    .notNull()
+    .references(() => taskLists.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   note: text('note').default(''),
   isCompleted: integer('is_completed', { mode: 'boolean' }).default(false),
@@ -51,7 +53,9 @@ export const tasks = sqliteTable('tasks', {
 // 子任务
 export const subtasks = sqliteTable('subtasks', {
   id: text('id').primaryKey(),
-  taskId: text('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  taskId: text('task_id')
+    .notNull()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   isCompleted: integer('is_completed', { mode: 'boolean' }).default(false),
   sortOrder: integer('sort_order').default(0),
@@ -79,16 +83,6 @@ export const kbDocuments = sqliteTable('kb_documents', {
   fileSize: integer('file_size'),
   importedAt: text('imported_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
-})
-
-// 天意硬币
-export const coinFlips = sqliteTable('coin_flips', {
-  id: text('id').primaryKey(),
-  result: text('result').notNull(),
-  entropySource: text('entropy_source').notNull(),
-  rawValue: integer('raw_value'),
-  interpretation: text('interpretation'),
-  createdAt: text('created_at').default(sql`(datetime('now'))`),
 })
 
 // 设置
@@ -129,27 +123,6 @@ export const kvCache = sqliteTable('kv_cache', {
   createdAt: text('created_at').default(sql`(datetime('now'))`),
 })
 
-// 答案之书
-export const answerBookDraws = sqliteTable('answer_book_draws', {
-  id: text('id').primaryKey(),
-  result: text('result').notNull(),
-  entropySource: text('entropy_source').notNull(),
-  rawValue: integer('raw_value'),
-  interpretation: text('interpretation'),
-  createdAt: text('created_at').default(sql`(datetime('now'))`),
-})
-
-// 每日一签
-export const dailyFortunes = sqliteTable('daily_fortunes', {
-  id: text('id').primaryKey(),
-  date: text('date').notNull(), // yyyy-MM-dd 北京日期
-  result: text('result').notNull(),
-  entropySource: text('entropy_source').notNull(),
-  rawValue: integer('raw_value'),
-  interpretation: text('interpretation'),
-  createdAt: text('created_at').default(sql`(datetime('now'))`),
-})
-
 // 同步日志
 export const syncLogs = sqliteTable('sync_logs', {
   id: text('id').primaryKey(),
@@ -181,7 +154,9 @@ export const feedSources = sqliteTable('feed_sources', {
 // 新闻候选条目（抓取后入库，AI 评分前的候选池）
 export const feedItems = sqliteTable('feed_items', {
   id: text('id').primaryKey(),
-  sourceId: text('source_id').notNull().references(() => feedSources.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => feedSources.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   url: text('url').notNull().unique(),
   summary: text('summary'),
@@ -242,7 +217,9 @@ export const chatSessions = sqliteTable('chat_sessions', {
 // 消息表：会话内的单条消息（含助手调用的工具信息，便于回放）
 export const chatMessages = sqliteTable('chat_messages', {
   id: text('id').primaryKey(),
-  sessionId: text('session_id').notNull().references(() => chatSessions.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: 'cascade' }),
   role: text('role').notNull(), // 'user' | 'assistant' | 'system'
   content: text('content').notNull().default(''),
   toolCalls: text('tool_calls'), // JSON：助手本次调用的工具 [{name, args}]
@@ -260,7 +237,9 @@ export const tags = sqliteTable('tags', {
 // 标签关联（多态关联）
 export const tagRelations = sqliteTable('tag_relations', {
   id: text('id').primaryKey(),
-  tagId: text('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
+  tagId: text('tag_id')
+    .notNull()
+    .references(() => tags.id, { onDelete: 'cascade' }),
   targetType: text('target_type').notNull(), // 'task' | 'note' | 'kb'
   targetId: text('target_id').notNull(),
 })
@@ -276,18 +255,6 @@ export const decisionRules = sqliteTable('decision_rules', {
   action: text('action').notNull(), // 行动
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
-})
-
-// 决策规则预置模板（一键套用到 decision_rules）
-export const decisionTemplates = sqliteTable('decision_templates', {
-  id: text('id').primaryKey(),
-  category: text('category').notNull(), // 出行 | 购物 | 饮食 | 时间安排 | 社交 | 其他
-  title: text('title').notNull(),
-  condition: text('condition').notNull(), // 条件描述（如"差价低于50元"）
-  action: text('action').notNull(), // 行动（如"直接选省时方案"）
-  description: text('description'), // 使用场景说明
-  sortOrder: integer('sort_order').default(0),
-  createdAt: text('created_at').default(sql`(datetime('now'))`),
 })
 
 // 决策日志（记录每次决策，用于模式识别）
@@ -356,20 +323,36 @@ export const subtasksTaskIdIdx = index('idx_subtasks_task_id').on(subtasks.taskI
 export const feedItemsSourceIdIdx = index('idx_feed_items_source_id').on(feedItems.sourceId)
 export const feedItemsAiScoreIdx = index('idx_feed_items_ai_score').on(feedItems.aiScore)
 export const feedItemsCategoryIdx = index('idx_feed_items_category').on(feedItems.category)
+export const feedItemsBriefedAtIdx = index('idx_feed_items_briefed_at').on(feedItems.briefedAt)
 
-export const chatMessagesSessionIdIdx = index('idx_chat_messages_session_id').on(chatMessages.sessionId)
-export const chatSessionsUpdatedAtIdx = index('idx_chat_sessions_updated_at').on(chatSessions.updatedAt)
+export const chatMessagesSessionIdIdx = index('idx_chat_messages_session_id').on(
+  chatMessages.sessionId,
+)
+export const chatSessionsUpdatedAtIdx = index('idx_chat_sessions_updated_at').on(
+  chatSessions.updatedAt,
+)
 
 export const tagRelationsTagIdIdx = index('idx_tag_relations_tag_id').on(tagRelations.tagId)
-export const tagRelationsTargetIdx = index('idx_tag_relations_target').on(tagRelations.targetType, tagRelations.targetId)
+export const tagRelationsTargetIdx = index('idx_tag_relations_target').on(
+  tagRelations.targetType,
+  tagRelations.targetId,
+)
 
-export const monitorSnapshotsDateIdx = index('idx_monitor_snapshots_date').on(monitorSnapshots.date, monitorSnapshots.type)
+export const monitorSnapshotsDateIdx = index('idx_monitor_snapshots_date').on(
+  monitorSnapshots.date,
+  monitorSnapshots.type,
+)
 
 export const syncLogsSourceIdx = index('idx_sync_logs_source').on(syncLogs.source)
 
-export const newsFeedbackTargetIdx = index('idx_news_feedback_target').on(newsFeedback.targetType, newsFeedback.targetId)
+export const newsFeedbackTargetIdx = index('idx_news_feedback_target').on(
+  newsFeedback.targetType,
+  newsFeedback.targetId,
+)
+export const newsFeedbackCreatedAtIdx = index('idx_news_feedback_created_at').on(
+  newsFeedback.createdAt,
+)
 
-export const decisionTemplatesCategoryIdx = index('idx_decision_templates_category').on(decisionTemplates.category)
 export const decisionLogsTaskIdIdx = index('idx_decision_logs_task_id').on(decisionLogs.taskId)
 export const decisionLogsCategoryIdx = index('idx_decision_logs_category').on(decisionLogs.category)
 
@@ -438,5 +421,36 @@ export const tarotReadings = sqliteTable('tarot_readings', {
 
 export const cyberFortunesDateIdx = index('idx_cyber_fortunes_date').on(cyberFortunes.date)
 export const dailyPersonasDateIdx = index('idx_daily_personas_date').on(dailyPersonas.date)
-export const challengeCompletionsDateIdx = index('idx_challenge_completions_date').on(challengeCompletions.date)
-export const tarotReadingsCreatedAtIdx = index('idx_tarot_readings_created_at').on(tarotReadings.createdAt)
+export const challengeCompletionsDateIdx = index('idx_challenge_completions_date').on(
+  challengeCompletions.date,
+)
+export const tarotReadingsCreatedAtIdx = index('idx_tarot_readings_created_at').on(
+  tarotReadings.createdAt,
+)
+
+// ============ 习惯养成 ============
+
+// 习惯定义
+export const habits = sqliteTable('habits', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  icon: text('icon'), // emoji 或 lucide 图标名
+  color: text('color'), // 主题色 hex
+  description: text('description'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// 习惯打卡记录（每个习惯每天最多一条，可补卡）
+export const habitCheckins = sqliteTable('habit_checkins', {
+  id: text('id').primaryKey(),
+  habitId: text('habit_id').notNull(),
+  date: text('date').notNull(), // yyyy-MM-dd（北京时间）
+  note: text('note'), // 当天备注（可选）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const habitCheckinsHabitIdIdx = index('idx_habit_checkins_habit_id').on(
+  habitCheckins.habitId,
+  habitCheckins.date,
+)

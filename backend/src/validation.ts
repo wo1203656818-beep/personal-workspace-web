@@ -100,13 +100,6 @@ export const imaAppendNoteSchema = z.object({
 // 设置（key-value 字符串映射）
 export const settingsSchema = z.record(z.string(), z.string())
 
-// AI 测试（apiKey 可选：为空时后端回退到已保存的密钥）
-export const aiTestSchema = z.object({
-  baseUrl: z.string().url('baseUrl 格式错误'),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-})
-
 // AI 配置（多条目）
 export const aiConfigCreateSchema = z.object({
   name: z.string().min(1, '名称不能为空'),
@@ -164,5 +157,3 @@ export const newsSourceSchema = z.object({
   lang: z.string().optional().default('zh'),
   enabled: z.boolean().optional(),
 })
-
-

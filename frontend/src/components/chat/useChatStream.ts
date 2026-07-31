@@ -1,11 +1,19 @@
 import { useState, useRef, useCallback } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { aiApi } from '@/lib/api'
 import { useTheme } from '@/lib/theme'
 import type { Msg } from './types'
 import { genId } from './types'
+
+const CHAT_REFRESH_KEYS = new Set(['tasks', 'taskLists', 'notes', 'kb', 'task', 'note', 'subtasks'])
+
+function invalidateChatRefresh(client: QueryClient) {
+  return client.invalidateQueries({
+    predicate: (query) => CHAT_REFRESH_KEYS.has(String(query.queryKey[0])),
+  })
+}
 
 export function useChatStream({
   sessionIdRef,
@@ -29,11 +37,14 @@ export function useChatStream({
   const abortRef = useRef<AbortController | null>(null)
 
   // 处理 AI 返回的 action（主题切换 / 页面跳转）
-  const handleAction = useCallback((action: any) => {
-    if (!action) return
-    if (action.type === 'theme' && action.payload) setTheme(action.payload)
-    else if (action.type === 'navigate' && action.payload) navigate(action.payload)
-  }, [navigate, setTheme])
+  const handleAction = useCallback(
+    (action: any) => {
+      if (!action) return
+      if (action.type === 'theme' && action.payload) setTheme(action.payload)
+      else if (action.type === 'navigate' && action.payload) navigate(action.payload)
+    },
+    [navigate, setTheme],
+  )
 
   const send = useCallback(
     (text: string) => {
@@ -50,33 +61,59 @@ export function useChatStream({
         systemPrompt: customPromptRef.current,
         images: imgs,
         onDelta: (chunk) => {
-          setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, content: msg.content + chunk } : msg))
+          setMessages((m) =>
+            m.map((msg) => (msg.id === aiMsg.id ? { ...msg, content: msg.content + chunk } : msg)),
+          )
         },
         onReasoning: (chunk) => {
-          setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg))
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg,
+            ),
+          )
         },
         onDone: (ev) => {
-          setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? {
-            ...msg,
-            pending: false,
-            // CF 非流式模式下 content 为空，用 ev.reply 回填
-            content: msg.content || ev.reply || '',
-          } : msg))
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === aiMsg.id
+                ? {
+                    ...msg,
+                    pending: false,
+                    // CF 非流式模式下 content 为空，用 ev.reply 回填
+                    content: msg.content || ev.reply || '',
+                  }
+                : msg,
+            ),
+          )
           if (ev.sessionId) setSessionId(ev.sessionId)
-          if (ev.refresh) queryClient.invalidateQueries()
+          if (ev.refresh) invalidateChatRefresh(queryClient)
           handleAction(ev.action)
           setLoading(false)
         },
         onError: (msg) => {
-          setMessages((m) => m.map((msg2) => msg2.id === aiMsg.id
-            ? { ...msg2, content: msg2.content || `⚠️ ${msg}`, pending: false }
-            : msg2))
+          setMessages((m) =>
+            m.map((msg2) =>
+              msg2.id === aiMsg.id
+                ? { ...msg2, content: msg2.content || `⚠️ ${msg}`, pending: false }
+                : msg2,
+            ),
+          )
           setLoading(false)
         },
       })
       abortRef.current = ctrl
     },
-    [loading, queryClient, sessionIdRef, deepThinkRef, customPromptRef, imagesRef, setMessages, setSessionId, handleAction],
+    [
+      loading,
+      queryClient,
+      sessionIdRef,
+      deepThinkRef,
+      customPromptRef,
+      imagesRef,
+      setMessages,
+      setSessionId,
+      handleAction,
+    ],
   )
 
   const stop = useCallback(() => {
@@ -107,32 +144,60 @@ export function useChatStream({
         systemPrompt: customPromptRef.current,
         images: imgs,
         onDelta: (chunk) => {
-          setMessages((prev) => prev.map((msg) => msg.id === aiMsg.id ? { ...msg, content: msg.content + chunk } : msg))
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsg.id ? { ...msg, content: msg.content + chunk } : msg,
+            ),
+          )
         },
         onReasoning: (chunk) => {
-          setMessages((prev) => prev.map((msg) => msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg))
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg,
+            ),
+          )
         },
         onDone: (ev) => {
-          setMessages((prev) => prev.map((msg) => msg.id === aiMsg.id ? {
-            ...msg,
-            pending: false,
-            content: msg.content || ev.reply || '',
-          } : msg))
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsg.id
+                ? {
+                    ...msg,
+                    pending: false,
+                    content: msg.content || ev.reply || '',
+                  }
+                : msg,
+            ),
+          )
           if (ev.sessionId) setSessionId(ev.sessionId)
-          if (ev.refresh) queryClient.invalidateQueries()
+          if (ev.refresh) invalidateChatRefresh(queryClient)
           handleAction(ev.action)
           setLoading(false)
         },
         onError: (msg) => {
-          setMessages((prev) => prev.map((msg2) => msg2.id === aiMsg.id
-            ? { ...msg2, content: msg2.content || `⚠️ ${msg}`, pending: false }
-            : msg2))
+          setMessages((prev) =>
+            prev.map((msg2) =>
+              msg2.id === aiMsg.id
+                ? { ...msg2, content: msg2.content || `⚠️ ${msg}`, pending: false }
+                : msg2,
+            ),
+          )
           setLoading(false)
         },
       })
       abortRef.current = ctrl
     }, 0)
-  }, [queryClient, sessionIdRef, deepThinkRef, customPromptRef, imagesRef, setMessages, setSessionId, setLoading, handleAction])
+  }, [
+    queryClient,
+    sessionIdRef,
+    deepThinkRef,
+    customPromptRef,
+    imagesRef,
+    setMessages,
+    setSessionId,
+    setLoading,
+    handleAction,
+  ])
 
   return { loading, setLoading, send, stop, regenerate, abortRef }
 }

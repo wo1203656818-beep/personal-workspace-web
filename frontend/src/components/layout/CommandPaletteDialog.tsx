@@ -2,8 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Monitor, Plus, CheckSquare, FileText, BookOpen } from 'lucide-react'
 import {
-  CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem,
-  CommandList, CommandSeparator,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
 } from '@/components/ui/command'
 import { tasksApi, notesApi, kbApi, type Task, type Note, type KbDocument } from '@/lib/api'
 
@@ -15,12 +20,17 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   if (idx === -1) return text.slice(0, 80)
   const start = Math.max(0, idx - 20)
   const end = Math.min(text.length, idx + query.length + 40)
-  const snippet = (start > 0 ? '...' : '') + text.slice(start, end) + (end < text.length ? '...' : '')
+  const snippet =
+    (start > 0 ? '...' : '') + text.slice(start, end) + (end < text.length ? '...' : '')
   const parts = snippet.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'))
   return parts.map((part, i) =>
-    part.toLowerCase() === lowerQuery
-      ? <mark key={i} className="rounded bg-yellow-200 px-0.5 dark:bg-yellow-800">{part}</mark>
-      : part
+    part.toLowerCase() === lowerQuery ? (
+      <mark key={i} className="rounded bg-yellow-200 px-0.5 dark:bg-yellow-800">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
   )
 }
 
@@ -32,13 +42,21 @@ export function CommandPaletteDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  navCommands: Array<{ label: string; href: string; icon: React.ComponentType<{ className?: string }> }>
+  navCommands: Array<{
+    label: string
+    href: string
+    icon: React.ComponentType<{ className?: string }>
+  }>
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void
 }) {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
-  const [searchResults, setSearchResults] = useState<{ tasks: Task[]; notes: Note[]; kb: KbDocument[] }>({
+  const [searchResults, setSearchResults] = useState<{
+    tasks: Task[]
+    notes: Note[]
+    kb: KbDocument[]
+  }>({
     tasks: [],
     notes: [],
     kb: [],
@@ -108,7 +126,7 @@ export function CommandPaletteDialog({
         <CommandGroup heading="操作">
           <CommandItem
             value="新建任务"
-            onSelect={() => runCommand(() => navigate('/tasks/myday?new=1'))}
+            onSelect={() => runCommand(() => navigate('/tasks?new=1'))}
             className="rounded-lg px-2 py-2.5"
           >
             <Plus className="mr-2 size-4" />
@@ -160,14 +178,22 @@ export function CommandPaletteDialog({
                       <CommandItem
                         key={task.id}
                         value={task.title}
-                        onSelect={() => runCommand(() => navigate(`/tasks/list/${task.listId}?selected=${task.id}`))}
+                        onSelect={() =>
+                          runCommand(() =>
+                            navigate(`/tasks?selected=${task.id}`),
+                          )
+                        }
                         className="rounded-lg px-2 py-2.5"
                       >
                         <CheckSquare className="mr-2 size-4 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <span className="line-clamp-1 text-sm font-medium">{highlightMatch(task.title, searchQuery)}</span>
+                          <span className="line-clamp-1 text-sm font-medium">
+                            {highlightMatch(task.title, searchQuery)}
+                          </span>
                           {task.note && (
-                            <span className="line-clamp-1 text-xs text-muted-foreground">{highlightMatch(task.note, searchQuery)}</span>
+                            <span className="line-clamp-1 text-xs text-muted-foreground">
+                              {highlightMatch(task.note, searchQuery)}
+                            </span>
                           )}
                         </div>
                       </CommandItem>
@@ -185,9 +211,13 @@ export function CommandPaletteDialog({
                       >
                         <FileText className="mr-2 size-4 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <span className="line-clamp-1 text-sm font-medium">{highlightMatch(note.title, searchQuery)}</span>
+                          <span className="line-clamp-1 text-sm font-medium">
+                            {highlightMatch(note.title, searchQuery)}
+                          </span>
                           {note.content && (
-                            <span className="line-clamp-1 text-xs text-muted-foreground">{highlightMatch(note.content, searchQuery)}</span>
+                            <span className="line-clamp-1 text-xs text-muted-foreground">
+                              {highlightMatch(note.content, searchQuery)}
+                            </span>
                           )}
                         </div>
                       </CommandItem>
@@ -205,22 +235,28 @@ export function CommandPaletteDialog({
                       >
                         <BookOpen className="mr-2 size-4 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <span className="line-clamp-1 text-sm font-medium">{highlightMatch(doc.title, searchQuery)}</span>
+                          <span className="line-clamp-1 text-sm font-medium">
+                            {highlightMatch(doc.title, searchQuery)}
+                          </span>
                           {doc.content && (
-                            <span className="line-clamp-1 text-xs text-muted-foreground">{highlightMatch(doc.content, searchQuery)}</span>
+                            <span className="line-clamp-1 text-xs text-muted-foreground">
+                              {highlightMatch(doc.content, searchQuery)}
+                            </span>
                           )}
                         </div>
                       </CommandItem>
                     ))}
                   </CommandGroup>
                 )}
-                {searchResults.tasks.length === 0 && searchResults.notes.length === 0 && searchResults.kb.length === 0 && (
-                  <CommandGroup heading="搜索结果">
-                    <CommandItem value="no-results" disabled className="rounded-lg px-2 py-2.5">
-                      <span className="text-sm text-muted-foreground">未找到匹配结果</span>
-                    </CommandItem>
-                  </CommandGroup>
-                )}
+                {searchResults.tasks.length === 0 &&
+                  searchResults.notes.length === 0 &&
+                  searchResults.kb.length === 0 && (
+                    <CommandGroup heading="搜索结果">
+                      <CommandItem value="no-results" disabled className="rounded-lg px-2 py-2.5">
+                        <span className="text-sm text-muted-foreground">未找到匹配结果</span>
+                      </CommandItem>
+                    </CommandGroup>
+                  )}
               </>
             )}
           </>

@@ -1,7 +1,23 @@
-import { tasksApi, notesApi, kbApi, settingsApi, taskListsApi, type Task, type Note, type KbDocument, type TaskList } from './api'
+import {
+  tasksApi,
+  notesApi,
+  kbApi,
+  settingsApi,
+  taskListsApi,
+  type Task,
+  type Note,
+  type KbDocument,
+  type TaskList,
+} from './api'
 
 // 敏感键白名单：导出时剔除
-const SENSITIVE_KEYS = ['password_hash', 'ms_refresh_token', 'ima_api_key', 'custom_ai_api_key', 'ai_api_key']
+const SENSITIVE_KEYS = [
+  'password_hash',
+  'ms_refresh_token',
+  'ima_api_key',
+  'custom_ai_api_key',
+  'ai_api_key',
+]
 
 /**
  * 导出全部数据为 JSON 文件并触发浏览器下载。
@@ -10,12 +26,21 @@ const SENSITIVE_KEYS = ['password_hash', 'ms_refresh_token', 'ima_api_key', 'cus
  */
 export async function exportAllData(): Promise<void> {
   // 用北京时间作为文件名和导出时间戳
-  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' })
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
   const timestamp = fmt.format(new Date()).replace(/-/g, '')
   const nowBj = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   }).format(new Date())
   const [bjDate, bjTime] = nowBj.split(', ').map((s: string) => s.trim())
@@ -42,7 +67,7 @@ export async function exportAllData(): Promise<void> {
 
   // 过滤敏感键
   const safeSettings = Object.fromEntries(
-    Object.entries(settings).filter(([k]) => !SENSITIVE_KEYS.includes(k))
+    Object.entries(settings).filter(([k]) => !SENSITIVE_KEYS.includes(k)),
   )
 
   const payload = {

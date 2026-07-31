@@ -3,27 +3,78 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'sonner'
-import { BookOpen, ArrowLeft, FileText, File, FileImage, RefreshCw, Trash2, Search, Download, Sparkles, Loader2, MessageSquareText, Send, Presentation, Mic, Code2, Network, StickyNote, MessagesSquare, Globe, type LucideIcon } from 'lucide-react'
+import {
+  BookOpen,
+  ArrowLeft,
+  FileText,
+  File,
+  FileImage,
+  RefreshCw,
+  Trash2,
+  Search,
+  Download,
+  Sparkles,
+  Loader2,
+  MessageSquareText,
+  Send,
+  Presentation,
+  Mic,
+  Code2,
+  Network,
+  StickyNote,
+  MessagesSquare,
+  Globe,
+  type LucideIcon,
+} from 'lucide-react'
 import { kbApi, type KbDocument, type KbSummary } from '@/lib/api'
+import { STALE_TIME } from '@/lib/query'
 import { extractDocumentText } from '@/lib/doc-extract'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { PageSkeleton, DetailSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
 
-const DocViewer = lazy(() => import('@/components/DocViewer').then((m) => ({ default: m.DocViewer })))
+const DocViewer = lazy(() =>
+  import('@/components/DocViewer').then((m) => ({ default: m.DocViewer })),
+)
 
 const fileTypeIcon: Record<string, LucideIcon> = {
-  pdf: File, docx: FileText, md: FileText, xlsx: File, image: FileImage,
-  txt: FileText, note: StickyNote, web: Globe, ppt: Presentation,
-  audio: Mic, html: Code2, xmind: Network, session: MessagesSquare,
-  unavailable: File, unknown: File,
+  pdf: File,
+  docx: FileText,
+  md: FileText,
+  xlsx: File,
+  image: FileImage,
+  txt: FileText,
+  note: StickyNote,
+  web: Globe,
+  ppt: Presentation,
+  audio: Mic,
+  html: Code2,
+  xmind: Network,
+  session: MessagesSquare,
+  unavailable: File,
+  unknown: File,
 }
 
 const fileTypeColor: Record<string, string> = {
@@ -102,7 +153,9 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
   const [globalAskOpen, setGlobalAskOpen] = useState(false)
   const [globalQuestion, setGlobalQuestion] = useState('')
   const [globalAnswer, setGlobalAnswer] = useState<string | null>(null)
-  const [globalSources, setGlobalSources] = useState<{ title: string; snippet: string; score: number }[]>([])
+  const [globalSources, setGlobalSources] = useState<
+    { title: string; snippet: string; score: number }[]
+  >([])
 
   const globalAskMutation = useMutation({
     mutationFn: (q: string) => kbApi.globalAsk(q),
@@ -125,14 +178,14 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
     queryKey: ['kb'],
     queryFn: kbApi.listSummary,
     enabled: trimmedQuery.length === 0,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['kb', 'search', trimmedQuery],
     queryFn: () => kbApi.search(trimmedQuery),
     enabled: trimmedQuery.length > 0,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const uploadMutation = useMutation({
@@ -159,7 +212,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: ACCEPTED_TYPES,
-    onDrop: (files) => files.forEach(f => uploadMutation.mutate(f)),
+    onDrop: (files) => files.forEach((f) => uploadMutation.mutate(f)),
   })
 
   const baseDocs = useMemo(() => {
@@ -188,14 +241,25 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           <Tabs value={typeFilter} onValueChange={setTypeFilter} className="flex-1">
             <TabsList className="flex w-full justify-start overflow-x-auto rounded-xl sm:w-auto">
               {TYPE_FILTERS.map((t) => (
-                <TabsTrigger key={t.value} value={t.value} className="shrink-0 rounded-lg text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t.label}</TabsTrigger>
+                <TabsTrigger
+                  key={t.value}
+                  value={t.value}
+                  className="shrink-0 rounded-lg text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                >
+                  {t.label}
+                </TabsTrigger>
               ))}
             </TabsList>
           </Tabs>
           <Button
             size="sm"
             variant="outline"
-            onClick={() => { setGlobalAskOpen(true); setGlobalQuestion(''); setGlobalAnswer(null); setGlobalSources([]) }}
+            onClick={() => {
+              setGlobalAskOpen(true)
+              setGlobalQuestion('')
+              setGlobalAnswer(null)
+              setGlobalSources([])
+            }}
             className="gap-2 rounded-lg shrink-0"
           >
             <MessageSquareText className="size-4" />
@@ -212,8 +276,12 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
         <div className="icon-badge mb-2 size-10 bg-gradient-to-br from-emerald-500 to-teal-400">
           <File className="size-5" />
         </div>
-        <p className="text-sm font-medium">{isDragActive ? '释放文件以上传' : '拖拽文件到此处，或点击上传'}</p>
-        <p className="mt-1 text-xs text-muted-foreground">支持 Markdown、PDF、Word、Excel、图片与 TXT</p>
+        <p className="text-sm font-medium">
+          {isDragActive ? '释放文件以上传' : '拖拽文件到此处，或点击上传'}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          支持 Markdown、PDF、Word、Excel、图片与 TXT
+        </p>
       </div>
 
       {uploadProgress !== null && (
@@ -223,7 +291,10 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
             <span>{uploadProgress}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary transition-all duration-150" style={{ width: `${uploadProgress}%` }} />
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-150"
+              style={{ width: `${uploadProgress}%` }}
+            />
           </div>
         </div>
       )}
@@ -237,7 +308,11 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
               <EmptyState
                 icon={BookOpen}
                 title={trimmedQuery || typeFilter !== 'all' ? '未找到匹配的文档' : '暂无文档'}
-                description={trimmedQuery || typeFilter !== 'all' ? '尝试更换筛选条件' : '拖拽文件到上方区域上传文档'}
+                description={
+                  trimmedQuery || typeFilter !== 'all'
+                    ? '尝试更换筛选条件'
+                    : '拖拽文件到上方区域上传文档'
+                }
                 className="col-span-full"
               />
             ) : (
@@ -256,12 +331,16 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{doc.title}</p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wide">{doc.fileType}</span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wide">
+                          {doc.fileType}
+                        </span>
                         {doc.fileSize ? <span>{(doc.fileSize / 1024).toFixed(1)} KB</span> : null}
                       </div>
                     </div>
                     <Button
-                      variant="ghost" size="icon" className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                       title="AI 总结"
                       onClick={(e) => {
                         e.stopPropagation()
@@ -271,13 +350,20 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                       }}
                       disabled={cardSummaryMutation.isPending}
                     >
-                      {cardSummaryMutation.isPending && cardSummaryDoc?.id === doc.id
-                        ? <Loader2 className="size-3.5 animate-spin" />
-                        : <Sparkles className="size-3.5" />}
+                      {cardSummaryMutation.isPending && cardSummaryDoc?.id === doc.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-3.5" />
+                      )}
                     </Button>
                     <Button
-                      variant="ghost" size="icon" className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(doc.id) }}
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleteConfirmId(doc.id)
+                      }}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -289,7 +375,10 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
         )}
       </ScrollArea>
 
-      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+      <AlertDialog
+        open={!!deleteConfirmId}
+        onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除文档？</AlertDialogTitle>
@@ -297,12 +386,27 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteConfirmId) deleteDocMutation.mutate(deleteConfirmId); setDeleteConfirmId(null) }}>删除</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteConfirmId) deleteDocMutation.mutate(deleteConfirmId)
+                setDeleteConfirmId(null)
+              }}
+            >
+              删除
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!cardSummaryDoc} onOpenChange={(v) => { if (!v) { setCardSummaryDoc(null); setCardSummaryText(null) } }}>
+      <Dialog
+        open={!!cardSummaryDoc}
+        onOpenChange={(v) => {
+          if (!v) {
+            setCardSummaryDoc(null)
+            setCardSummaryText(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -323,7 +427,16 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
         </DialogContent>
       </Dialog>
 
-      <Dialog open={globalAskOpen} onOpenChange={(v) => { if (!v) { setGlobalAskOpen(false); setGlobalAnswer(null); setGlobalSources([]) } }}>
+      <Dialog
+        open={globalAskOpen}
+        onOpenChange={(v) => {
+          if (!v) {
+            setGlobalAskOpen(false)
+            setGlobalAnswer(null)
+            setGlobalSources([])
+          }
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -332,10 +445,34 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
             </DialogTitle>
             <DialogDescription>基于知识库中的所有文档，智能回答你的问题</DialogDescription>
           </DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); if (!globalQuestion.trim()) return; setGlobalAnswer(null); setGlobalSources([]); globalAskMutation.mutate(globalQuestion.trim()) }} className="flex items-center gap-2">
-            <Input placeholder="输入你的问题..." value={globalQuestion} onChange={(e) => setGlobalQuestion(e.target.value)} className="rounded-xl flex-1" disabled={globalAskMutation.isPending} autoFocus />
-            <Button type="submit" disabled={globalAskMutation.isPending || !globalQuestion.trim()} className="rounded-lg gap-1 shrink-0">
-              {globalAskMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!globalQuestion.trim()) return
+              setGlobalAnswer(null)
+              setGlobalSources([])
+              globalAskMutation.mutate(globalQuestion.trim())
+            }}
+            className="flex items-center gap-2"
+          >
+            <Input
+              placeholder="输入你的问题..."
+              value={globalQuestion}
+              onChange={(e) => setGlobalQuestion(e.target.value)}
+              className="rounded-xl flex-1"
+              disabled={globalAskMutation.isPending}
+              autoFocus
+            />
+            <Button
+              type="submit"
+              disabled={globalAskMutation.isPending || !globalQuestion.trim()}
+              className="rounded-lg gap-1 shrink-0"
+            >
+              {globalAskMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
               发送
             </Button>
           </form>
@@ -360,9 +497,13 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                     <div key={i} className="rounded-lg border bg-card/50 px-3 py-2 text-xs">
                       <div className="flex items-center justify-between">
                         <span className="font-medium truncate">{src.title}</span>
-                        <Badge variant="secondary" className="ml-2 shrink-0 text-[10px]">{(src.score * 100).toFixed(0)}%</Badge>
+                        <Badge variant="secondary" className="ml-2 shrink-0 text-[10px]">
+                          {(src.score * 100).toFixed(0)}%
+                        </Badge>
                       </div>
-                      {src.snippet && <p className="mt-1 line-clamp-2 text-muted-foreground">{src.snippet}</p>}
+                      {src.snippet && (
+                        <p className="mt-1 line-clamp-2 text-muted-foreground">{src.snippet}</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -383,7 +524,7 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const { data: selectedDoc, isLoading: selectedDocLoading } = useQuery({
     queryKey: ['kbDoc', id],
     queryFn: () => kbApi.get(id),
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const summaryMutation = useMutation({
@@ -433,13 +574,28 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <Button variant="ghost" size="icon" className="rounded-lg" onClick={onBack}>
           <ArrowLeft className="size-4" />
         </Button>
-        <div className={cn('icon-badge size-8', fileTypeColor[selectedDoc.fileType || ''] || fileTypeColor.unknown)}>
+        <div
+          className={cn(
+            'icon-badge size-8',
+            fileTypeColor[selectedDoc.fileType || ''] || fileTypeColor.unknown,
+          )}
+        >
           <Icon className="size-4" />
         </div>
-        <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">{selectedDoc.title}</h1>
-        <Badge variant="secondary" className="rounded-lg uppercase">{selectedDoc.fileType}</Badge>
+        <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">
+          {selectedDoc.title}
+        </h1>
+        <Badge variant="secondary" className="rounded-lg uppercase">
+          {selectedDoc.fileType}
+        </Badge>
         {hasContent && (
-          <Button size="sm" variant="outline" className="gap-2 rounded-lg" onClick={() => summaryMutation.mutate(selectedDoc.id)} disabled={summaryMutation.isPending}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 rounded-lg"
+            onClick={() => summaryMutation.mutate(selectedDoc.id)}
+            disabled={summaryMutation.isPending}
+          >
             <Sparkles className={`size-4 ${summaryMutation.isPending ? 'animate-spin' : ''}`} />
             AI 总结
           </Button>
@@ -466,9 +622,23 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
           {hasContent && (
             <div className="surface-card overflow-x-hidden">
               <form onSubmit={handleAsk} className="flex items-center gap-2">
-                <Input placeholder="向文档提问..." value={question} onChange={(e) => setQuestion(e.target.value)} className="rounded-xl" disabled={askMutation.isPending} />
-                <Button type="submit" disabled={askMutation.isPending || !question.trim()} className="rounded-lg gap-1 shrink-0">
-                  {askMutation.isPending ? <RefreshCw className="size-4 animate-spin" /> : <MessagesSquare className="size-4" />}
+                <Input
+                  placeholder="向文档提问..."
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  className="rounded-xl"
+                  disabled={askMutation.isPending}
+                />
+                <Button
+                  type="submit"
+                  disabled={askMutation.isPending || !question.trim()}
+                  className="rounded-lg gap-1 shrink-0"
+                >
+                  {askMutation.isPending ? (
+                    <RefreshCw className="size-4 animate-spin" />
+                  ) : (
+                    <MessagesSquare className="size-4" />
+                  )}
                   提问
                 </Button>
               </form>

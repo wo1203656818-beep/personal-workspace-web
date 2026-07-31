@@ -5,15 +5,23 @@
 
 // 返回北京时间的 ISO 字符串（带 +08:00 后缀），用于数据库存储
 export function nowBeijing(): string {
-  const now = new Date()
+  return formatBeijing(new Date())
+}
+
+// 将任意 Date 格式化为北京时间的 ISO 字符串（带 +08:00 后缀）
+export function formatBeijing(d: Date): string {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
   })
-  const parts = fmt.formatToParts(now)
-  const get = (type: string) => parts.find(p => p.type === type)?.value || '00'
+  const parts = fmt.formatToParts(d)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '00'
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}+08:00`
 }
 
@@ -22,7 +30,9 @@ export function todayBeijing(): string {
   const now = new Date()
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
-    year: 'numeric', month: '2-digit', day: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   })
   return fmt.format(now) // en-CA 格式: yyyy-MM-dd
 }

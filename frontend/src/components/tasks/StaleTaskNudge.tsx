@@ -40,7 +40,10 @@ export function StaleTaskNudge() {
       </div>
       <div className="space-y-2">
         {staleTasks.slice(0, 5).map((task: Task) => (
-          <div key={task.id} className="flex items-center justify-between gap-2 rounded-md bg-white/50 px-3 py-2 dark:bg-black/20">
+          <div
+            key={task.id}
+            className="flex items-center justify-between gap-2 rounded-md bg-white/50 px-3 py-2 dark:bg-black/20"
+          >
             <span className="text-sm text-foreground truncate">{task.title}</span>
             <div className="flex items-center gap-1 shrink-0">
               <Button

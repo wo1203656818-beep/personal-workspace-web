@@ -18,7 +18,9 @@ tags.post('/', async (c) => {
   if (!name) return c.json({ error: '标签名不能为空' }, 400)
   const db = drizzle(c.env.DB, { schema })
   const id = crypto.randomUUID()
-  await db.insert(schema.tags).values({ id, name, color: color || '#6366f1', createdAt: nowBeijing() })
+  await db
+    .insert(schema.tags)
+    .values({ id, name, color: color || '#6366f1', createdAt: nowBeijing() })
   return c.json({ id, name, color, createdAt: nowBeijing() }, 201)
 })
 
@@ -47,16 +49,25 @@ tags.post('/assign', async (c) => {
   const { tagId, targetType, targetId } = await c.req.json()
   const db = drizzle(c.env.DB, { schema })
   const id = crypto.randomUUID()
-  await db.insert(schema.tagRelations).values({ id, tagId, targetType, targetId }).onConflictDoNothing()
+  await db
+    .insert(schema.tagRelations)
+    .values({ id, tagId, targetType, targetId })
+    .onConflictDoNothing()
   return c.json({ ok: true })
 })
 
 tags.delete('/unassign', async (c) => {
   const { tagId, targetType, targetId } = await c.req.json()
   const db = drizzle(c.env.DB, { schema })
-  await db.delete(schema.tagRelations).where(
-    and(eq(schema.tagRelations.tagId, tagId), eq(schema.tagRelations.targetType, targetType), eq(schema.tagRelations.targetId, targetId))
-  )
+  await db
+    .delete(schema.tagRelations)
+    .where(
+      and(
+        eq(schema.tagRelations.tagId, tagId),
+        eq(schema.tagRelations.targetType, targetType),
+        eq(schema.tagRelations.targetId, targetId),
+      ),
+    )
   return c.json({ ok: true })
 })
 
@@ -64,11 +75,17 @@ tags.delete('/unassign', async (c) => {
 tags.get('/of/:targetType/:targetId', async (c) => {
   const { targetType, targetId } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const relations = await db.select({ tagId: schema.tagRelations.tagId })
+  const relations = await db
+    .select({ tagId: schema.tagRelations.tagId })
     .from(schema.tagRelations)
-    .where(and(eq(schema.tagRelations.targetType, targetType), eq(schema.tagRelations.targetId, targetId)))
+    .where(
+      and(
+        eq(schema.tagRelations.targetType, targetType),
+        eq(schema.tagRelations.targetId, targetId),
+      ),
+    )
   if (relations.length === 0) return c.json([])
-  const tagIds = relations.map(r => r.tagId)
+  const tagIds = relations.map((r) => r.tagId)
   const tagsList = await db.select().from(schema.tags).where(inArray(schema.tags.id, tagIds))
   return c.json(tagsList)
 })

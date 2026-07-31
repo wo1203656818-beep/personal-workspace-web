@@ -6,8 +6,12 @@ import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
-  BreadcrumbPage, BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -19,7 +23,11 @@ import { cn } from '@/lib/utils'
 const typeMeta: Record<string, { label: string; icon: typeof FileText; color: string }> = {
   note: { label: '笔记', icon: FileText, color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
   task: { label: '任务', icon: ListTodo, color: 'bg-primary/10 text-primary' },
-  kb: { label: '知识库', icon: BookOpen, color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  kb: {
+    label: '知识库',
+    icon: BookOpen,
+    color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+  },
 }
 
 export function AppHeader({
@@ -70,7 +78,9 @@ export function AppHeader({
                       <BreadcrumbPage className="text-sm font-medium">{crumb.label}</BreadcrumbPage>
                     ) : (
                       <BreadcrumbLink asChild>
-                        <Link to={crumb.href} className="text-sm">{crumb.label}</Link>
+                        <Link to={crumb.href} className="text-sm">
+                          {crumb.label}
+                        </Link>
                       </BreadcrumbLink>
                     )}
                   </BreadcrumbItem>
@@ -90,12 +100,7 @@ export function AppHeader({
             <Search className="size-4" />
             <span className="hidden sm:inline text-xs">搜索</span>
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onToggleTheme}
-          >
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleTheme}>
             <ThemeIcon className="size-4" />
             <span className="sr-only">切换主题</span>
           </Button>
@@ -116,7 +121,9 @@ export function AppHeader({
               className="border-0 focus-visible:ring-0 shadow-none"
               autoFocus
             />
-            {searchMutation.isPending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+            {searchMutation.isPending && (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            )}
           </div>
           <div className="max-h-[400px] overflow-auto p-2">
             {results.length > 0 ? (
@@ -130,14 +137,23 @@ export function AppHeader({
                       onClick={() => go(r.type, r.id)}
                       className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50"
                     >
-                      <div className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', meta.color)}>
+                      <div
+                        className={cn(
+                          'flex size-8 shrink-0 items-center justify-center rounded-lg',
+                          meta.color,
+                        )}
+                      >
                         <Icon className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="line-clamp-1 text-sm font-medium">{r.title}</p>
-                        {r.snippet && <p className="line-clamp-1 text-xs text-muted-foreground">{r.snippet}</p>}
+                        {r.snippet && (
+                          <p className="line-clamp-1 text-xs text-muted-foreground">{r.snippet}</p>
+                        )}
                       </div>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{meta.label}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {meta.label}
+                      </span>
                     </button>
                   )
                 })}

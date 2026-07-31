@@ -12,7 +12,11 @@ export async function embedText(c: Context<{ Bindings: Env }>, text: string): Pr
   throw new Error('embedding 解析失败')
 }
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, label: string, maxRetries = 2): Promise<T> {
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = 2,
+): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn()
@@ -22,29 +26,43 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, label: string, maxRetri
         throw e
       }
       const delay = Math.min(1000 * 2 ** attempt, 5000)
-      console.warn(`[retry] ${label} attempt ${attempt + 1} failed, retrying in ${delay}ms:`, e?.message)
+      console.warn(
+        `[retry] ${label} attempt ${attempt + 1} failed, retrying in ${delay}ms:`,
+        e?.message,
+      )
       await new Promise((r) => setTimeout(r, delay))
     }
   }
   throw new Error('unreachable')
 }
 
-export async function indexTarget(c: Context<{ Bindings: Env }>, type: 'note' | 'task' | 'kb' | 'subtask', id: string, text: string) {
+export async function indexTarget(
+  c: Context<{ Bindings: Env }>,
+  type: 'note' | 'task' | 'kb' | 'subtask',
+  id: string,
+  text: string,
+) {
   try {
     const t = (text || '').trim()
     const vectorId = `${type}:${id}`
     if (!t) {
-      await retryWithBackoff(() => c.env.VECTORIZE.deleteByIds([vectorId]), `vectorize delete ${vectorId}`)
+      await retryWithBackoff(
+        () => c.env.VECTORIZE.deleteByIds([vectorId]),
+        `vectorize delete ${vectorId}`,
+      )
       return
     }
     const vec = await embedText(c, t.slice(0, 4000))
     await retryWithBackoff(
-      () => c.env.VECTORIZE.upsert([{
-        id: vectorId,
-        values: vec,
-        metadata: { type, targetId: id },
-      }]),
-      `vectorize upsert ${vectorId}`
+      () =>
+        c.env.VECTORIZE.upsert([
+          {
+            id: vectorId,
+            values: vec,
+            metadata: { type, targetId: id },
+          },
+        ]),
+      `vectorize upsert ${vectorId}`,
     )
   } catch (e: any) {
     console.error('[embed] indexTarget failed (ignored):', e?.message)

@@ -17,7 +17,11 @@ interface TocSidebarProps {
   onMobileItemClick?: () => void
 }
 
-export function TocSidebar({ items, activeSlug, onTocClick }: Pick<TocSidebarProps, 'items' | 'activeSlug' | 'onTocClick'>) {
+export function TocSidebar({
+  items,
+  activeSlug,
+  onTocClick,
+}: Pick<TocSidebarProps, 'items' | 'activeSlug' | 'onTocClick'>) {
   if (items.length === 0) return null
   return (
     <aside className="hidden w-64 shrink-0 overflow-y-auto p-4 md:block">
@@ -36,7 +40,7 @@ export function TocSidebar({ items, activeSlug, onTocClick }: Pick<TocSidebarPro
                 'block truncate border-l-2 border-transparent text-xs transition-colors',
                 activeSlug === item.slug
                   ? 'border-primary font-medium text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
               style={{ paddingLeft: `${(item.level - 1) * 0.75}rem` }}
               title={item.text}
@@ -50,7 +54,14 @@ export function TocSidebar({ items, activeSlug, onTocClick }: Pick<TocSidebarPro
   )
 }
 
-export function MobileTocDropdown({ items, activeSlug, onTocClick, mobileOpen, onMobileToggle, onMobileItemClick }: TocSidebarProps) {
+export function MobileTocDropdown({
+  items,
+  activeSlug,
+  onTocClick,
+  mobileOpen,
+  onMobileToggle,
+  onMobileItemClick,
+}: TocSidebarProps) {
   if (items.length === 0) return null
   return (
     <div className="mb-3 md:hidden">

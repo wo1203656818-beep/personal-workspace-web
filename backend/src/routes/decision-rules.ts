@@ -8,7 +8,10 @@ const decisionRules = new Hono<{ Bindings: Env }>()
 
 decisionRules.get('/', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const rules = await db.select().from(schema.decisionRules).orderBy(desc(schema.decisionRules.createdAt))
+  const rules = await db
+    .select()
+    .from(schema.decisionRules)
+    .orderBy(desc(schema.decisionRules.createdAt))
   return c.json(rules)
 })
 

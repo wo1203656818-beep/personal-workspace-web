@@ -1,51 +1,86 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Sun, CalendarClock, ListTodo, FileText, BookOpen,
-  Settings, ChevronsUpDown,
-  User, LogOut, Moon, Monitor, KeyRound, Unlink, Download,
-  LayoutDashboard, ListChecks, Newspaper, Home,
+  Sun,
+  ListTodo,
+  FileText,
+  BookOpen,
+  Settings,
+  ChevronsUpDown,
+  User,
+  LogOut,
+  Moon,
+  Monitor,
+  KeyRound,
+  Unlink,
+  Download,
+  LayoutDashboard,
+  Newspaper,
+  Home,
+  Sparkles,
+  Radar,
+  BarChart3,
+  Flame,
 } from 'lucide-react'
 import {
-  Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
-  SidebarMenu, SidebarMenuItem, SidebarMenuButton,
-  SidebarInset, SidebarSeparator, SidebarProvider,
-  SidebarRail, SidebarGroup, SidebarGroupLabel,
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarFooter,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarInset,
+  SidebarSeparator,
+  SidebarProvider,
+  SidebarRail,
+  SidebarGroup,
+  SidebarGroupLabel,
 } from '@/components/ui/sidebar'
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 import { useAuth } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
-import { taskListsApi, settingsApi, imaApi } from '@/lib/api'
+import { settingsApi, imaApi } from '@/lib/api'
 import { exportAllData } from '@/lib/export'
 import { toast } from 'sonner'
 
 import { NavItem } from '@/components/layout/NavItem'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { SyncWarningBar } from '@/components/layout/SyncWarningBar'
-import { CommandPaletteDialog } from '@/components/layout/CommandPaletteDialog'
 import { ChangePasswordDialog } from '@/components/layout/ChangePasswordDialog'
 import { MobileBottomNav } from '@/components/layout/MobileBottomNav'
+
+const CommandPaletteDialog = lazy(() =>
+  import('@/components/layout/CommandPaletteDialog').then((m) => ({
+    default: m.CommandPaletteDialog,
+  })),
+)
 
 const navGroups = [
   {
     label: '核心',
     items: [
       { title: '首页', href: '/', icon: Home },
-      { title: '任务', href: '/tasks', icon: ListTodo, children: [
-        { title: '今天', href: '/tasks/today', icon: Sun },
-        { title: '计划', href: '/tasks/planned', icon: CalendarClock },
-        { title: '全部', href: '/tasks/all', icon: ListChecks },
-      ]},
+      { title: '任务', href: '/tasks', icon: ListTodo },
       { title: '笔记', href: '/notes', icon: FileText },
       { title: '知识库', href: '/knowledge', icon: BookOpen },
     ],
@@ -54,39 +89,30 @@ const navGroups = [
     label: '更多',
     items: [
       { title: '资讯', href: '/news', icon: Newspaper },
+      { title: '监控', href: '/monitor', icon: Radar },
+      { title: '工具', href: '/tools', icon: Sparkles },
+      { title: '习惯', href: '/habits', icon: Flame },
+      { title: '分析', href: '/analysis', icon: BarChart3 },
       { title: '设置', href: '/settings', icon: Settings },
     ],
   },
 ]
 
 const navCommands = navGroups.flatMap((group) =>
-  group.items.flatMap((item) => {
-    if (item.children) {
-      return item.children.map((child) => ({ label: child.title, href: child.href, icon: child.icon }))
-    }
-    return [{ label: item.title, href: item.href, icon: item.icon }]
-  })
+  group.items.map((item) => ({
+    label: item.title,
+    href: item.href,
+    icon: item.icon,
+  })),
 )
 
-function getBreadcrumbs(
-  pathname: string,
-  lists: Array<{ id: string; name: string }>
-): Array<{ label: string; href?: string }> {
+function getBreadcrumbs(pathname: string): Array<{ label: string; href?: string }> {
   if (pathname === '/' || pathname === '') return [{ label: '首页' }]
-  if (pathname.startsWith('/tasks/today')) return [{ label: '任务' }, { label: '今天' }]
-  if (pathname.startsWith('/tasks/planned')) return [{ label: '任务' }, { label: '计划' }]
-  if (pathname.startsWith('/tasks/important')) return [{ label: '任务' }, { label: '重要' }]
-  if (pathname.startsWith('/tasks/myday')) return [{ label: '任务' }, { label: '今天' }]
-  const listMatch = pathname.match(/^\/tasks\/list\/([^/]+)$/)
-  if (listMatch) {
-    const list = lists.find((l) => l.id === listMatch[1])
-    return [{ label: '任务' }, { label: list?.name ?? '列表' }]
-  }
-  if (pathname.startsWith('/tasks/search')) return [{ label: '任务' }, { label: '搜索' }]
   if (pathname.startsWith('/tasks')) return [{ label: '任务' }]
   if (pathname.startsWith('/notes')) return [{ label: '笔记' }]
   if (pathname.startsWith('/knowledge')) return [{ label: '知识库' }]
   if (pathname.startsWith('/news')) return [{ label: '资讯' }]
+  if (pathname.startsWith('/habits')) return [{ label: '习惯' }]
   if (pathname.startsWith('/settings')) return [{ label: '设置' }]
   return [{ label: '首页' }]
 }
@@ -100,12 +126,6 @@ export function AppLayout() {
   const [commandOpen, setCommandOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
-
-  const { data: lists = [] } = useQuery({
-    queryKey: ['taskLists'],
-    queryFn: taskListsApi.list,
-    staleTime: 2 * 60 * 1000,
-  })
 
   const { data: msTodoStatus } = useQuery({
     queryKey: ['msTodoStatus'],
@@ -163,16 +183,10 @@ export function AppLayout() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  const breadcrumbs = getBreadcrumbs(
-    location.pathname,
-    lists as Array<{ id: string; name: string }>
-  )
+  const breadcrumbs = getBreadcrumbs(location.pathname)
 
-  const isNavActive = (item: typeof navGroups[number]['items'][number]) => {
+  const isNavActive = (item: (typeof navGroups)[number]['items'][number]) => {
     if (item.href === '/') return location.pathname === '/'
-    if (item.children) {
-      return item.children.some((child) => location.pathname === child.href) || location.pathname.startsWith(item.href)
-    }
     return location.pathname === item.href || location.pathname.startsWith(item.href)
   }
 
@@ -203,7 +217,9 @@ export function AppLayout() {
           <SidebarContent className="gap-1 px-2">
             {navGroups.map((group) => (
               <SidebarGroup key={group.label}>
-                <SidebarGroupLabel className="text-xs font-medium text-muted-foreground/70">{group.label}</SidebarGroupLabel>
+                <SidebarGroupLabel className="text-xs font-medium text-muted-foreground/70">
+                  {group.label}
+                </SidebarGroupLabel>
                 <SidebarMenu>
                   {group.items.map((item) => (
                     <NavItem key={item.href} item={item} isActive={isNavActive(item)} />
@@ -248,16 +264,25 @@ export function AppLayout() {
                       导出数据
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => disconnectMutation.mutate('ms_refresh_token')} className="text-destructive">
+                    <DropdownMenuItem
+                      onClick={() => disconnectMutation.mutate('ms_refresh_token')}
+                      className="text-destructive"
+                    >
                       <Unlink className="mr-2 size-4" />
                       断开 MS Todo
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => disconnectMutation.mutate('ima_api_key')} className="text-destructive">
+                    <DropdownMenuItem
+                      onClick={() => disconnectMutation.mutate('ima_api_key')}
+                      className="text-destructive"
+                    >
                       <Unlink className="mr-2 size-4" />
                       断开 IMA
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setLogoutDialogOpen(true)} className="text-destructive">
+                    <DropdownMenuItem
+                      onClick={() => setLogoutDialogOpen(true)}
+                      className="text-destructive"
+                    >
                       <LogOut className="mr-2 size-4" />
                       退出登录
                     </DropdownMenuItem>
@@ -272,7 +297,9 @@ export function AppLayout() {
           <AppHeader
             breadcrumbs={breadcrumbs}
             themeIcon={ThemeIcon}
-            onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')}
+            onToggleTheme={() =>
+              setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark')
+            }
           />
           {showSyncWarning && (
             <SyncWarningBar
@@ -293,9 +320,7 @@ export function AppLayout() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认退出登录？</AlertDialogTitle>
-            <AlertDialogDescription>
-              退出后需要重新输入密码才能登录。
-            </AlertDialogDescription>
+            <AlertDialogDescription>退出后需要重新输入密码才能登录。</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
@@ -311,17 +336,16 @@ export function AppLayout() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <CommandPaletteDialog
-        open={commandOpen}
-        onOpenChange={setCommandOpen}
-        navCommands={navCommands}
-        onSetTheme={setTheme}
-      />
+      <Suspense fallback={null}>
+        <CommandPaletteDialog
+          open={commandOpen}
+          onOpenChange={setCommandOpen}
+          navCommands={navCommands}
+          onSetTheme={setTheme}
+        />
+      </Suspense>
 
-      <ChangePasswordDialog
-        open={passwordDialogOpen}
-        onOpenChange={setPasswordDialogOpen}
-      />
+      <ChangePasswordDialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen} />
     </SidebarProvider>
   )
 }

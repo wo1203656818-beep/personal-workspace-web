@@ -37,11 +37,7 @@ export function TarotTool() {
           <h3 className="text-lg font-medium">AI 塔罗牌</h3>
           <p className="text-sm text-muted-foreground">输入问题，塔罗牌为你指引</p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowHistory(!showHistory)}
-        >
+        <Button variant="ghost" size="sm" onClick={() => setShowHistory(!showHistory)}>
           <History className="size-4" />
         </Button>
       </div>
@@ -56,7 +52,9 @@ export function TarotTool() {
                 <p className="text-xs text-muted-foreground">「{h.question}」</p>
                 <div className="flex gap-1">
                   {h.cards.map((card, i) => (
-                    <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded">{card.name}</span>
+                    <span key={i} className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                      {card.name}
+                    </span>
                   ))}
                 </div>
               </div>

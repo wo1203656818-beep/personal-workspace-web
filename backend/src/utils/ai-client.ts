@@ -48,7 +48,7 @@ async function callOpenAI(
         fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
+            Authorization: `Bearer ${config.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
@@ -61,22 +61,22 @@ async function callOpenAI(
         const isRetryable = /429|5\d{2}/.test(String(res.status))
         if (isRetryable && attempt < maxRetries) {
           const delay = Math.min(1000 * 2 ** attempt, 8000)
-          await new Promise(r => setTimeout(r, delay))
+          await new Promise((r) => setTimeout(r, delay))
           continue
         }
         throw new Error(`AI 请求失败 (HTTP ${res.status}): ${txt.slice(0, 200)}`)
       }
-      const data = await res.json() as any
+      const data = (await res.json()) as any
       const msg = data.choices?.[0]?.message
       const content = msg?.content || ''
       if (!content && msg?.reasoning_content && maxTokens < 4096) {
         const retryRes = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...body, max_tokens: 4096 }),
         })
         if (retryRes.ok) {
-          const retryData = await retryRes.json() as any
+          const retryData = (await retryRes.json()) as any
           return retryData.choices?.[0]?.message?.content || ''
         }
       }
@@ -86,7 +86,7 @@ async function callOpenAI(
       const isRetryable = /timeout|network|fetch failed|429|5\d{2}/i.test(e?.message || '')
       if (!isRetryable || attempt === maxRetries) throw e
       const delay = Math.min(1000 * 2 ** attempt, 8000)
-      await new Promise(r => setTimeout(r, delay))
+      await new Promise((r) => setTimeout(r, delay))
     }
   }
   throw lastError ?? new Error('AI 调用失败')
@@ -108,7 +108,10 @@ async function callWorkersAI(
     return extractWorkersAIResponse(response)
   } catch (aiErr: any) {
     const detail = (aiErr?.message || aiErr?.toString() || JSON.stringify(aiErr)).toLowerCase()
-    const isModelUnavailable = /model not found|not available|does not exist|unknown model|invalid model|not supported|503|504|ai_timeout/.test(detail)
+    const isModelUnavailable =
+      /model not found|not available|does not exist|unknown model|invalid model|not supported|503|504|ai_timeout/.test(
+        detail,
+      )
     if (isModelUnavailable && model !== CF_MODELS.FALLBACK) {
       try {
         const response = await withTimeout(
@@ -121,7 +124,9 @@ async function callWorkersAI(
         throw new Error('AI 调用失败，请检查 AI 配置或稍后重试')
       }
     }
-    throw new Error(detail.includes('ai_timeout') ? 'AI 调用超时' : 'AI 调用失败，请检查 AI 配置或稍后重试')
+    throw new Error(
+      detail.includes('ai_timeout') ? 'AI 调用超时' : 'AI 调用失败，请检查 AI 配置或稍后重试',
+    )
   }
 }
 

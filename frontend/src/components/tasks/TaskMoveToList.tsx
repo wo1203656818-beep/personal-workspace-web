@@ -1,6 +1,12 @@
 import { CalendarClock } from 'lucide-react'
 import { type TaskList } from '@/lib/api'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function TaskMoveToList({
   currentListId,
@@ -29,7 +35,9 @@ export function TaskMoveToList({
         </SelectTrigger>
         <SelectContent>
           {lists.map((l) => (
-            <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+            <SelectItem key={l.id} value={l.id}>
+              {l.name}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>

@@ -36,66 +36,296 @@ export const PRESET_FEED_SOURCES: FeedSourceConfig[] = [
   // ═══════════════════════════════════════
 
   // 加密媒体（原生 RSS，稳定）
-  { name: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', type: 'rss', category: '加密', weight: 5, lang: 'en' },
-  { name: 'CoinTelegraph', url: 'https://cointelegraph.com/rss', type: 'rss', category: '加密', weight: 5, lang: 'en' },
-  { name: 'The Block', url: 'https://www.theblock.co/rss.xml', type: 'rss', category: '加密', weight: 5, lang: 'en' },
-  { name: 'Decrypt', url: 'https://decrypt.co/feed', type: 'rss', category: '加密', weight: 4, lang: 'en' },
-  { name: 'Bitcoin Magazine', url: 'https://bitcoinmagazine.com/.rss/full/', type: 'rss', category: '加密', weight: 4, lang: 'en' },
-  { name: 'Blockworks', url: 'https://blockworks.co/feed', type: 'rss', category: '加密', weight: 4, lang: 'en' },
+  {
+    name: 'CoinDesk',
+    url: 'https://www.coindesk.com/arc/outboundfeeds/rss/',
+    type: 'rss',
+    category: '加密',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'CoinTelegraph',
+    url: 'https://cointelegraph.com/rss',
+    type: 'rss',
+    category: '加密',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'The Block',
+    url: 'https://www.theblock.co/rss.xml',
+    type: 'rss',
+    category: '加密',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'Decrypt',
+    url: 'https://decrypt.co/feed',
+    type: 'rss',
+    category: '加密',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Bitcoin Magazine',
+    url: 'https://bitcoinmagazine.com/.rss/full/',
+    type: 'rss',
+    category: '加密',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Blockworks',
+    url: 'https://blockworks.co/feed',
+    type: 'rss',
+    category: '加密',
+    weight: 4,
+    lang: 'en',
+  },
 
   // 加密中文（RSSHub）
-  { name: '金色财经', url: 'https://rsshub.app/jinse', type: 'rsshub', category: '加密', weight: 3, rsshubPath: '/jinse' },
-  { name: 'PANews', url: 'https://rsshub.app/panews', type: 'rsshub', category: '加密', weight: 3, rsshubPath: '/panews' },
+  {
+    name: '金色财经',
+    url: 'https://rsshub.app/jinse',
+    type: 'rsshub',
+    category: '加密',
+    weight: 3,
+    rsshubPath: '/jinse',
+  },
+  {
+    name: 'PANews',
+    url: 'https://rsshub.app/panews',
+    type: 'rsshub',
+    category: '加密',
+    weight: 3,
+    rsshubPath: '/panews',
+  },
 
   // ═══════════════════════════════════════
   // 财经（6 个）
   // ═══════════════════════════════════════
 
-  { name: 'CNBC Top News', url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114', type: 'rss', category: '财经', weight: 5, lang: 'en' },
-  { name: 'MarketWatch', url: 'https://feeds.marketwatch.com/marketwatch/topstories/', type: 'rss', category: '财经', weight: 4, lang: 'en' },
-  { name: 'Yahoo Finance', url: 'https://finance.yahoo.com/news/rssindex', type: 'rss', category: '财经', weight: 4, lang: 'en' },
-  { name: 'Investing.com', url: 'https://www.investing.com/rss/news_1.rss', type: 'rss', category: '财经', weight: 3, lang: 'en' },
+  {
+    name: 'CNBC Top News',
+    url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114',
+    type: 'rss',
+    category: '财经',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'MarketWatch',
+    url: 'https://feeds.marketwatch.com/marketwatch/topstories/',
+    type: 'rss',
+    category: '财经',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Yahoo Finance',
+    url: 'https://finance.yahoo.com/news/rssindex',
+    type: 'rss',
+    category: '财经',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Investing.com',
+    url: 'https://www.investing.com/rss/news_1.rss',
+    type: 'rss',
+    category: '财经',
+    weight: 3,
+    lang: 'en',
+  },
 
   // 财经中文（RSSHub）
-  { name: '华尔街见闻', url: 'https://rsshub.app/wallstreetcn/news/global', type: 'rsshub', category: '财经', weight: 4, rsshubPath: '/wallstreetcn/news/global' },
-  { name: '第一财经', url: 'https://rsshub.app/yicai/news', type: 'rsshub', category: '财经', weight: 4, rsshubPath: '/yicai/news' },
+  {
+    name: '华尔街见闻',
+    url: 'https://rsshub.app/wallstreetcn/news/global',
+    type: 'rsshub',
+    category: '财经',
+    weight: 4,
+    rsshubPath: '/wallstreetcn/news/global',
+  },
+  {
+    name: '第一财经',
+    url: 'https://rsshub.app/yicai/news',
+    type: 'rsshub',
+    category: '财经',
+    weight: 4,
+    rsshubPath: '/yicai/news',
+  },
 
   // ═══════════════════════════════════════
   // 科技（12 个）
   // ═══════════════════════════════════════
 
   // Hacker News（原生 RSS，最稳定）
-  { name: 'HN Best', url: 'https://hnrss.org/best', type: 'rss', category: '科技', weight: 5, lang: 'en' },
-  { name: 'HN Front Page', url: 'https://hnrss.org/frontpage', type: 'rss', category: '科技', weight: 4, lang: 'en' },
-  { name: 'HN Show HN', url: 'https://hnrss.org/show', type: 'rss', category: '科技', weight: 4, lang: 'en' },
+  {
+    name: 'HN Best',
+    url: 'https://hnrss.org/best',
+    type: 'rss',
+    category: '科技',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'HN Front Page',
+    url: 'https://hnrss.org/frontpage',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'HN Show HN',
+    url: 'https://hnrss.org/show',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+    lang: 'en',
+  },
 
   // 英文科技媒体（原生 RSS）
-  { name: 'TechCrunch', url: 'https://techcrunch.com/feed/', type: 'rss', category: '科技', weight: 5, lang: 'en' },
-  { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', type: 'rss', category: '科技', weight: 4, lang: 'en' },
-  { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index', type: 'rss', category: '科技', weight: 4, lang: 'en' },
-  { name: 'MIT Tech Review', url: 'https://www.technologyreview.com/feed/', type: 'rss', category: '科技', weight: 4, lang: 'en' },
-  { name: 'Hacker Noon', url: 'https://hackernoon.com/feed', type: 'rss', category: '科技', weight: 3, lang: 'en' },
-  { name: 'Dev.to', url: 'https://dev.to/feed', type: 'rss', category: '科技', weight: 3, lang: 'en' },
+  {
+    name: 'TechCrunch',
+    url: 'https://techcrunch.com/feed/',
+    type: 'rss',
+    category: '科技',
+    weight: 5,
+    lang: 'en',
+  },
+  {
+    name: 'The Verge',
+    url: 'https://www.theverge.com/rss/index.xml',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Ars Technica',
+    url: 'https://feeds.arstechnica.com/arstechnica/index',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'MIT Tech Review',
+    url: 'https://www.technologyreview.com/feed/',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Hacker Noon',
+    url: 'https://hackernoon.com/feed',
+    type: 'rss',
+    category: '科技',
+    weight: 3,
+    lang: 'en',
+  },
+  {
+    name: 'Dev.to',
+    url: 'https://dev.to/feed',
+    type: 'rss',
+    category: '科技',
+    weight: 3,
+    lang: 'en',
+  },
 
   // 中文科技（RSSHub）
-  { name: '少数派', url: 'https://rsshub.app/sspai/matrix', type: 'rsshub', category: '科技', weight: 3, rsshubPath: '/sspai/matrix' },
-  { name: '36氪', url: 'https://rsshub.app/36kr/newsflashes', type: 'rsshub', category: '科技', weight: 4, rsshubPath: '/36kr/newsflashes' },
-  { name: 'V2EX 最新', url: 'https://www.v2ex.com/index.xml', type: 'rss', category: '科技', weight: 4 },
+  {
+    name: '少数派',
+    url: 'https://rsshub.app/sspai/matrix',
+    type: 'rsshub',
+    category: '科技',
+    weight: 3,
+    rsshubPath: '/sspai/matrix',
+  },
+  {
+    name: '36氪',
+    url: 'https://rsshub.app/36kr/newsflashes',
+    type: 'rsshub',
+    category: '科技',
+    weight: 4,
+    rsshubPath: '/36kr/newsflashes',
+  },
+  {
+    name: 'V2EX 最新',
+    url: 'https://www.v2ex.com/index.xml',
+    type: 'rss',
+    category: '科技',
+    weight: 4,
+  },
 
   // ═══════════════════════════════════════
   // 综合（7 个）
   // ═══════════════════════════════════════
 
   // 英文综合（原生 RSS）
-  { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', type: 'rss', category: '综合', weight: 4, lang: 'en' },
-  { name: 'The Guardian World', url: 'https://www.theguardian.com/world/rss', type: 'rss', category: '综合', weight: 4, lang: 'en' },
-  { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml', type: 'rss', category: '综合', weight: 4, lang: 'en' },
-  { name: 'AP News', url: 'https://feeds.apnews.com/apf-topnews', type: 'rss', category: '综合', weight: 4, lang: 'en' },
-  { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml', type: 'rss', category: '综合', weight: 3, lang: 'en' },
+  {
+    name: 'BBC World',
+    url: 'https://feeds.bbci.co.uk/news/world/rss.xml',
+    type: 'rss',
+    category: '综合',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'The Guardian World',
+    url: 'https://www.theguardian.com/world/rss',
+    type: 'rss',
+    category: '综合',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'NPR News',
+    url: 'https://feeds.npr.org/1001/rss.xml',
+    type: 'rss',
+    category: '综合',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'AP News',
+    url: 'https://feeds.apnews.com/apf-topnews',
+    type: 'rss',
+    category: '综合',
+    weight: 4,
+    lang: 'en',
+  },
+  {
+    name: 'Al Jazeera',
+    url: 'https://www.aljazeera.com/xml/rss/all.xml',
+    type: 'rss',
+    category: '综合',
+    weight: 3,
+    lang: 'en',
+  },
 
   // 中文综合（RSSHub）
-  { name: '澎湃新闻', url: 'https://rsshub.app/thepaper/featured', type: 'rsshub', category: '综合', weight: 4, rsshubPath: '/thepaper/featured' },
-  { name: '少数派热门', url: 'https://rsshub.app/sspai/popular', type: 'rsshub', category: '综合', weight: 3, rsshubPath: '/sspai/popular' },
+  {
+    name: '澎湃新闻',
+    url: 'https://rsshub.app/thepaper/featured',
+    type: 'rsshub',
+    category: '综合',
+    weight: 4,
+    rsshubPath: '/thepaper/featured',
+  },
+  {
+    name: '少数派热门',
+    url: 'https://rsshub.app/sspai/popular',
+    type: 'rsshub',
+    category: '综合',
+    weight: 3,
+    rsshubPath: '/sspai/popular',
+  },
 ]
 
 // 关键词黑名单：命中即丢弃，不入库

@@ -1,7 +1,13 @@
 import { Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 interface NlParsed {
   title: string
   dueDate: string | null
@@ -50,22 +56,49 @@ export function NlTaskDialog({
             placeholder="例如：明天下午3点提醒我给客户发方案，归类到工作"
             className="min-h-[80px]"
           />
-          <Button onClick={() => parseTaskMutation.mutate(nlText)} disabled={parseTaskMutation.isPending || !nlText.trim()} className="gap-2">
+          <Button
+            onClick={() => parseTaskMutation.mutate(nlText)}
+            disabled={parseTaskMutation.isPending || !nlText.trim()}
+            className="gap-2"
+          >
             {parseTaskMutation.isPending ? '解析中...' : '解析'}
           </Button>
 
           {nlParsed && (
             <div className="rounded-xl bg-muted/30 p-3 text-sm space-y-1">
-              <p><span className="text-muted-foreground">标题：</span>{nlParsed.title}</p>
-              {nlParsed.dueDate && <p><span className="text-muted-foreground">时间：</span>{nlParsed.dueDate}</p>}
-              {nlParsed.listName && <p><span className="text-muted-foreground">列表：</span>{nlParsed.listName}</p>}
-              {nlParsed.note && <p><span className="text-muted-foreground">备注：</span>{nlParsed.note}</p>}
+              <p>
+                <span className="text-muted-foreground">标题：</span>
+                {nlParsed.title}
+              </p>
+              {nlParsed.dueDate && (
+                <p>
+                  <span className="text-muted-foreground">时间：</span>
+                  {nlParsed.dueDate}
+                </p>
+              )}
+              {nlParsed.listName && (
+                <p>
+                  <span className="text-muted-foreground">列表：</span>
+                  {nlParsed.listName}
+                </p>
+              )}
+              {nlParsed.note && (
+                <p>
+                  <span className="text-muted-foreground">备注：</span>
+                  {nlParsed.note}
+                </p>
+              )}
             </div>
           )}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onReset()}>取消</Button>
-          <Button onClick={() => createFromNlMutation.mutate(nlParsed!)} disabled={createFromNlMutation.isPending || !nlParsed}>
+          <Button variant="outline" onClick={() => onReset()}>
+            取消
+          </Button>
+          <Button
+            onClick={() => createFromNlMutation.mutate(nlParsed!)}
+            disabled={createFromNlMutation.isPending || !nlParsed}
+          >
             {createFromNlMutation.isPending ? '创建中...' : '创建任务'}
           </Button>
         </DialogFooter>

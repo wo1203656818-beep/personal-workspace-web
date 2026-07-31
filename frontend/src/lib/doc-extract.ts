@@ -34,7 +34,8 @@ export async function extractDocumentText(file: File): Promise<string | null> {
   try {
     if (ext === 'pdf') return await extractPdfText(file)
     if (ext === 'docx' || ext === 'doc') return await extractDocxText(file)
-    if (ext === 'txt' || ext === 'md' || ext === 'markdown') return (await file.text()).slice(0, MAX_CHARS).trim()
+    if (ext === 'txt' || ext === 'md' || ext === 'markdown')
+      return (await file.text()).slice(0, MAX_CHARS).trim()
     return null
   } catch (e) {
     console.error('[doc-extract] failed:', e)

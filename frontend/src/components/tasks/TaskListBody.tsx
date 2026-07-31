@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -49,7 +49,7 @@ export function TaskListBody({
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const prev = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
       queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
-        old?.map((t) => (t.id === id ? { ...t, ...data } : t))
+        old?.map((t) => (t.id === id ? { ...t, ...data } : t)),
       )
       return { prev }
     },
@@ -57,7 +57,7 @@ export function TaskListBody({
       queryClient.invalidateQueries({ queryKey: ['subtasks', variables.id], exact: true })
       if (returnedTask) {
         queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
-          old?.map((t) => (t.id === variables.id ? { ...t, ...returnedTask } : t))
+          old?.map((t) => (t.id === variables.id ? { ...t, ...returnedTask } : t)),
         )
         queryClient.setQueryData<Task>(['task', variables.id], returnedTask as any)
       }
@@ -70,9 +70,9 @@ export function TaskListBody({
     onMutate: async (orders) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const prev = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
-      const map = new Map(orders.map(o => [o.id, o.sortOrder]))
+      const map = new Map(orders.map((o) => [o.id, o.sortOrder]))
       queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (old) =>
-        old?.map((t) => (map.has(t.id) ? { ...t, sortOrder: map.get(t.id)! } : t))
+        old?.map((t) => (map.has(t.id) ? { ...t, sortOrder: map.get(t.id)! } : t)),
       )
       return { prev }
     },
@@ -90,19 +90,23 @@ export function TaskListBody({
     if (orders.length > 0) reorderMutation.mutate(orders)
   }
 
-  const toggleComplete = (id: string) => {
-    const task = tasks.find(t => t.id === id)
-    if (task) updateMutation.mutate({ id, data: { isCompleted: !task.isCompleted } })
-  }
+  const toggleComplete = useCallback(
+    (id: string) => {
+      const task = tasks.find((t) => t.id === id)
+      if (task) updateMutation.mutate({ id, data: { isCompleted: !task.isCompleted } })
+    },
+    [tasks],
+  )
+
+  const handleToggleExpand = useCallback(
+    (id: string) => onToggleExpand(id),
+    [onToggleExpand],
+  )
+  const handleSelect = useCallback((id: string) => onSelectTask(id), [onSelectTask])
+  const handleDelete = useCallback((id: string) => onDeleteTask(id), [onDeleteTask])
 
   if (activeTasks.length === 0 && (!showCompleted || completedTasks.length === 0)) {
-    return (
-      <EmptyState
-        icon={Icon}
-        title={emptyTitle}
-        description={emptyDescription}
-      />
-    )
+    return <EmptyState icon={Icon} title={emptyTitle} description={emptyDescription} />
   }
 
   return (
@@ -129,11 +133,13 @@ export function TaskListBody({
                       task={task}
                       provided={prov}
                       isExpanded={expandedTaskIds.has(task.id)}
-                      onToggleExpand={() => onToggleExpand(task.id)}
-                      onSelect={() => onSelectTask(task.id)}
-                      onToggleComplete={() => toggleComplete(task.id)}
-                      onDelete={() => onDeleteTask(task.id)}
-                      isCompleting={updateMutation.isPending && updateMutation.variables?.id === task.id}
+                      onToggleExpand={handleToggleExpand}
+                      onSelect={handleSelect}
+                      onToggleComplete={toggleComplete}
+                      onDelete={handleDelete}
+                      isCompleting={
+                        updateMutation.isPending && updateMutation.variables?.id === task.id
+                      }
                       selected={selectedIds.has(task.id)}
                       onToggleSelect={onToggleSelect}
                     />
@@ -160,10 +166,10 @@ export function TaskListBody({
               key={task.id}
               task={task}
               isExpanded={expandedTaskIds.has(task.id)}
-              onToggleExpand={() => onToggleExpand(task.id)}
-              onSelect={() => onSelectTask(task.id)}
-              onToggleComplete={() => toggleComplete(task.id)}
-              onDelete={() => onDeleteTask(task.id)}
+              onToggleExpand={handleToggleExpand}
+              onSelect={handleSelect}
+              onToggleComplete={toggleComplete}
+              onDelete={handleDelete}
               isCompleting={updateMutation.isPending && updateMutation.variables?.id === task.id}
               selected={selectedIds.has(task.id)}
               onToggleSelect={onToggleSelect}

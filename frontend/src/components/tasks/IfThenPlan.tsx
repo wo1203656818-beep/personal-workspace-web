@@ -46,9 +46,7 @@ export function IfThenPlan({ ifThenPlan, onUpdate }: IfThenPlanProps) {
   if (editing) {
     return (
       <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          预定义"如果X发生，我就做Y"，减少决策消耗
-        </p>
+        <p className="text-xs text-muted-foreground">预定义"如果X发生，我就做Y"，减少决策消耗</p>
         <Input
           placeholder="如果...我就..."
           value={plan}
@@ -73,8 +71,12 @@ export function IfThenPlan({ ifThenPlan, onUpdate }: IfThenPlanProps) {
         </div>
 
         <div className="flex gap-2">
-          <Button size="sm" onClick={handleSave}>保存</Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>取消</Button>
+          <Button size="sm" onClick={handleSave}>
+            保存
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            取消
+          </Button>
         </div>
       </div>
     )

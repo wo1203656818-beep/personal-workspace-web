@@ -21,8 +21,8 @@ interface AbandonCompassionProps {
 }
 
 export function AbandonCompassion({ taskTitle, onConfirm, onCancel }: AbandonCompassionProps) {
-  const [message] = useState(() =>
-    COMPASSION_MESSAGES[Math.floor(Math.random() * COMPASSION_MESSAGES.length)]
+  const [message] = useState(
+    () => COMPASSION_MESSAGES[Math.floor(Math.random() * COMPASSION_MESSAGES.length)],
   )
   const [cooldown, setCooldown] = useState(COOLDOWN_SEC)
 
@@ -40,9 +40,7 @@ export function AbandonCompassion({ taskTitle, onConfirm, onCancel }: AbandonCom
           <h3 className="text-lg font-medium">确定要放弃吗？</h3>
         </div>
 
-        <p className="text-sm text-muted-foreground mb-1">
-          「{taskTitle}」
-        </p>
+        <p className="text-sm text-muted-foreground mb-1">「{taskTitle}」</p>
 
         <div className="rounded-lg bg-primary/5 p-3 mb-4">
           <p className="text-sm italic text-primary/80">"{message}"</p>
@@ -59,11 +57,7 @@ export function AbandonCompassion({ taskTitle, onConfirm, onCancel }: AbandonCom
           <Button variant="outline" onClick={onCancel}>
             再想想
           </Button>
-          <Button
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={cooldown > 0}
-          >
+          <Button variant="destructive" onClick={onConfirm} disabled={cooldown > 0}>
             {cooldown > 0 ? `放弃 (${cooldown}s)` : '放弃'}
           </Button>
         </div>

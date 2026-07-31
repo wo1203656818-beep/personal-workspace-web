@@ -43,7 +43,12 @@ function msDueDateToLocal(msDateTime: string | undefined | null): string | null 
     const d = new Date(hasTzSuffix ? s : s + 'Z')
     if (isNaN(d.getTime())) return s.split('T')[0]
     // 用 Intl.DateTimeFormat 获取北京时间日期
-    const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' })
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
     return fmt.format(d)
   } catch {
     return s.split('T')[0]
@@ -61,13 +66,17 @@ interface TokenResponse {
 // 优先从 settings 表读取 MS 凭据（与前端设置页保持一致），未设置时回退 env
 async function getMsCredentials(env: Env) {
   const db = drizzle(env.DB, { schema })
-  const rows = await db.select().from(schema.settings)
-    .where(or(
-      eq(schema.settings.key, 'ms_client_id'),
-      eq(schema.settings.key, 'ms_tenant_id'),
-      eq(schema.settings.key, 'ms_account_type'),
-      eq(schema.settings.key, 'ms_client_secret'),
-    ))
+  const rows = await db
+    .select()
+    .from(schema.settings)
+    .where(
+      or(
+        eq(schema.settings.key, 'ms_client_id'),
+        eq(schema.settings.key, 'ms_tenant_id'),
+        eq(schema.settings.key, 'ms_account_type'),
+        eq(schema.settings.key, 'ms_client_secret'),
+      ),
+    )
   const map: Record<string, string> = {}
   for (const r of rows) map[r.key] = r.value
 
@@ -79,7 +88,8 @@ async function getMsCredentials(env: Env) {
   const VALID_ACCOUNT_TYPES = new Set(['common', 'consumers', 'organizations'])
   const tenantRaw = map.ms_tenant_id?.trim()
   const tenantAsAccountType = tenantRaw && VALID_ACCOUNT_TYPES.has(tenantRaw) ? tenantRaw : ''
-  const accountType = map.ms_account_type?.trim() || tenantAsAccountType || env.MS_TENANT_ID || 'common'
+  const accountType =
+    map.ms_account_type?.trim() || tenantAsAccountType || env.MS_TENANT_ID || 'common'
 
   // client_secret 可能经过加密存储（enc$ 前缀），decrypt 内部会自动判断是否需要解密
   if (clientSecret) {
@@ -91,7 +101,9 @@ async function getMsCredentials(env: Env) {
   }
 
   if (!clientId || !clientSecret || !accountType) {
-    throw new Error('微软同步未配置：请在设置页填写 MS Client ID / Account Type / Client Secret，或在 wrangler secret 设置')
+    throw new Error(
+      '微软同步未配置：请在设置页填写 MS Client ID / Account Type / Client Secret，或在 wrangler secret 设置',
+    )
   }
   return { clientId, clientSecret, accountType }
 }
@@ -100,7 +112,11 @@ async function getMsCredentials(env: Env) {
  * 用 authorization code 换 access_token + refresh_token
  * POST 到 AAD v2.0 token 端点（accountType 可为 common/consumers/organizations 或具体 tenantId）
  */
-export async function exchangeCode(env: Env, code: string, redirectUri: string): Promise<TokenResponse> {
+export async function exchangeCode(
+  env: Env,
+  code: string,
+  redirectUri: string,
+): Promise<TokenResponse> {
   const cfg = await getMsCredentials(env)
   const res = await fetch(
     `https://login.microsoftonline.com/${cfg.accountType}/oauth2/v2.0/token`,
@@ -121,7 +137,7 @@ export async function exchangeCode(env: Env, code: string, redirectUri: string):
     const errText = await res.text()
     throw new Error(`OAuth exchange 失败 [${res.status}]: ${errText}`)
   }
-  const data = await res.json() as TokenResponse
+  const data = (await res.json()) as TokenResponse
   if (!data.access_token) {
     throw new Error('OAuth exchange 响应缺少 access_token')
   }
@@ -151,7 +167,7 @@ export async function refreshToken(env: Env, rt: string): Promise<TokenResponse>
     const errText = await res.text()
     throw new Error(`OAuth refresh 失败 [${res.status}]: ${errText}`)
   }
-  const data = await res.json() as TokenResponse
+  const data = (await res.json()) as TokenResponse
   if (!data.access_token) {
     throw new Error('OAuth refresh 响应缺少 access_token')
   }
@@ -175,9 +191,13 @@ export async function getAccessToken(env: Env): Promise<string | null> {
   const result = await refreshToken(env, rt)
   // 缓存 access_token + 过期时间（expires_in 秒 → 毫秒时间戳）
   const expiresAt = Date.now() + result.expires_in * 1000
-  await env.CACHE.put('ms_access_token', JSON.stringify({ token: result.access_token, expiresAt }), {
-    expirationTtl: result.expires_in,
-  })
+  await env.CACHE.put(
+    'ms_access_token',
+    JSON.stringify({ token: result.access_token, expiresAt }),
+    {
+      expirationTtl: result.expires_in,
+    },
+  )
   // 存储新 refresh_token（如有）
   if (result.refresh_token) {
     await setSetting(env, 'ms_refresh_token', result.refresh_token)
@@ -199,10 +219,7 @@ async function forceRefreshToken(env: Env): Promise<string | null> {
  * @param env Worker 环境
  * @param fn 接收 access_token 的业务函数，返回 Graph API 响应
  */
-export async function withTokenRefresh<T>(
-  env: Env,
-  fn: (token: string) => Promise<T>,
-): Promise<T> {
+export async function withTokenRefresh<T>(env: Env, fn: (token: string) => Promise<T>): Promise<T> {
   const token = await getAccessToken(env)
   if (!token) throw new Error('未授权，请先 OAuth 授权')
 
@@ -211,7 +228,8 @@ export async function withTokenRefresh<T>(
   } catch (err: unknown) {
     // 检查是否为 401 错误（Graph Client 抛出的错误含 statusCode 或 status）
     const e = err as { statusCode?: number; status?: number; code?: string }
-    const is401 = e?.statusCode === 401 || e?.status === 401 || e?.code === 'InvalidAuthenticationToken'
+    const is401 =
+      e?.statusCode === 401 || e?.status === 401 || e?.code === 'InvalidAuthenticationToken'
     if (!is401) throw err
 
     // 401：清缓存 → 刷新 token → 重试一次
@@ -250,240 +268,377 @@ async function fetchAllPages<T>(client: Client, path: string): Promise<T[]> {
 // 全量同步：拉取微软 To Do 所有列表和任务 → 写入 D1，并反向推送本地变更
 // 使用 withTokenRefresh 包装，401 自动刷新 token 重试一次
 // 返回 synced/failed/skipped/errors，让调用方感知部分失败，避免"同步成功"假阳性
-export async function fullSync(env: Env): Promise<{ synced: number; failed: number; skipped: number; errors: string[] }> {
+export async function fullSync(
+  env: Env,
+): Promise<{ synced: number; failed: number; skipped: number; errors: string[] }> {
   return withTokenRefresh(env, async (accessToken) => {
     const client = createGraphClient(accessToken)
     const db = drizzle(env.DB, { schema })
 
-  let syncedCount = 0
-  let failedCount = 0
-  let skippedCount = 0
-  const errors: string[] = []
-  const recordError = (msg: string) => {
-    failedCount++
-    errors.push(msg)
-    console.error('[ms-todo]', msg)
-  }
-
-  // 1. 拉取所有任务列表
-  const msLists = await fetchAllPages<any>(client, '/me/todo/lists')
-  const allMsTaskIds = new Set<string>()
-  const allMsListIds = new Set<string>(msLists.map((l) => l.id).filter(Boolean))
-
-  // MS To Do 个人版默认列表固定叫 "Tasks"，本地自动创建的默认列表叫 "默认列表"。
-  // 这两个名字不同但语义等价，单独按名字精确匹配会导致重复创建列表。
-  // 这里维护一个"默认列表别名集合"，匹配时把集合内的名字视为等价。
-  const DEFAULT_LIST_ALIASES = new Set(['tasks', '默认列表', '任务', 'to-do', 'todo'])
-  const isDefaultListName = (name: string) => DEFAULT_LIST_ALIASES.has(name.trim().toLowerCase())
-
-  for (const msList of msLists) {
-    // 查找本地是否已有此列表（先按 msTodoListId 精确匹配）
-    let existingList = await db.select().from(schema.taskLists)
-      .where(eq(schema.taskLists.msTodoListId, msList.id))
-    // matchedById 标记：按 msTodoListId 命中说明已关联，名字走 LWW；
-    // 否则是新关联，应保留本地名（用户可能在本地重命名过）
-    let matchedById = existingList.length > 0
-
-    // 若按 id 未命中，尝试按 name 匹配本地未关联的列表（msTodoListId IS NULL）
-    // 这样本地"默认列表"能关联到 MS 端同名列表，避免重复创建
-    if (existingList.length === 0) {
-      existingList = await db.select().from(schema.taskLists)
-        .where(and(eq(schema.taskLists.name, msList.displayName), isNull(schema.taskLists.msTodoListId)))
+    let syncedCount = 0
+    let failedCount = 0
+    let skippedCount = 0
+    const errors: string[] = []
+    const recordError = (msg: string) => {
+      failedCount++
+      errors.push(msg)
+      console.error('[ms-todo]', msg)
     }
 
-    // 若精确名字仍未命中，且 MS 列表是默认列表（"Tasks"），
-    // 尝试匹配本地任意未关联的非系统默认列表（"默认列表"等别名），
-    // 排除 isSystem=true 避免污染系统列表；多候选取 createdAt 最早的稳定关联
-    if (existingList.length === 0 && isDefaultListName(msList.displayName)) {
-      const candidates = await db.select().from(schema.taskLists)
-        .where(and(isNull(schema.taskLists.msTodoListId), eq(schema.taskLists.isSystem, false)))
-      const aliasCandidates = candidates.filter(l => isDefaultListName(l.name))
-      if (aliasCandidates.length > 0) {
-        // 取最早创建的（createdAt 最小，若都为 NULL 则取第一个）
-        aliasCandidates.sort((a, b) => {
-          const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.MAX_SAFE_INTEGER
-          const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.MAX_SAFE_INTEGER
-          return ta - tb
-        })
-        existingList = [aliasCandidates[0]]
-      }
-    }
+    // 1. 拉取所有任务列表
+    const msLists = await fetchAllPages<any>(client, '/me/todo/lists')
+    const allMsTaskIds = new Set<string>()
+    const allMsListIds = new Set<string>(msLists.map((l) => l.id).filter(Boolean))
 
-    let listId: string
+    // MS To Do 个人版默认列表固定叫 "Tasks"，本地自动创建的默认列表叫 "默认列表"。
+    // 这两个名字不同但语义等价，单独按名字精确匹配会导致重复创建列表。
+    // 这里维护一个"默认列表别名集合"，匹配时把集合内的名字视为等价。
+    const DEFAULT_LIST_ALIASES = new Set(['tasks', '默认列表', '任务', 'to-do', 'todo'])
+    const isDefaultListName = (name: string) => DEFAULT_LIST_ALIASES.has(name.trim().toLowerCase())
 
-    if (existingList.length > 0) {
-      listId = existingList[0].id
-      if (matchedById) {
-        // 已关联列表：名字走 Last Write Wins（比较本地 updatedAt 与 MS lastModifiedDateTime）
-        const msListUpdated = msList.lastModifiedDateTime ? new Date(msList.lastModifiedDateTime).getTime() : 0
-        const localListUpdated = existingList[0].updatedAt ? new Date(existingList[0].updatedAt).getTime() : 0
-        // MS 较新 → 用 MS 名；本地较新 → 保留本地名并 PATCH 到 MS（下面处理）
-        const useMsName = msListUpdated > localListUpdated
-        const newName = useMsName ? msList.displayName : existingList[0].name
-        await db.update(schema.taskLists)
-          .set({ name: newName, msTodoListId: msList.id, updatedAt: nowBeijing() })
-          .where(eq(schema.taskLists.id, listId))
-        // 本地较新时把本地名推到 MS，避免本地重命名被吞
-        if (!useMsName && existingList[0].name !== msList.displayName) {
-          try {
-            await client.api(`/me/todo/lists/${msList.id}`).patch({ displayName: existingList[0].name })
-          } catch (e) {
-            recordError(`列表名推送到 MS 失败 (list ${msList.id}): ${(e as Error).message}`)
-          }
-        }
-      } else {
-        // 新关联列表：保留本地名（用户可能重命名过），仅回填 msTodoListId
-        // 并把本地名推到 MS，统一两端名字
-        await db.update(schema.taskLists)
-          .set({ msTodoListId: msList.id, updatedAt: nowBeijing() })
-          .where(eq(schema.taskLists.id, listId))
-        if (existingList[0].name !== msList.displayName) {
-          try {
-            await client.api(`/me/todo/lists/${msList.id}`).patch({ displayName: existingList[0].name })
-          } catch (e) {
-            recordError(`新关联列表名推送到 MS 失败 (list ${msList.id}): ${(e as Error).message}`)
-          }
-        }
-      }
-    } else {
-      // 创建新列表（本地无任何匹配）
-      listId = crypto.randomUUID()
-      await db.insert(schema.taskLists).values({
-        id: listId,
-        name: msList.displayName,
-        msTodoListId: msList.id,
-        isSystem: false,
-      })
-    }
+    for (const msList of msLists) {
+      // 查找本地是否已有此列表（先按 msTodoListId 精确匹配）
+      let existingList = await db
+        .select()
+        .from(schema.taskLists)
+        .where(eq(schema.taskLists.msTodoListId, msList.id))
+      // matchedById 标记：按 msTodoListId 命中说明已关联，名字走 LWW；
+      // 否则是新关联，应保留本地名（用户可能在本地重命名过）
+      const matchedById = existingList.length > 0
 
-    // 2. 拉取列表下所有任务（分页）
-    const msTasks = await fetchAllPages<any>(client, `/me/todo/lists/${msList.id}/tasks`)
-
-    for (const msTask of msTasks) {
-      allMsTaskIds.add(msTask.id)
-      const existingTask = await db.select().from(schema.tasks)
-        .where(eq(schema.tasks.msTodoId, msTask.id))
-
-      const taskData = {
-        listId,
-        title: msTask.title || '',
-        note: msTask.body?.content || '',
-        isCompleted: msTask.status === 'completed',
-        isImportant: msTask.importance === 'high',
-        // MS 返回的 dueDateTime.dateTime 是 UTC（如 "2026-07-22T16:00:00" 对应 7月23日 CST），
-        // 直接存会让前端 new Date() 解析为前一天。转成北京时间 yyyy-MM-dd，与本地编辑格式一致。
-        dueDate: msDueDateToLocal(msTask.dueDateTime?.dateTime),
-        lastSyncedAt: nowBeijing(),
-      }
-
-      if (existingTask.length > 0) {
-        // Last Write Wins：对比更新时间
-        const msUpdated = new Date(msTask.lastModifiedDateTime)
-        const localUpdated = new Date(existingTask[0].updatedAt || 0)
-        if (msUpdated > localUpdated) {
-          await db.update(schema.tasks)
-            .set({ ...taskData, updatedAt: nowBeijing() })
-            .where(eq(schema.tasks.id, existingTask[0].id))
-        }
-
-        // 子任务增量同步（已存在任务）：拉取微软 checklist items，按 title 新增/更新本地 subtasks
-        const localTaskId = existingTask[0].id
-        try {
-          const checklistItems = await fetchAllPages<any>(
-            client,
-            `/me/todo/lists/${msList.id}/tasks/${msTask.id}/checklistItems`,
+      // 若按 id 未命中，尝试按 name 匹配本地未关联的列表（msTodoListId IS NULL）
+      // 这样本地"默认列表"能关联到 MS 端同名列表，避免重复创建
+      if (existingList.length === 0) {
+        existingList = await db
+          .select()
+          .from(schema.taskLists)
+          .where(
+            and(
+              eq(schema.taskLists.name, msList.displayName),
+              isNull(schema.taskLists.msTodoListId),
+            ),
           )
-          const localSubtasks = await db.select().from(schema.subtasks)
-            .where(eq(schema.subtasks.taskId, localTaskId))
-          for (const item of checklistItems) {
-            const matched = localSubtasks.find(s => s.title === item.displayName)
-            if (matched) {
-              if (matched.isCompleted !== !!item.isChecked) {
-                await db.update(schema.subtasks)
-                  .set({ isCompleted: !!item.isChecked })
-                  .where(eq(schema.subtasks.id, matched.id))
-              }
-            } else {
-              await db.insert(schema.subtasks).values({
-                id: crypto.randomUUID(),
-                taskId: localTaskId,
-                title: item.displayName || '',
-                isCompleted: !!item.isChecked,
-              })
+      }
+
+      // 若精确名字仍未命中，且 MS 列表是默认列表（"Tasks"），
+      // 尝试匹配本地任意未关联的非系统默认列表（"默认列表"等别名），
+      // 排除 isSystem=true 避免污染系统列表；多候选取 createdAt 最早的稳定关联
+      if (existingList.length === 0 && isDefaultListName(msList.displayName)) {
+        const candidates = await db
+          .select()
+          .from(schema.taskLists)
+          .where(and(isNull(schema.taskLists.msTodoListId), eq(schema.taskLists.isSystem, false)))
+        const aliasCandidates = candidates.filter((l) => isDefaultListName(l.name))
+        if (aliasCandidates.length > 0) {
+          // 取最早创建的（createdAt 最小，若都为 NULL 则取第一个）
+          aliasCandidates.sort((a, b) => {
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : Number.MAX_SAFE_INTEGER
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : Number.MAX_SAFE_INTEGER
+            return ta - tb
+          })
+          existingList = [aliasCandidates[0]]
+        }
+      }
+
+      let listId: string
+
+      if (existingList.length > 0) {
+        listId = existingList[0].id
+        if (matchedById) {
+          // 已关联列表：名字走 Last Write Wins（比较本地 updatedAt 与 MS lastModifiedDateTime）
+          const msListUpdated = msList.lastModifiedDateTime
+            ? new Date(msList.lastModifiedDateTime).getTime()
+            : 0
+          const localListUpdated = existingList[0].updatedAt
+            ? new Date(existingList[0].updatedAt).getTime()
+            : 0
+          // MS 较新 → 用 MS 名；本地较新 → 保留本地名并 PATCH 到 MS（下面处理）
+          const useMsName = msListUpdated > localListUpdated
+          const newName = useMsName ? msList.displayName : existingList[0].name
+          await db
+            .update(schema.taskLists)
+            .set({ name: newName, msTodoListId: msList.id, updatedAt: nowBeijing() })
+            .where(eq(schema.taskLists.id, listId))
+          // 本地较新时把本地名推到 MS，避免本地重命名被吞
+          if (!useMsName && existingList[0].name !== msList.displayName) {
+            try {
+              await client
+                .api(`/me/todo/lists/${msList.id}`)
+                .patch({ displayName: existingList[0].name })
+            } catch (e) {
+              recordError(`列表名推送到 MS 失败 (list ${msList.id}): ${(e as Error).message}`)
             }
           }
-        } catch (e) {
-          console.error('[ms-todo] subtask sync failed:', e)
+        } else {
+          // 新关联列表：保留本地名（用户可能重命名过），仅回填 msTodoListId
+          // 并把本地名推到 MS，统一两端名字
+          await db
+            .update(schema.taskLists)
+            .set({ msTodoListId: msList.id, updatedAt: nowBeijing() })
+            .where(eq(schema.taskLists.id, listId))
+          if (existingList[0].name !== msList.displayName) {
+            try {
+              await client
+                .api(`/me/todo/lists/${msList.id}`)
+                .patch({ displayName: existingList[0].name })
+            } catch (e) {
+              recordError(`新关联列表名推送到 MS 失败 (list ${msList.id}): ${(e as Error).message}`)
+            }
+          }
         }
       } else {
-        const taskId = crypto.randomUUID()
-        await db.insert(schema.tasks).values({
-          id: taskId,
-          msTodoId: msTask.id,
+        // 创建新列表（本地无任何匹配）
+        listId = crypto.randomUUID()
+        await db.insert(schema.taskLists).values({
+          id: listId,
+          name: msList.displayName,
           msTodoListId: msList.id,
-          ...taskData,
+          isSystem: false,
         })
+      }
 
-        // 3. 拉取子任务（checklist items）
-        if (msTask.id) {
+      // 2. 拉取列表下所有任务（分页）
+      const msTasks = await fetchAllPages<any>(client, `/me/todo/lists/${msList.id}/tasks`)
+
+      for (const msTask of msTasks) {
+        allMsTaskIds.add(msTask.id)
+        const existingTask = await db
+          .select()
+          .from(schema.tasks)
+          .where(eq(schema.tasks.msTodoId, msTask.id))
+
+        const taskData = {
+          listId,
+          title: msTask.title || '',
+          note: msTask.body?.content || '',
+          isCompleted: msTask.status === 'completed',
+          isImportant: msTask.importance === 'high',
+          // MS 返回的 dueDateTime.dateTime 是 UTC（如 "2026-07-22T16:00:00" 对应 7月23日 CST），
+          // 直接存会让前端 new Date() 解析为前一天。转成北京时间 yyyy-MM-dd，与本地编辑格式一致。
+          dueDate: msDueDateToLocal(msTask.dueDateTime?.dateTime),
+          lastSyncedAt: nowBeijing(),
+        }
+
+        if (existingTask.length > 0) {
+          // Last Write Wins：对比更新时间
+          const msUpdated = new Date(msTask.lastModifiedDateTime)
+          const localUpdated = new Date(existingTask[0].updatedAt || 0)
+          if (msUpdated > localUpdated) {
+            await db
+              .update(schema.tasks)
+              .set({ ...taskData, updatedAt: nowBeijing() })
+              .where(eq(schema.tasks.id, existingTask[0].id))
+          }
+
+          // 子任务增量同步（已存在任务）：拉取微软 checklist items，按 title 新增/更新本地 subtasks
+          const localTaskId = existingTask[0].id
           try {
             const checklistItems = await fetchAllPages<any>(
               client,
               `/me/todo/lists/${msList.id}/tasks/${msTask.id}/checklistItems`,
             )
+            const localSubtasks = await db
+              .select()
+              .from(schema.subtasks)
+              .where(eq(schema.subtasks.taskId, localTaskId))
             for (const item of checklistItems) {
-              await db.insert(schema.subtasks).values({
-                id: crypto.randomUUID(),
-                taskId,
-                title: item.displayName || '',
-                isCompleted: item.isChecked || false,
-              })
+              const matched = localSubtasks.find((s) => s.title === item.displayName)
+              if (matched) {
+                if (matched.isCompleted !== !!item.isChecked) {
+                  await db
+                    .update(schema.subtasks)
+                    .set({ isCompleted: !!item.isChecked })
+                    .where(eq(schema.subtasks.id, matched.id))
+                }
+              } else {
+                await db.insert(schema.subtasks).values({
+                  id: crypto.randomUUID(),
+                  taskId: localTaskId,
+                  title: item.displayName || '',
+                  isCompleted: !!item.isChecked,
+                })
+              }
             }
-          } catch {
-            // checklist API 可能不可用，跳过
+          } catch (e) {
+            console.error('[ms-todo] subtask sync failed:', e)
+          }
+        } else {
+          const taskId = crypto.randomUUID()
+          await db.insert(schema.tasks).values({
+            id: taskId,
+            msTodoId: msTask.id,
+            msTodoListId: msList.id,
+            ...taskData,
+          })
+
+          // 3. 拉取子任务（checklist items）
+          if (msTask.id) {
+            try {
+              const checklistItems = await fetchAllPages<any>(
+                client,
+                `/me/todo/lists/${msList.id}/tasks/${msTask.id}/checklistItems`,
+              )
+              for (const item of checklistItems) {
+                await db.insert(schema.subtasks).values({
+                  id: crypto.randomUUID(),
+                  taskId,
+                  title: item.displayName || '',
+                  isCompleted: item.isChecked || false,
+                })
+              }
+            } catch {
+              // checklist API 可能不可用，跳过
+            }
           }
         }
+        syncedCount++
       }
-      syncedCount++
     }
-  }
 
-  // 4. 先推送本地新增列表到微软，确保后续本地任务能正确归属到 MS 列表
-  // 返回新创建的 MS 列表 ID 集合，合并到 allMsListIds，避免步骤9 误删刚推送的本地列表
-  const newListMsIds = await syncLocalListsReverse(db, client)
-  for (const id of newListMsIds) allMsListIds.add(id)
+    // 4. 先推送本地新增列表到微软，确保后续本地任务能正确归属到 MS 列表
+    // 返回新创建的 MS 列表 ID 集合，合并到 allMsListIds，避免步骤9 误删刚推送的本地列表
+    const newListMsIds = await syncLocalListsReverse(db, client)
+    for (const id of newListMsIds) allMsListIds.add(id)
 
-  // 5. 反向同步：本地已修改任务回推微软（updatedAt > lastSyncedAt，排除软删除任务）
-  // 收集本同步周期内新创建的 MS 任务 ID，合并到 allMsTaskIds，避免步骤8.1 误删
-  const createdMsTaskIds = new Set<string>()
-  const msLinkedTasks = await db.select().from(schema.tasks)
-    .where(and(isNotNull(schema.tasks.msTodoId), isNull(schema.tasks.msTodoDeletedAt)))
+    // 5. 反向同步：本地已修改任务回推微软（updatedAt > lastSyncedAt，排除软删除任务）
+    // 收集本同步周期内新创建的 MS 任务 ID，合并到 allMsTaskIds，避免步骤8.1 误删
+    const createdMsTaskIds = new Set<string>()
+    const msLinkedTasks = await db
+      .select()
+      .from(schema.tasks)
+      .where(and(isNotNull(schema.tasks.msTodoId), isNull(schema.tasks.msTodoDeletedAt)))
 
-  for (const localTask of msLinkedTasks) {
-    if (!localTask.msTodoId || !localTask.msTodoListId) continue
-    if (!localTask.updatedAt || !localTask.lastSyncedAt) continue
-    const updatedAt = new Date(localTask.updatedAt).getTime()
-    const lastSyncedAt = new Date(localTask.lastSyncedAt).getTime()
-    if (updatedAt < lastSyncedAt - 1000) continue // 1s tolerance for clock skew
+    for (const localTask of msLinkedTasks) {
+      if (!localTask.msTodoId || !localTask.msTodoListId) continue
+      if (!localTask.updatedAt || !localTask.lastSyncedAt) continue
+      const updatedAt = new Date(localTask.updatedAt).getTime()
+      const lastSyncedAt = new Date(localTask.lastSyncedAt).getTime()
+      if (updatedAt < lastSyncedAt - 1000) continue // 1s tolerance for clock skew
 
-    try {
-      // 检测任务是否移动到了不同列表：本地 listId 对应的 msTodoListId 与任务记录的 msTodoListId 不一致
-      const currentList = await db.select().from(schema.taskLists)
-        .where(eq(schema.taskLists.id, localTask.listId))
-      const newListMsId = currentList[0]?.msTodoListId || null
-      // listChanged：新列表的 MS id 与任务记录的 MS id 不同（含新列表无 MS 关联的情况）
-      const listChanged = newListMsId !== localTask.msTodoListId
+      try {
+        // 检测任务是否移动到了不同列表：本地 listId 对应的 msTodoListId 与任务记录的 msTodoListId 不一致
+        const currentList = await db
+          .select()
+          .from(schema.taskLists)
+          .where(eq(schema.taskLists.id, localTask.listId))
+        const newListMsId = currentList[0]?.msTodoListId || null
+        // listChanged：新列表的 MS id 与任务记录的 MS id 不同（含新列表无 MS 关联的情况）
+        const listChanged = newListMsId !== localTask.msTodoListId
 
-      if (listChanged) {
-        // 先删除旧 MS 任务（无论新列表是否关联 MS，旧任务都要从原 MS 列表移除）
-        try {
-          await client.api(`/me/todo/lists/${localTask.msTodoListId}/tasks/${localTask.msTodoId}`).delete()
-        } catch (e) {
-          // 旧任务可能已被删除，忽略错误继续
+        if (listChanged) {
+          // 先删除旧 MS 任务（无论新列表是否关联 MS，旧任务都要从原 MS 列表移除）
+          try {
+            await client
+              .api(`/me/todo/lists/${localTask.msTodoListId}/tasks/${localTask.msTodoId}`)
+              .delete()
+          } catch (e) {
+            // 旧任务可能已被删除，忽略错误继续
+          }
+
+          if (newListMsId) {
+            // 新列表已关联 MS：在 MS 新列表中重建任务
+            const postPayload: any = {
+              title: localTask.title,
+              importance: localTask.isImportant ? 'high' : 'normal',
+              status: localTask.isCompleted ? 'completed' : 'notStarted',
+              body: { content: localTask.note || '', contentType: 'text' },
+            }
+            if (localTask.dueDate) {
+              const dateStr = localTask.dueDate.split('T')[0]
+              postPayload.dueDateTime = {
+                dateTime: `${dateStr}T00:00:00`,
+                timeZone: 'China Standard Time',
+              }
+            }
+            const msTask = await client.api(`/me/todo/lists/${newListMsId}/tasks`).post(postPayload)
+            // 更新本地任务的 MS 关联（msTodoId 和 msTodoListId 都变了）
+            await db
+              .update(schema.tasks)
+              .set({
+                msTodoId: msTask.id,
+                msTodoListId: newListMsId,
+                lastSyncedAt: nowBeijing(),
+              })
+              .where(eq(schema.tasks.id, localTask.id))
+            // 记录新 MS 任务 ID，防止步骤8.1 误删
+            createdMsTaskIds.add(msTask.id)
+            // 重新推送子任务到新 MS 任务（checklist items）
+            const localSubs = await db
+              .select()
+              .from(schema.subtasks)
+              .where(eq(schema.subtasks.taskId, localTask.id))
+            for (const sub of localSubs) {
+              try {
+                await client
+                  .api(`/me/todo/lists/${newListMsId}/tasks/${msTask.id}/checklistItems`)
+                  .post({ displayName: sub.title, isChecked: sub.isCompleted })
+              } catch {
+                // checklist API 可能不可用，跳过
+              }
+            }
+          } else {
+            // 新列表未关联 MS：任务变为纯本地，清除 MS 关联（不再同步）
+            await db
+              .update(schema.tasks)
+              .set({
+                msTodoId: null,
+                msTodoListId: null,
+                lastSyncedAt: nowBeijing(),
+              })
+              .where(eq(schema.tasks.id, localTask.id))
+          }
+          syncedCount++
+          continue
         }
 
-        if (newListMsId) {
-          // 新列表已关联 MS：在 MS 新列表中重建任务
+        // 构造更新载荷，包含 dueDateTime（本地 → MS 反向推送）
+        const patchPayload: any = {
+          title: localTask.title,
+          importance: localTask.isImportant ? 'high' : 'normal',
+          status: localTask.isCompleted ? 'completed' : 'notStarted',
+          body: { content: localTask.note || '', contentType: 'text' },
+        }
+        // dueDate 本地格式为 yyyy-MM-dd，MS 需要 ISO 8601 带时区
+        if (localTask.dueDate) {
+          const dateStr = localTask.dueDate.split('T')[0]
+          patchPayload.dueDateTime = {
+            dateTime: `${dateStr}T00:00:00`,
+            timeZone: 'China Standard Time',
+          }
+        }
+        await client
+          .api(`/me/todo/lists/${localTask.msTodoListId}/tasks/${localTask.msTodoId}`)
+          .patch(patchPayload)
+        await db
+          .update(schema.tasks)
+          .set({ lastSyncedAt: nowBeijing() })
+          .where(eq(schema.tasks.id, localTask.id))
+        syncedCount++
+      } catch (e) {
+        recordError(`任务反向更新失败 (taskId=${localTask.id}): ${(e as Error).message}`)
+      }
+    }
+
+    // 6. 反向同步：本地新增任务推送到微软（msTodoId 为 NULL 表示未推送）
+    const localTasks = await db.select().from(schema.tasks).where(isNull(schema.tasks.msTodoId))
+
+    for (const localTask of localTasks) {
+      if (!localTask.msTodoId) {
+        const list = await db
+          .select()
+          .from(schema.taskLists)
+          .where(eq(schema.taskLists.id, localTask.listId))
+        if (list.length === 0 || !list[0].msTodoListId) {
+          // 列表未关联 MS：跳过并记录，避免任务永远推不过去却无感知
+          skippedCount++
+          console.warn(
+            `[ms-todo] 跳过任务推送 (taskId=${localTask.id}, listId=${localTask.listId})：列表未关联 MS`,
+          )
+          continue
+        }
+
+        try {
+          // 构造新建载荷，包含 dueDateTime
           const postPayload: any = {
             title: localTask.title,
             importance: localTask.isImportant ? 'high' : 'normal',
@@ -492,130 +647,57 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
           }
           if (localTask.dueDate) {
             const dateStr = localTask.dueDate.split('T')[0]
-            postPayload.dueDateTime = { dateTime: `${dateStr}T00:00:00`, timeZone: 'China Standard Time' }
+            postPayload.dueDateTime = {
+              dateTime: `${dateStr}T00:00:00`,
+              timeZone: 'China Standard Time',
+            }
           }
-          const msTask = await client.api(`/me/todo/lists/${newListMsId}/tasks`).post(postPayload)
-          // 更新本地任务的 MS 关联（msTodoId 和 msTodoListId 都变了）
-          await db.update(schema.tasks)
+          const msTask = await client
+            .api(`/me/todo/lists/${list[0].msTodoListId}/tasks`)
+            .post(postPayload)
+
+          await db
+            .update(schema.tasks)
             .set({
               msTodoId: msTask.id,
-              msTodoListId: newListMsId,
+              msTodoListId: list[0].msTodoListId,
               lastSyncedAt: nowBeijing(),
             })
             .where(eq(schema.tasks.id, localTask.id))
           // 记录新 MS 任务 ID，防止步骤8.1 误删
           createdMsTaskIds.add(msTask.id)
-          // 重新推送子任务到新 MS 任务（checklist items）
-          const localSubs = await db.select().from(schema.subtasks)
-            .where(eq(schema.subtasks.taskId, localTask.id))
-          for (const sub of localSubs) {
-            try {
-              await client.api(`/me/todo/lists/${newListMsId}/tasks/${msTask.id}/checklistItems`)
-                .post({ displayName: sub.title, isChecked: sub.isCompleted })
-            } catch {
-              // checklist API 可能不可用，跳过
-            }
-          }
-        } else {
-          // 新列表未关联 MS：任务变为纯本地，清除 MS 关联（不再同步）
-          await db.update(schema.tasks)
-            .set({
-              msTodoId: null,
-              msTodoListId: null,
-              lastSyncedAt: nowBeijing(),
-            })
-            .where(eq(schema.tasks.id, localTask.id))
+          syncedCount++
+        } catch (e) {
+          recordError(`任务推送失败 (taskId=${localTask.id}): ${(e as Error).message}`)
         }
-        syncedCount++
-        continue
-      }
-
-      // 构造更新载荷，包含 dueDateTime（本地 → MS 反向推送）
-      const patchPayload: any = {
-        title: localTask.title,
-        importance: localTask.isImportant ? 'high' : 'normal',
-        status: localTask.isCompleted ? 'completed' : 'notStarted',
-        body: { content: localTask.note || '', contentType: 'text' },
-      }
-      // dueDate 本地格式为 yyyy-MM-dd，MS 需要 ISO 8601 带时区
-      if (localTask.dueDate) {
-        const dateStr = localTask.dueDate.split('T')[0]
-        patchPayload.dueDateTime = { dateTime: `${dateStr}T00:00:00`, timeZone: 'China Standard Time' }
-      }
-      await client.api(`/me/todo/lists/${localTask.msTodoListId}/tasks/${localTask.msTodoId}`).patch(patchPayload)
-      await db.update(schema.tasks)
-        .set({ lastSyncedAt: nowBeijing() })
-        .where(eq(schema.tasks.id, localTask.id))
-      syncedCount++
-    } catch (e) {
-      recordError(`任务反向更新失败 (taskId=${localTask.id}): ${(e as Error).message}`)
-    }
-  }
-
-  // 6. 反向同步：本地新增任务推送到微软（msTodoId 为 NULL 表示未推送）
-  const localTasks = await db.select().from(schema.tasks)
-    .where(isNull(schema.tasks.msTodoId))
-
-  for (const localTask of localTasks) {
-    if (!localTask.msTodoId) {
-      const list = await db.select().from(schema.taskLists)
-        .where(eq(schema.taskLists.id, localTask.listId))
-      if (list.length === 0 || !list[0].msTodoListId) {
-        // 列表未关联 MS：跳过并记录，避免任务永远推不过去却无感知
-        skippedCount++
-        console.warn(`[ms-todo] 跳过任务推送 (taskId=${localTask.id}, listId=${localTask.listId})：列表未关联 MS`)
-        continue
-      }
-
-      try {
-        // 构造新建载荷，包含 dueDateTime
-        const postPayload: any = {
-          title: localTask.title,
-          importance: localTask.isImportant ? 'high' : 'normal',
-          status: localTask.isCompleted ? 'completed' : 'notStarted',
-          body: { content: localTask.note || '', contentType: 'text' },
-        }
-        if (localTask.dueDate) {
-          const dateStr = localTask.dueDate.split('T')[0]
-          postPayload.dueDateTime = { dateTime: `${dateStr}T00:00:00`, timeZone: 'China Standard Time' }
-        }
-        const msTask = await client.api(`/me/todo/lists/${list[0].msTodoListId}/tasks`).post(postPayload)
-
-        await db.update(schema.tasks)
-          .set({ msTodoId: msTask.id, msTodoListId: list[0].msTodoListId, lastSyncedAt: nowBeijing() })
-          .where(eq(schema.tasks.id, localTask.id))
-        // 记录新 MS 任务 ID，防止步骤8.1 误删
-        createdMsTaskIds.add(msTask.id)
-        syncedCount++
-      } catch (e) {
-        recordError(`任务推送失败 (taskId=${localTask.id}): ${(e as Error).message}`)
       }
     }
-  }
 
-  // 7. 反向同步子任务：本地 subtask 变更回推 MS checklist
-  await syncSubtasksReverse(db, client)
+    // 7. 反向同步子任务：本地 subtask 变更回推 MS checklist
+    await syncSubtasksReverse(db, client)
 
-  // 合并本周期新创建的 MS 任务 ID 到 allMsTaskIds，避免步骤8.1 把刚推送的任务误删
-  for (const id of createdMsTaskIds) allMsTaskIds.add(id)
+    // 合并本周期新创建的 MS 任务 ID 到 allMsTaskIds，避免步骤8.1 把刚推送的任务误删
+    for (const id of createdMsTaskIds) allMsTaskIds.add(id)
 
-  // 8. 删除同步：MS 删除 → 本地删除；本地软删除 → MS 删除
-  await syncDeletions(db, client, allMsTaskIds)
+    // 8. 删除同步：MS 删除 → 本地删除；本地软删除 → MS 删除
+    await syncDeletions(db, client, allMsTaskIds)
 
-  // 9. 删除微软端已删除的列表（级联删除本地任务）
-  const localMsLists = await db.select().from(schema.taskLists)
-    .where(isNotNull(schema.taskLists.msTodoListId))
-  for (const list of localMsLists) {
-    if (list.msTodoListId && !allMsListIds.has(list.msTodoListId)) {
-      await db.delete(schema.tasks).where(eq(schema.tasks.listId, list.id))
-      await db.delete(schema.taskLists).where(eq(schema.taskLists.id, list.id))
+    // 9. 删除微软端已删除的列表（级联删除本地任务）
+    const localMsLists = await db
+      .select()
+      .from(schema.taskLists)
+      .where(isNotNull(schema.taskLists.msTodoListId))
+    for (const list of localMsLists) {
+      if (list.msTodoListId && !allMsListIds.has(list.msTodoListId)) {
+        await db.delete(schema.tasks).where(eq(schema.tasks.listId, list.id))
+        await db.delete(schema.taskLists).where(eq(schema.taskLists.id, list.id))
+      }
     }
-  }
 
-  // 10. 重试之前删除失败的 MS 列表（deleteMsList 失败时记入 pending_delete_ms_lists）
-  await retryPendingMsListDeletes(env, client)
+    // 10. 重试之前删除失败的 MS 列表（deleteMsList 失败时记入 pending_delete_ms_lists）
+    await retryPendingMsListDeletes(env, client)
 
-  return { synced: syncedCount, failed: failedCount, skipped: skippedCount, errors }
+    return { synced: syncedCount, failed: failedCount, skipped: skippedCount, errors }
   }) // end withTokenRefresh
 }
 
@@ -628,7 +710,11 @@ async function retryPendingMsListDeletes(env: Env, client: Client): Promise<void
   const raw = await getSetting(env, 'pending_delete_ms_lists')
   if (!raw) return
   let pendingIds: string[] = []
-  try { pendingIds = JSON.parse(raw) } catch { pendingIds = [] }
+  try {
+    pendingIds = JSON.parse(raw)
+  } catch {
+    pendingIds = []
+  }
   if (pendingIds.length === 0) return
   const remaining: string[] = []
   for (const msListId of pendingIds) {
@@ -658,7 +744,9 @@ async function retryPendingMsListDeletes(env: Env, client: Client): Promise<void
  * - MS 有本地无 → DELETE 本地（MS 端删除的子任务同步）
  */
 async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
-  const msLinkedTasks = await db.select().from(schema.tasks)
+  const msLinkedTasks = await db
+    .select()
+    .from(schema.tasks)
     .where(and(isNotNull(schema.tasks.msTodoId), isNotNull(schema.tasks.msTodoListId)))
 
   for (const task of msLinkedTasks) {
@@ -668,7 +756,9 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
         client,
         `/me/todo/lists/${task.msTodoListId}/tasks/${task.msTodoId}/checklistItems`,
       )
-      const localSubtasks = await db.select().from(schema.subtasks)
+      const localSubtasks = await db
+        .select()
+        .from(schema.subtasks)
         .where(eq(schema.subtasks.taskId, task.id))
 
       // 本地有 MS 无 → POST；本地 MS 都有但状态不一致 → PATCH
@@ -680,7 +770,9 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
             .post({ displayName: sub.title, isChecked: sub.isCompleted })
         } else if (!!matched.isChecked !== sub.isCompleted) {
           await client
-            .api(`/me/todo/lists/${task.msTodoListId}/tasks/${task.msTodoId}/checklistItems/${matched.id}`)
+            .api(
+              `/me/todo/lists/${task.msTodoListId}/tasks/${task.msTodoId}/checklistItems/${matched.id}`,
+            )
             .patch({ isChecked: sub.isCompleted })
         }
       }
@@ -696,8 +788,14 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
           if (!finalTitles.has(sub.title)) {
             await db.delete(schema.subtasks).where(eq(schema.subtasks.id, sub.id))
             // 同步清理子任务嵌入向量，避免孤儿数据
-            await db.delete(schema.embeddings)
-              .where(and(eq(schema.embeddings.targetType, 'subtask'), eq(schema.embeddings.targetId, sub.id)))
+            await db
+              .delete(schema.embeddings)
+              .where(
+                and(
+                  eq(schema.embeddings.targetType, 'subtask'),
+                  eq(schema.embeddings.targetId, sub.id),
+                ),
+              )
               .catch(() => {})
           }
         }
@@ -716,7 +814,9 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
  */
 async function syncLocalListsReverse(db: DB, client: Client): Promise<Set<string>> {
   const createdMsListIds = new Set<string>()
-  const localLists = await db.select().from(schema.taskLists)
+  const localLists = await db
+    .select()
+    .from(schema.taskLists)
     .where(isNull(schema.taskLists.msTodoListId))
 
   for (const list of localLists) {
@@ -725,7 +825,8 @@ async function syncLocalListsReverse(db: DB, client: Client): Promise<Set<string
       const msList = await client.api('/me/todo/lists').post({
         displayName: list.name,
       })
-      await db.update(schema.taskLists)
+      await db
+        .update(schema.taskLists)
         .set({ msTodoListId: msList.id, updatedAt: nowBeijing() })
         .where(eq(schema.taskLists.id, list.id))
       createdMsListIds.add(msList.id)
@@ -741,14 +842,9 @@ async function syncLocalListsReverse(db: DB, client: Client): Promise<Set<string
  * 1. MS 删除 → 本地硬删：本地 msTodoId 不在 MS 全部 task id 集合内的删除
  * 2. 本地软删除 → MS 删除：msTodoDeletedAt 非空的，DELETE MS 任务后硬删本地
  */
-async function syncDeletions(
-  db: DB,
-  client: Client,
-  allMsTaskIds: Set<string>,
-): Promise<void> {
+async function syncDeletions(db: DB, client: Client, allMsTaskIds: Set<string>): Promise<void> {
   // 1. MS 删除 → 本地硬删
-  const localMsTasks = await db.select().from(schema.tasks)
-    .where(isNotNull(schema.tasks.msTodoId))
+  const localMsTasks = await db.select().from(schema.tasks).where(isNotNull(schema.tasks.msTodoId))
   for (const t of localMsTasks) {
     if (!t.msTodoId) continue
     if (!allMsTaskIds.has(t.msTodoId)) {
@@ -757,7 +853,9 @@ async function syncDeletions(
   }
 
   // 2. 本地软删除 → MS 删除
-  const softDeleted = await db.select().from(schema.tasks)
+  const softDeleted = await db
+    .select()
+    .from(schema.tasks)
     .where(isNotNull(schema.tasks.msTodoDeletedAt))
   for (const t of softDeleted) {
     if (t.msTodoId && t.msTodoListId) {
@@ -773,7 +871,10 @@ async function syncDeletions(
         } else {
           // 其他失败（网络/限流/5xx）：保留本地软删除标记，下次同步重试
           // 不硬删本地，否则下次同步 MS 端任务会作为新任务插入导致"复活"
-          console.error('[ms-todo] 软删除任务推送 MS 失败，保留本地待重试 (taskId=' + t.id + '):', e)
+          console.error(
+            '[ms-todo] 软删除任务推送 MS 失败，保留本地待重试 (taskId=' + t.id + '):',
+            e,
+          )
         }
       }
     } else {
@@ -784,13 +885,21 @@ async function syncDeletions(
 }
 
 // OAuth 回调处理：用 code 换 token
-export async function exchangeCodeForToken(env: Env, code: string, redirectUri: string): Promise<boolean> {
+export async function exchangeCodeForToken(
+  env: Env,
+  code: string,
+  redirectUri: string,
+): Promise<boolean> {
   const result = await exchangeCode(env, code, redirectUri)
   // 缓存 access_token + 过期时间（新 JSON 格式）
   const expiresAt = Date.now() + result.expires_in * 1000
-  await env.CACHE.put('ms_access_token', JSON.stringify({ token: result.access_token, expiresAt }), {
-    expirationTtl: result.expires_in,
-  })
+  await env.CACHE.put(
+    'ms_access_token',
+    JSON.stringify({ token: result.access_token, expiresAt }),
+    {
+      expirationTtl: result.expires_in,
+    },
+  )
   if (result.refresh_token) {
     await setSetting(env, 'ms_refresh_token', result.refresh_token)
   }
@@ -798,7 +907,9 @@ export async function exchangeCodeForToken(env: Env, code: string, redirectUri: 
 }
 
 // 获取同步状态
-export async function getSyncStatus(env: Env): Promise<{ authorized: boolean; lastSync: string | null }> {
+export async function getSyncStatus(
+  env: Env,
+): Promise<{ authorized: boolean; lastSync: string | null }> {
   const refreshToken = await getSetting(env, 'ms_refresh_token')
   const lastSync = await getSetting(env, 'ms_last_sync')
   return { authorized: !!refreshToken, lastSync }
@@ -821,7 +932,13 @@ export async function deleteMsList(env: Env, msTodoListId: string): Promise<void
     try {
       const raw = await getSetting(env, 'pending_delete_ms_lists')
       let pendingIds: string[] = []
-      if (raw) { try { pendingIds = JSON.parse(raw) } catch { pendingIds = [] } }
+      if (raw) {
+        try {
+          pendingIds = JSON.parse(raw)
+        } catch {
+          pendingIds = []
+        }
+      }
       if (!pendingIds.includes(msTodoListId)) {
         pendingIds.push(msTodoListId)
         await setSetting(env, 'pending_delete_ms_lists', JSON.stringify(pendingIds))

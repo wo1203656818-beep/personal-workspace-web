@@ -11,27 +11,22 @@ import {
   generateDailyDigest,
   pushDailyBrief,
 } from './news-fetcher'
-import {
-  runMonitor,
-  pushMonitorBrief,
-} from './monitor-service'
+import { runMonitor, pushMonitorBrief } from './monitor-service'
 import { syncNotes, syncKnowledgeBase } from './ima-sync'
 import { fullSync } from './ms-sync'
 import { parseStoredTime, fmtDate } from './utils/helpers'
 
 async function handleReminderPush(env: any, db: any): Promise<void> {
   try {
-    const reminderTasks = await db.select().from(schema.tasks)
+    const reminderTasks = await db
+      .select()
+      .from(schema.tasks)
       .where(and(isNotNull(schema.tasks.reminder), eq(schema.tasks.isCompleted, false)))
     if (reminderTasks.length > 0) {
-      const nowParts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Shanghai',
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit',
-        hour12: false,
-      }).formatToParts(new Date())
-      const gn = (t: string) => nowParts.find(p => p.type === t)?.value || '00'
-      const nowMins = parseInt(gn('hour')) * 60 + parseInt(gn('minute'))
+      const nowStr = nowBeijing()
+      const timePart = nowStr.split('T')[1] ?? ''
+      const [hh, mm] = timePart.split(':')
+      const nowMins = parseInt(hh || '0') * 60 + parseInt(mm || '0')
       const due = reminderTasks.filter((t: any) => {
         const rTime = t.reminder!.replace(/\+.*/, '').replace('T', ' ')
         const hm = rTime.split(' ')[1]?.split(':') || []
@@ -39,9 +34,17 @@ async function handleReminderPush(env: any, db: any): Promise<void> {
         return Math.abs(rMins - nowMins) <= 15
       })
       if (due.length > 0) {
-        const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
-        const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
-        const botToken = tokenRow[0]?.value ? await decrypt(env.JWT_SECRET, tokenRow[0].value) : null
+        const tokenRow = await db
+          .select()
+          .from(schema.settings)
+          .where(eq(schema.settings.key, 'telegram_bot_token'))
+        const chatRow = await db
+          .select()
+          .from(schema.settings)
+          .where(eq(schema.settings.key, 'telegram_chat_id'))
+        const botToken = tokenRow[0]?.value
+          ? await decrypt(env.JWT_SECRET, tokenRow[0].value)
+          : null
         const chatId = chatRow[0]?.value || null
         if (botToken && chatId) {
           const today = todayCST()
@@ -55,7 +58,9 @@ async function handleReminderPush(env: any, db: any): Promise<void> {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
             }).catch(() => {})
-            await env.CACHE.put(`reminder_pushed:${task.id}:${today}`, '1', { expirationTtl: 86400 })
+            await env.CACHE.put(`reminder_pushed:${task.id}:${today}`, '1', {
+              expirationTtl: 86400,
+            })
           }
         }
       }
@@ -67,7 +72,9 @@ async function handleReminderPush(env: any, db: any): Promise<void> {
 
 async function handleRecurrence(env: any, db: any): Promise<void> {
   try {
-    const recurring = await db.select().from(schema.tasks)
+    const recurring = await db
+      .select()
+      .from(schema.tasks)
       .where(and(eq(schema.tasks.isCompleted, true), isNotNull(schema.tasks.recurrence)))
     for (const task of recurring) {
       if (!task.recurrence) continue
@@ -80,12 +87,20 @@ async function handleRecurrence(env: any, db: any): Promise<void> {
         cur.setUTCDate(cur.getUTCDate() + 1)
         nextDate = fmtDate(cur)
       } else if (raw.startsWith('weekly:')) {
-        const days = raw.split(':')[1]?.split(',').map(Number).filter((n: number) => !isNaN(n)) || []
+        const days =
+          raw
+            .split(':')[1]
+            ?.split(',')
+            .map(Number)
+            .filter((n: number) => !isNaN(n)) || []
         if (days.length > 0) {
           for (let i = 1; i <= 7; i++) {
             const d = new Date(cur.getTime())
             d.setUTCDate(d.getUTCDate() + i)
-            if (days.includes(d.getUTCDay())) { nextDate = fmtDate(d); break }
+            if (days.includes(d.getUTCDay())) {
+              nextDate = fmtDate(d)
+              break
+            }
           }
         }
       } else if (raw.startsWith('monthly:')) {
@@ -172,7 +187,8 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
       // 每 30 分钟：MS Todo 同步 + 新闻抓取 + AI 批量评分
       try {
         const result = await fullSync(env)
-        await db.insert(schema.settings)
+        await db
+          .insert(schema.settings)
           .values({ key: 'ms_last_sync', value: now })
           .onConflictDoUpdate({ target: schema.settings.key, set: { value: now } })
         const status = result.failed === 0 ? 'success' : result.synced > 0 ? 'partial' : 'error'
@@ -181,11 +197,12 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
           synced: result.synced,
           failed: result.failed,
           skipped: result.skipped,
-          message: status === 'success'
-            ? `[Cron] 同步完成 · ${result.synced} 条任务`
-            : status === 'partial'
-              ? `[Cron] 部分同步 · ${result.synced} 条成功，${result.failed} 条失败`
-              : `[Cron] 同步失败 · ${result.failed} 条任务出错`,
+          message:
+            status === 'success'
+              ? `[Cron] 同步完成 · ${result.synced} 条任务`
+              : status === 'partial'
+                ? `[Cron] 部分同步 · ${result.synced} 条成功，${result.failed} 条失败`
+                : `[Cron] 同步失败 · ${result.failed} 条任务出错`,
           details: result.errors?.length ? result.errors.join('\n') : undefined,
         })
       } catch (e: any) {
@@ -196,12 +213,13 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
       await handleRecurrence(env, db)
       await handleNewsDigest(env)
     } else if (event.cron === '0 18 * * *') {
-      // 每日早 8 点（北京 = UTC 0 点）：IMA 同步 → 生成今日简报 → 推送 Telegram
+      // 每日 2 点（北京，UTC 18:00）：IMA 同步 → 生成今日简报 → 推送 Telegram
       // IMA 同步在前，确保简报用到当天最新的笔记/知识库数据
       try {
         const notesResult = await syncNotes(env)
         if (!notesResult.partial) {
-          await db.insert(schema.settings)
+          await db
+            .insert(schema.settings)
             .values({ key: 'ima_last_sync', value: now })
             .onConflictDoUpdate({ target: schema.settings.key, set: { value: now } })
         }
@@ -210,9 +228,10 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
           status: notesStatus,
           synced: notesResult.synced,
           skipped: notesResult.skipped,
-          message: notesStatus === 'partial'
-            ? `[Cron] 部分同步 · ${notesResult.synced} 条笔记`
-            : `[Cron] 同步完成 · ${notesResult.synced} 条笔记`,
+          message:
+            notesStatus === 'partial'
+              ? `[Cron] 部分同步 · ${notesResult.synced} 条笔记`
+              : `[Cron] 同步完成 · ${notesResult.synced} 条笔记`,
         })
       } catch (e: any) {
         console.error('[cron] ima notes failed:', e)
@@ -264,15 +283,28 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
       try {
         const mRes = await runMonitor(env)
         if (mRes.ok) {
-          await logSync(env, 'monitor', { status: 'success', message: `[Cron] 监控简报已生成（热榜${mRes.hotTargets}/对标${mRes.ytTargets}）` })
+          await logSync(env, 'monitor', {
+            status: 'success',
+            message: `[Cron] 监控简报已生成（热榜${mRes.hotTargets}/对标${mRes.ytTargets}）`,
+          })
           const pRes = await pushMonitorBrief(env)
           if (pRes.ok) {
-            await logSync(env, 'monitor_push', { status: 'success', message: `[Cron] 监控简报已推送 Telegram` })
-          } else if (pRes.error && !pRes.error.includes('配置未完成') && !pRes.error.includes('尚未生成')) {
+            await logSync(env, 'monitor_push', {
+              status: 'success',
+              message: `[Cron] 监控简报已推送 Telegram`,
+            })
+          } else if (
+            pRes.error &&
+            !pRes.error.includes('配置未完成') &&
+            !pRes.error.includes('尚未生成')
+          ) {
             await logSync(env, 'monitor_push', { status: 'error', message: pRes.error })
           }
         } else {
-          await logSync(env, 'monitor', { status: 'error', message: mRes.error || '[Cron] 监控简报生成失败' })
+          await logSync(env, 'monitor', {
+            status: 'error',
+            message: mRes.error || '[Cron] 监控简报生成失败',
+          })
         }
       } catch (e: any) {
         console.error('[cron] monitor failed:', e)

@@ -114,7 +114,12 @@ export function TagManager() {
                 <Button size="icon" variant="ghost" className="size-6" onClick={handleUpdate}>
                   <Check className="size-3" />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-6" onClick={() => setEditingId(null)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-6"
+                  onClick={() => setEditingId(null)}
+                >
                   <X className="size-3" />
                 </Button>
               </div>
@@ -123,7 +128,11 @@ export function TagManager() {
                 <Badge
                   variant="secondary"
                   className="gap-1 px-2.5 py-1 text-xs font-medium"
-                  style={{ backgroundColor: tag.color + '20', color: tag.color, border: `1px solid ${tag.color}40` }}
+                  style={{
+                    backgroundColor: tag.color + '20',
+                    color: tag.color,
+                    border: `1px solid ${tag.color}40`,
+                  }}
                 >
                   <span className="size-2 rounded-full" style={{ backgroundColor: tag.color }} />
                   {tag.name}
@@ -152,9 +161,7 @@ export function TagManager() {
             )}
           </div>
         ))}
-        {tags.length === 0 && (
-          <p className="text-sm text-muted-foreground">暂无标签，创建一个吧</p>
-        )}
+        {tags.length === 0 && <p className="text-sm text-muted-foreground">暂无标签，创建一个吧</p>}
       </div>
 
       <div className="flex items-center gap-2 border-t pt-3">

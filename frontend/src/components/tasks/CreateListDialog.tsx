@@ -1,6 +1,12 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 
 export function CreateListDialog({
   open,
@@ -33,10 +39,10 @@ export function CreateListDialog({
           placeholder="列表名称"
         />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={() => newListName.trim() && onCreate()}>
-            创建
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
           </Button>
+          <Button onClick={() => newListName.trim() && onCreate()}>创建</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

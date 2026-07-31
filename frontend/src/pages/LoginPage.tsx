@@ -8,7 +8,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 
-
 export function LoginPage() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -89,7 +88,10 @@ export function LoginPage() {
                   checked={rememberMe}
                   onCheckedChange={(v) => setRememberMe(v === true)}
                 />
-                <Label htmlFor="remember-me" className="text-sm text-muted-foreground cursor-pointer">
+                <Label
+                  htmlFor="remember-me"
+                  className="text-sm text-muted-foreground cursor-pointer"
+                >
                   记住我（30天免登录）
                 </Label>
               </div>

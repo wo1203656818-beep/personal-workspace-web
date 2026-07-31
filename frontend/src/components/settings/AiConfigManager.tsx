@@ -38,7 +38,11 @@ export function AiConfigManager() {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
   const [isDefault, setIsDefault] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean; latency_ms?: number; error?: string } | null>(null)
+  const [testResult, setTestResult] = useState<{
+    ok: boolean
+    latency_ms?: number
+    error?: string
+  } | null>(null)
   const [testing, setTesting] = useState(false)
 
   const resetForm = () => {
@@ -105,8 +109,14 @@ export function AiConfigManager() {
       editingId
         ? aiConfigsApi.test({ id: editingId })
         : aiConfigsApi.test({ type, baseUrl, apiKey, model }),
-    onMutate: () => { setTesting(true); setTestResult(null) },
-    onSuccess: (d) => { setTestResult(d); setTesting(false) },
+    onMutate: () => {
+      setTesting(true)
+      setTestResult(null)
+    },
+    onSuccess: (d) => {
+      setTestResult(d)
+      setTesting(false)
+    },
     onError: () => setTesting(false),
   })
 
@@ -125,21 +135,31 @@ export function AiConfigManager() {
 
       {!isLoading && configs.length === 0 && (
         <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-          还没有 AI 配置。默认将使用 Cloudflare Workers AI 免费模型。点击「添加配置」可接入自定义 API。
+          还没有 AI 配置。默认将使用 Cloudflare Workers AI 免费模型。点击「添加配置」可接入自定义
+          API。
         </div>
       )}
 
       <div className="space-y-2">
         {configs.map((cfg) => (
-          <div key={cfg.id} className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:gap-3">
+          <div
+            key={cfg.id}
+            className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-3 sm:flex-row sm:items-center sm:gap-3"
+          >
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-500">
-              {cfg.type === 'cloudflare' ? <Cloud className="size-4" /> : <Zap className="size-4" />}
+              {cfg.type === 'cloudflare' ? (
+                <Cloud className="size-4" />
+              ) : (
+                <Zap className="size-4" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-sm font-medium">{cfg.name}</span>
                 {cfg.isDefault && (
-                  <Badge className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs hover:bg-emerald-500">默认</Badge>
+                  <Badge className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs hover:bg-emerald-500">
+                    默认
+                  </Badge>
                 )}
                 <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-xs">
                   {cfg.type === 'cloudflare' ? 'Cloudflare' : 'OpenAI'}
@@ -153,11 +173,21 @@ export function AiConfigManager() {
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {!cfg.isDefault && (
-                <Button variant="outline" size="sm" className="rounded-lg" onClick={() => defaultMutation.mutate(cfg.id)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-lg"
+                  onClick={() => defaultMutation.mutate(cfg.id)}
+                >
                   设为默认
                 </Button>
               )}
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-lg" onClick={() => openEdit(cfg)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 rounded-lg"
+                onClick={() => openEdit(cfg)}
+              >
                 <Pencil className="size-3.5" /> 编辑
               </Button>
               <Button
@@ -177,13 +207,20 @@ export function AiConfigManager() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editingId ? '编辑 AI 配置' : '添加 AI 配置'}</DialogTitle>
-            <DialogDescription>配置一个模型来源，可添加多个并在列表中自由设置默认。</DialogDescription>
+            <DialogDescription>
+              配置一个模型来源，可添加多个并在列表中自由设置默认。
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium">名称</Label>
-              <Input placeholder="如：我的 GPT / 公司 Qwen" value={name} onChange={(e) => setName(e.target.value)} className="rounded-lg" />
+              <Input
+                placeholder="如：我的 GPT / 公司 Qwen"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="rounded-lg"
+              />
             </div>
 
             <div className="space-y-2">
@@ -202,8 +239,15 @@ export function AiConfigManager() {
             {type === 'cloudflare' && (
               <div className="space-y-2">
                 <Label className="text-sm font-medium">模型名称</Label>
-                <Input placeholder="@cf/qwen/qwen2.5-coder-32b-instruct" value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg" />
-                <p className="text-xs text-muted-foreground">留空使用默认均衡模型。可在 Cloudflare 控制台查看可用 @cf 模型。</p>
+                <Input
+                  placeholder="@cf/qwen/qwen2.5-coder-32b-instruct"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="rounded-lg"
+                />
+                <p className="text-xs text-muted-foreground">
+                  留空使用默认均衡模型。可在 Cloudflare 控制台查看可用 @cf 模型。
+                </p>
               </div>
             )}
 
@@ -211,7 +255,12 @@ export function AiConfigManager() {
               <>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">API Base URL</Label>
-                  <Input placeholder="https://api.openai.com/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="rounded-lg" />
+                  <Input
+                    placeholder="https://api.openai.com/v1"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    className="rounded-lg"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">API Key</Label>
@@ -225,7 +274,12 @@ export function AiConfigManager() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">模型名称</Label>
-                  <Input placeholder="gpt-4o / deepseek-chat / qwen-plus" value={model} onChange={(e) => setModel(e.target.value)} className="rounded-lg" />
+                  <Input
+                    placeholder="gpt-4o / deepseek-chat / qwen-plus"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="rounded-lg"
+                  />
                 </div>
               </>
             )}
@@ -241,24 +295,33 @@ export function AiConfigManager() {
             </label>
 
             <div className="flex flex-wrap items-center gap-3 pt-1">
-              <Button variant="outline" size="sm" disabled={testing} onClick={() => testMutation.mutate()} className="gap-2 rounded-lg">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={testing}
+                onClick={() => testMutation.mutate()}
+                className="gap-2 rounded-lg"
+              >
                 <TestTube className="size-4" />
                 {testing ? '测试中...' : '测试连接'}
               </Button>
-              {testResult && (
-                testResult.ok ? (
+              {testResult &&
+                (testResult.ok ? (
                   <Badge className="gap-1 rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">
                     连接成功 · {testResult.latency_ms}ms
                   </Badge>
                 ) : (
-                  <Badge variant="destructive" className="rounded-full px-2.5 py-0.5">失败: {testResult.error}</Badge>
-                )
-              )}
+                  <Badge variant="destructive" className="rounded-full px-2.5 py-0.5">
+                    失败: {testResult.error}
+                  </Badge>
+                ))}
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>取消</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              取消
+            </Button>
             <Button
               disabled={!name || (type === 'openai' && !baseUrl) || saveMutation.isPending}
               onClick={() => saveMutation.mutate()}

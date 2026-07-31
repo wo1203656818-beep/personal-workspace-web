@@ -27,12 +27,7 @@ export function SyncCard({
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {children}
-      <Button
-        size="sm"
-        disabled={syncing || disabled}
-        onClick={onSync}
-        className="rounded-lg"
-      >
+      <Button size="sm" disabled={syncing || disabled} onClick={onSync} className="rounded-lg">
         {syncing ? syncingLabel : syncLabel}
       </Button>
       {lastSync && (

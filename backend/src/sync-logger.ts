@@ -2,7 +2,16 @@ import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './schema'
 import type { Env } from './types'
 
-export type SyncSource = 'ms_todo' | 'ima_notes' | 'ima_kb' | 'news_fetch' | 'news_digest' | 'news_ai' | 'news_push' | 'monitor' | 'monitor_push'
+export type SyncSource =
+  | 'ms_todo'
+  | 'ima_notes'
+  | 'ima_kb'
+  | 'news_fetch'
+  | 'news_digest'
+  | 'news_ai'
+  | 'news_push'
+  | 'monitor'
+  | 'monitor_push'
 export type SyncStatus = 'success' | 'partial' | 'error'
 
 export interface SyncLogInput {
@@ -14,11 +23,7 @@ export interface SyncLogInput {
   details?: string
 }
 
-export async function logSync(
-  env: Env,
-  source: SyncSource,
-  input: SyncLogInput
-): Promise<void> {
+export async function logSync(env: Env, source: SyncSource, input: SyncLogInput): Promise<void> {
   const db = drizzle(env.DB, { schema })
   try {
     await db.insert(schema.syncLogs).values({

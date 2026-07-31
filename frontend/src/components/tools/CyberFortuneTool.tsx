@@ -20,7 +20,10 @@ export function CyberFortuneTool() {
       </div>
 
       {result ? (
-        <div className="rounded-xl border p-5 space-y-4" style={{ borderColor: result.luckyColor || undefined }}>
+        <div
+          className="rounded-xl border p-5 space-y-4"
+          style={{ borderColor: result.luckyColor || undefined }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{result.date}</span>
             {result.cached && <span className="text-xs text-muted-foreground">今日已生成</span>}
@@ -35,7 +38,8 @@ export function CyberFortuneTool() {
                     key={i}
                     className="size-2 rounded-full"
                     style={{
-                      backgroundColor: i < (result.moodScore || 5) ? (result.luckyColor || '#6366f1') : '#e5e7eb',
+                      backgroundColor:
+                        i < (result.moodScore || 5) ? result.luckyColor || '#6366f1' : '#e5e7eb',
                     }}
                   />
                 ))}
@@ -44,11 +48,19 @@ export function CyberFortuneTool() {
             {result.luckyColor && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">幸运色:</span>
-                <div className="size-4 rounded-full border" style={{ backgroundColor: result.luckyColor }} />
+                <div
+                  className="size-4 rounded-full border"
+                  style={{ backgroundColor: result.luckyColor }}
+                />
               </div>
             )}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+          >
             <RefreshCw className={`size-3 mr-1 ${mutation.isPending ? 'animate-spin' : ''}`} />
             重新生成
           </Button>

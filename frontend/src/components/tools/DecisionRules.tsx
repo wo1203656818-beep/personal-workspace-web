@@ -74,12 +74,8 @@ export function DecisionRules() {
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
                 <h4 className="text-sm font-medium">{rule.title}</h4>
-                <p className="text-xs text-muted-foreground">
-                  如果：{rule.condition}
-                </p>
-                <p className="text-xs font-medium text-primary">
-                  就：{rule.action}
-                </p>
+                <p className="text-xs text-muted-foreground">如果：{rule.condition}</p>
+                <p className="text-xs font-medium text-primary">就：{rule.action}</p>
               </div>
               <Button
                 variant="ghost"
@@ -94,9 +90,7 @@ export function DecisionRules() {
         ))}
 
         {filteredRules.length === 0 && (
-          <p className="text-center text-sm text-muted-foreground py-8">
-            还没有规则，添加第一条吧
-          </p>
+          <p className="text-center text-sm text-muted-foreground py-8">还没有规则，添加第一条吧</p>
         )}
       </div>
 

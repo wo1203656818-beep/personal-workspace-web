@@ -24,7 +24,6 @@ export default defineConfig({
           if (id.includes('docx-preview') || id.includes('xlsx')) return 'office'
           if (id.includes('recharts') || id.includes('react-activity-calendar')) return 'charts'
           if (id.includes('react-markdown') || id.includes('remark-gfm') || id.includes('rehype-highlight')) return 'markdown'
-          if (id.includes('motion')) return 'motion'
           if (id.includes('@hello-pangea/dnd')) return 'dnd'
           if (id.includes('cmdk')) return 'cmdk'
           if (id.includes('lucide-react')) return 'icons'

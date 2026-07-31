@@ -48,13 +48,17 @@ export function MsTodoSyncCard() {
     if (settings.ms_tenant_id) setTenantId(settings.ms_tenant_id)
     if (settings.ms_account_type) {
       setAccountType(settings.ms_account_type)
-    } else if (settings.ms_tenant_id && MS_ACCOUNT_TYPES.some((t) => t.value === settings.ms_tenant_id)) {
+    } else if (
+      settings.ms_tenant_id &&
+      MS_ACCOUNT_TYPES.some((t) => t.value === settings.ms_tenant_id)
+    ) {
       setAccountType(settings.ms_tenant_id)
     }
     if (settings.ms_redirect_uri !== undefined) setRedirectUri(settings.ms_redirect_uri)
   }, [settings])
 
-  const effectiveRedirectUri = (redirectUri.trim() || `${window.location.origin}/oauth/ms-todo/callback`)
+  const effectiveRedirectUri =
+    redirectUri.trim() || `${window.location.origin}/oauth/ms-todo/callback`
 
   const syncMutation = useMutation({
     mutationFn: settingsApi.msTodoSync,
@@ -78,7 +82,8 @@ export function MsTodoSyncCard() {
   })
 
   const handleAuthorize = () => {
-    const authUrl = `https://login.microsoftonline.com/${accountType || 'common'}/oauth2/v2.0/authorize?` +
+    const authUrl =
+      `https://login.microsoftonline.com/${accountType || 'common'}/oauth2/v2.0/authorize?` +
       `client_id=${clientId}&` +
       `response_type=code&` +
       `redirect_uri=${encodeURIComponent(effectiveRedirectUri)}&` +
@@ -117,9 +122,13 @@ export function MsTodoSyncCard() {
       <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-3">
         <span className="text-sm font-medium text-muted-foreground">授权状态</span>
         {status?.authorized ? (
-          <Badge className="rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">已授权</Badge>
+          <Badge className="rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">
+            已授权
+          </Badge>
         ) : (
-          <Badge variant="secondary" className="rounded-full px-2.5 py-0.5">未授权</Badge>
+          <Badge variant="secondary" className="rounded-full px-2.5 py-0.5">
+            未授权
+          </Badge>
         )}
       </div>
 
@@ -139,7 +148,9 @@ export function MsTodoSyncCard() {
             type="password"
             placeholder="应用密钥"
             value={clientSecret}
-            onFocus={() => { if (clientSecret === '••••••••') setClientSecret('') }}
+            onFocus={() => {
+              if (clientSecret === '••••••••') setClientSecret('')
+            }}
             onChange={(e) => setClientSecret(e.target.value)}
             className="rounded-lg"
           />
@@ -158,7 +169,9 @@ export function MsTodoSyncCard() {
             </SelectTrigger>
             <SelectContent>
               {MS_ACCOUNT_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -176,7 +189,8 @@ export function MsTodoSyncCard() {
             className="rounded-lg"
           />
           <p className="text-xs text-muted-foreground">
-            留空则使用当前域名。若使用自定义域名，请在此填写，并确保已在 Azure 应用注册中添加该回调地址。
+            留空则使用当前域名。若使用自定义域名，请在此填写，并确保已在 Azure
+            应用注册中添加该回调地址。
           </p>
           <p className="text-xs font-mono text-muted-foreground break-all">
             当前回跳地址：{effectiveRedirectUri}

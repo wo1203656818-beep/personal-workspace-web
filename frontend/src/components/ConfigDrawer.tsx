@@ -1,8 +1,6 @@
 import { Settings, Sun, Moon, Monitor, PanelLeft, PanelLeftClose } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
-} from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { useTheme } from '@/lib/theme'
@@ -29,7 +27,7 @@ function ThemeCard({
         'flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all',
         isActive
           ? 'border-primary bg-primary/5 text-primary'
-          : 'border-border hover:border-muted-foreground/30 text-muted-foreground hover:text-foreground'
+          : 'border-border hover:border-muted-foreground/30 text-muted-foreground hover:text-foreground',
       )}
     >
       <Icon className="size-5" />
@@ -58,7 +56,7 @@ function SidebarCard({
         'flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition-all',
         isActive
           ? 'border-primary bg-primary/5 text-primary'
-          : 'border-border hover:border-muted-foreground/30 text-muted-foreground hover:text-foreground'
+          : 'border-border hover:border-muted-foreground/30 text-muted-foreground hover:text-foreground',
       )}
     >
       <Icon className="size-5" />

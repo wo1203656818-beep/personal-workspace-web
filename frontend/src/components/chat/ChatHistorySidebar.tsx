@@ -27,8 +27,8 @@ export function ChatHistorySidebar({
   const [tagInput, setTagInput] = useState('')
   const [search, setSearch] = useState('')
 
-  const filtered = sessions.filter(s =>
-    !search || s.title?.toLowerCase().includes(search.toLowerCase())
+  const filtered = sessions.filter(
+    (s) => !search || s.title?.toLowerCase().includes(search.toLowerCase()),
   )
 
   const openTagPopover = (s: ChatSessionPreview) => {
@@ -42,10 +42,13 @@ export function ChatHistorySidebar({
     const t = tagInput.trim()
     if (!t) return
     const current = editingTagSession.tags || []
-    if (current.length >= 10 || current.includes(t)) { setTagInput(''); return }
+    if (current.length >= 10 || current.includes(t)) {
+      setTagInput('')
+      return
+    }
     const next = [...current, t]
     onSaveTags(editingTagSession, next)
-    setEditingTagSession((s) => s ? { ...s, tags: next } : s)
+    setEditingTagSession((s) => (s ? { ...s, tags: next } : s))
     setTagInput('')
   }
 
@@ -53,14 +56,19 @@ export function ChatHistorySidebar({
     if (!editingTagSession) return
     const next = (editingTagSession.tags || []).filter((_, i) => i !== idx)
     onSaveTags(editingTagSession, next)
-    setEditingTagSession((s) => s ? { ...s, tags: next } : s)
+    setEditingTagSession((s) => (s ? { ...s, tags: next } : s))
   }
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-[#0a0a0a]">
       <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
         <span className="text-sm font-medium text-white/90">聊天历史</span>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-white/60 hover:text-white" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-white/60 hover:text-white"
+          onClick={onClose}
+        >
           <Square className="size-3.5" />
         </Button>
       </div>
@@ -75,7 +83,11 @@ export function ChatHistorySidebar({
             className="flex-1 bg-transparent text-[13px] text-white placeholder:text-white/30 focus-visible:outline-none"
           />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="text-white/40 hover:text-white">
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="text-white/40 hover:text-white"
+            >
               <X className="size-3" />
             </button>
           )}
@@ -98,18 +110,22 @@ export function ChatHistorySidebar({
               className="shrink-0"
               title={s.pinned ? '取消固定' : '固定到顶部'}
             >
-              <Pin className={cn('size-3.5', s.pinned ? 'fill-primary text-primary' : 'text-white/30')} />
+              <Pin
+                className={cn('size-3.5', s.pinned ? 'fill-primary text-primary' : 'text-white/30')}
+              />
             </button>
-            <button
-              type="button"
-              onClick={() => onOpen(s.id)}
-              className="min-w-0 flex-1 text-left"
-            >
+            <button type="button" onClick={() => onOpen(s.id)} className="min-w-0 flex-1 text-left">
               <div className="truncate text-[13px] font-medium text-white/80">{s.title}</div>
               {s.tags && s.tags.length > 0 && (
                 <div className="mt-0.5 flex flex-wrap gap-1">
                   {s.tags.map((t) => (
-                    <Badge key={t} variant="secondary" className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] text-primary/70">{t}</Badge>
+                    <Badge
+                      key={t}
+                      variant="secondary"
+                      className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] text-primary/70"
+                    >
+                      {t}
+                    </Badge>
                   ))}
                 </div>
               )}
@@ -117,12 +133,17 @@ export function ChatHistorySidebar({
             </button>
             <Popover
               open={tagPopoverOpen && editingTagSession?.id === s.id}
-              onOpenChange={(v) => { if (!v) setTagPopoverOpen(false) }}
+              onOpenChange={(v) => {
+                if (!v) setTagPopoverOpen(false)
+              }}
             >
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); openTagPopover(s) }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openTagPopover(s)
+                  }}
                   className="shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
                   title="编辑标签"
                 >
@@ -161,7 +182,12 @@ export function ChatHistorySidebar({
                   <Input
                     value={tagInput}
                     onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTagFromInput() } }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addTagFromInput()
+                      }
+                    }}
                     placeholder="输入标签，回车添加"
                     className="h-7 rounded-lg border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
                   />
@@ -182,7 +208,8 @@ export function ChatHistorySidebar({
                       type="button"
                       onClick={() => {
                         const cur = editingTagSession?.tags || []
-                        if (cur.length < 10 && !cur.includes(p) && editingTagSession) onSaveTags(editingTagSession, [...cur, p])
+                        if (cur.length < 10 && !cur.includes(p) && editingTagSession)
+                          onSaveTags(editingTagSession, [...cur, p])
                       }}
                       className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40 hover:border-white/20 hover:text-white/60"
                     >

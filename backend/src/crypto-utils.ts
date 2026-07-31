@@ -31,13 +31,9 @@ function fromHex(hex: string): Uint8Array<ArrayBuffer> {
  */
 export async function encrypt(secret: string, plaintext: string): Promise<string> {
   const enc = new TextEncoder()
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, [
+    'deriveKey',
+  ])
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
   const key = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
@@ -47,11 +43,7 @@ export async function encrypt(secret: string, plaintext: string): Promise<string
     ['encrypt'],
   )
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
-  const ct = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    enc.encode(plaintext),
-  )
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext))
   return `enc$${toHex(salt)}$${toHex(iv)}$${toHex(new Uint8Array(ct))}`
 }
 
@@ -73,13 +65,9 @@ export async function decrypt(secret: string, stored: string): Promise<string> {
   const iv = fromHex(ivHex)
   const ct = fromHex(ctHex)
 
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, [
+    'deriveKey',
+  ])
   const key = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
     keyMaterial,
@@ -116,7 +104,15 @@ export async function hashPassword(password: string): Promise<string> {
 /**
  * settings 表中需要加密的敏感键
  */
-export const SENSITIVE_KEYS = ['ai_api_key', 'custom_ai_api_key', 'ima_api_key', 'ms_refresh_token', 'ms_client_secret', 'password_hash', 'telegram_bot_token']
+export const SENSITIVE_KEYS = [
+  'ai_api_key',
+  'custom_ai_api_key',
+  'ima_api_key',
+  'ms_refresh_token',
+  'ms_client_secret',
+  'password_hash',
+  'telegram_bot_token',
+]
 
 /**
  * 判断某个 settings key 是否为敏感键（需要加密存储）
@@ -129,11 +125,13 @@ export function isSensitiveKey(key: string): boolean {
  * 加密 settings 对象中的敏感键值
  * 返回新对象，敏感键的值被加密为 enc$... 格式
  */
-export async function encryptSettings(secret: string, settings: Record<string, string>): Promise<Record<string, string>> {
+export async function encryptSettings(
+  secret: string,
+  settings: Record<string, string>,
+): Promise<Record<string, string>> {
   const result: Record<string, string> = {}
   for (const [key, value] of Object.entries(settings)) {
     result[key] = isSensitiveKey(key) ? await encrypt(secret, value) : value
   }
   return result
 }
-

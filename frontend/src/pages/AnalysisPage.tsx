@@ -1,13 +1,32 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { BarChart3, FileText, Loader2, Sparkles, TrendingUp,
-  CheckCircle2, ListTodo, Star, BookOpen, Quote,
+import {
+  BarChart3,
+  FileText,
+  Loader2,
+  Sparkles,
+  TrendingUp,
+  CheckCircle2,
+  ListTodo,
+  Star,
+  BookOpen,
+  Quote,
 } from 'lucide-react'
 import { EmptyState } from '@/components/EmptyState'
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
-  ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts'
 import { ActivityCalendar } from 'react-activity-calendar'
 import { toast } from 'sonner'
@@ -17,7 +36,11 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
@@ -39,10 +62,38 @@ const CHART_COLORS = {
 }
 
 const STAT_ITEMS = [
-  { key: 'totalTasks' as const, label: '总任务', icon: ListTodo, color: 'text-indigo-500', bg: 'bg-indigo-500/10', gradient: 'from-indigo-500 to-violet-500' },
-  { key: 'completedTasks' as const, label: '已完成', icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10', gradient: 'from-emerald-500 to-teal-500' },
-  { key: 'importantTasks' as const, label: '重要', icon: Star, color: 'text-amber-500', bg: 'bg-amber-500/10', gradient: 'from-amber-500 to-orange-500' },
-  { key: 'notesCount' as const, label: '笔记', icon: BookOpen, color: 'text-rose-500', bg: 'bg-rose-500/10', gradient: 'from-rose-500 to-pink-500' },
+  {
+    key: 'totalTasks' as const,
+    label: '总任务',
+    icon: ListTodo,
+    color: 'text-indigo-500',
+    bg: 'bg-indigo-500/10',
+    gradient: 'from-indigo-500 to-violet-500',
+  },
+  {
+    key: 'completedTasks' as const,
+    label: '已完成',
+    icon: CheckCircle2,
+    color: 'text-emerald-500',
+    bg: 'bg-emerald-500/10',
+    gradient: 'from-emerald-500 to-teal-500',
+  },
+  {
+    key: 'importantTasks' as const,
+    label: '重要',
+    icon: Star,
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10',
+    gradient: 'from-amber-500 to-orange-500',
+  },
+  {
+    key: 'notesCount' as const,
+    label: '笔记',
+    icon: BookOpen,
+    color: 'text-rose-500',
+    bg: 'bg-rose-500/10',
+    gradient: 'from-rose-500 to-pink-500',
+  },
 ]
 
 type DailyItem = { date: string; count: number }
@@ -63,11 +114,13 @@ export function AnalysisPage() {
   const [customEnd, setCustomEnd] = useState('')
   const [currentReport, setCurrentReport] = useState<{ report: string; week: string } | null>(null)
 
-  const effectiveRange = range === 'custom' && customStart && customEnd ? `custom:${customStart}:${customEnd}` : range
+  const effectiveRange =
+    range === 'custom' && customStart && customEnd ? `custom:${customStart}:${customEnd}` : range
 
   const { data, isFetching } = useQuery({
     queryKey: ['analysis', effectiveRange],
-    queryFn: (): Promise<{ analysis: string; stats: AnalysisStats }> => aiApi.analysis(effectiveRange),
+    queryFn: (): Promise<{ analysis: string; stats: AnalysisStats }> =>
+      aiApi.analysis(effectiveRange),
     enabled,
   })
 
@@ -81,40 +134,65 @@ export function AnalysisPage() {
   })
 
   // 构建图表数据
-  const completionData = data?.stats ? [
-    { name: '已完成', value: data.stats.completedTasks },
-    { name: '未完成', value: data.stats.totalTasks - data.stats.completedTasks },
-  ] : []
+  const completionData = useMemo(
+    () =>
+      data?.stats
+        ? [
+            { name: '已完成', value: data.stats.completedTasks },
+            { name: '未完成', value: data.stats.totalTasks - data.stats.completedTasks },
+          ]
+        : [],
+    [data],
+  )
 
-  const categoryData = data?.stats ? [
-    { name: '普通任务', value: data.stats.totalTasks - data.stats.importantTasks },
-    { name: '重要任务', value: data.stats.importantTasks },
-  ] : []
+  const categoryData = useMemo(
+    () =>
+      data?.stats
+        ? [
+            { name: '普通任务', value: data.stats.totalTasks - data.stats.importantTasks },
+            { name: '重要任务', value: data.stats.importantTasks },
+          ]
+        : [],
+    [data],
+  )
 
-  const overviewData = data?.stats ? [
-    { name: '任务', value: data.stats.totalTasks },
-    { name: '笔记', value: data.stats.notesCount },
-  ] : []
+  const overviewData = useMemo(
+    () =>
+      data?.stats
+        ? [
+            { name: '任务', value: data.stats.totalTasks },
+            { name: '笔记', value: data.stats.notesCount },
+          ]
+        : [],
+    [data],
+  )
 
   // 每日完成趋势 + 热力图数据
-  const dailyRaw: DailyItem[] = Array.isArray(data?.stats?.dailyCompleted)
-    ? data.stats.dailyCompleted
-    : []
-  const trendData = dailyRaw.map((d) => {
-    const dateStr = typeof d.date === 'string' ? d.date : String(d.date)
-    // dateStr 是日期字符串，格式 yyyy-MM-dd，直接使用无需时区转换
-    const label = dateStr.slice(5) // MM-dd
-    return {
-      date: dateStr,
-      label,
-      count: Number(d.count) || 0,
-    }
-  })
-  const heatData: HeatItem[] = trendData.map((d) => ({
-    date: d.date,
-    count: d.count,
-    level: countToLevel(d.count),
-  }))
+  const trendData = useMemo(() => {
+    const dailyRaw: DailyItem[] = Array.isArray(data?.stats?.dailyCompleted)
+      ? data.stats.dailyCompleted
+      : []
+    return dailyRaw.map((d) => {
+      const dateStr = typeof d.date === 'string' ? d.date : String(d.date)
+      // dateStr 是日期字符串，格式 yyyy-MM-dd，直接使用无需时区转换
+      const label = dateStr.slice(5) // MM-dd
+      return {
+        date: dateStr,
+        label,
+        count: Number(d.count) || 0,
+      }
+    })
+  }, [data])
+
+  const heatData: HeatItem[] = useMemo(
+    () =>
+      trendData.map((d) => ({
+        date: d.date,
+        count: d.count,
+        level: countToLevel(d.count),
+      })),
+    [trendData],
+  )
 
   const isEmpty = !!data?.stats && data.stats.totalTasks === 0
 
@@ -127,7 +205,9 @@ export function AnalysisPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight md:text-2xl">数据分析</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">AI 驱动的数据洞察与趋势分析</p>
+            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
+              AI 驱动的数据洞察与趋势分析
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -144,14 +224,27 @@ export function AnalysisPage() {
           </Select>
           {range === 'custom' && (
             <div className="flex items-center gap-1.5">
-              <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
-                className="h-8 w-32 rounded-lg text-xs" />
+              <Input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="h-8 w-32 rounded-lg text-xs"
+              />
               <span className="text-xs text-muted-foreground">至</span>
-              <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
-                className="h-8 w-32 rounded-lg text-xs" />
+              <Input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="h-8 w-32 rounded-lg text-xs"
+              />
             </div>
           )}
-          <Button size="sm" onClick={() => setEnabled(true)} disabled={isFetching} className="rounded-lg gap-1">
+          <Button
+            size="sm"
+            onClick={() => setEnabled(true)}
+            disabled={isFetching}
+            className="rounded-lg gap-1"
+          >
             <Sparkles className="size-4" />
             {isFetching ? 'AI 分析中...' : '生成分析'}
           </Button>
@@ -181,7 +274,9 @@ export function AnalysisPage() {
             <div className="empty-state py-20">
               <Loader2 className="mb-4 size-12 animate-spin text-primary" />
               <p className="text-base font-medium">AI 正在分析数据...</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">请稍候，正在生成图表与洞察报告</p>
+              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+                请稍候，正在生成图表与洞察报告
+              </p>
             </div>
           )}
 
@@ -210,7 +305,7 @@ export function AnalysisPage() {
               description="去创建任务，积累数据后再来分析"
               action={
                 <Button asChild size="sm" className="rounded-lg">
-                  <Link to="/tasks/myday">去任务页</Link>
+                  <Link to="/tasks">去任务页</Link>
                 </Button>
               }
             />
@@ -240,7 +335,9 @@ export function AnalysisPage() {
                         outerRadius={72}
                         dataKey="value"
                         stroke="none"
-                        label={(entry: { name?: string; value?: number }) => `${entry.name ?? ''} ${entry.value ?? 0}`}
+                        label={(entry: { name?: string; value?: number }) =>
+                          `${entry.name ?? ''} ${entry.value ?? 0}`
+                        }
                       >
                         {completionData.map((_, index) => (
                           <Cell
@@ -268,13 +365,30 @@ export function AnalysisPage() {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={categoryData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--color-border))" />
-                      <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="hsl(var(--color-border))"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        allowDecimals={false}
+                      />
                       <Tooltip cursor={{ radius: 4 }} />
                       <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                         {categoryData.map((_, index) => (
-                          <Cell key={index} fill={index === 0 ? CHART_COLORS.primary : CHART_COLORS.warning} />
+                          <Cell
+                            key={index}
+                            fill={index === 0 ? CHART_COLORS.primary : CHART_COLORS.warning}
+                          />
                         ))}
                       </Bar>
                     </BarChart>
@@ -302,9 +416,24 @@ export function AnalysisPage() {
                             <stop offset="100%" stopColor={CHART_COLORS.primary} stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--color-border))" />
-                        <XAxis dataKey="label" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={16} />
-                        <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke="hsl(var(--color-border))"
+                        />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          minTickGap={16}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          allowDecimals={false}
+                        />
                         <Tooltip />
                         <Area
                           type="monotone"
@@ -367,8 +496,17 @@ export function AnalysisPage() {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={overviewData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--color-border))" />
-                      <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="hsl(var(--color-border))"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
                       <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                       <Tooltip cursor={{ radius: 4 }} />
                       <Bar dataKey="value" fill={CHART_COLORS.primaryLight} radius={[6, 6, 0, 0]} />
@@ -393,7 +531,9 @@ export function AnalysisPage() {
               <CardContent>
                 <div className="relative rounded-xl bg-muted/40 p-5">
                   <Quote className="absolute left-4 top-4 size-6 text-primary/20" />
-                  <p className="pl-8 text-sm leading-7 whitespace-pre-wrap text-foreground/90">{data.analysis}</p>
+                  <p className="pl-8 text-sm leading-7 whitespace-pre-wrap text-foreground/90">
+                    {data.analysis}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -414,10 +554,16 @@ export function AnalysisPage() {
                 <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card to-muted/30 p-5 shadow-sm">
                   <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500" />
                   <div className="mb-3 flex items-center gap-2">
-                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">本周</span>
-                    <span className="text-xs font-medium text-muted-foreground">{currentReport.week}</span>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                      本周
+                    </span>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {currentReport.week}
+                    </span>
                   </div>
-                  <p className="text-sm leading-7 whitespace-pre-wrap text-foreground/90">{currentReport.report}</p>
+                  <p className="text-sm leading-7 whitespace-pre-wrap text-foreground/90">
+                    {currentReport.report}
+                  </p>
                 </div>
               </CardContent>
             </Card>

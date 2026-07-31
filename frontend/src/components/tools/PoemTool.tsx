@@ -54,7 +54,11 @@ export function PoemTool() {
         disabled={!topic || mutation.isPending}
         className="w-full"
       >
-        {mutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Feather className="size-4 mr-2" />}
+        {mutation.isPending ? (
+          <Loader2 className="size-4 mr-2 animate-spin" />
+        ) : (
+          <Feather className="size-4 mr-2" />
+        )}
         写诗
       </Button>
 

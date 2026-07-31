@@ -24,7 +24,11 @@ export function ChatInputArea({
   deepThink: boolean
   setDeepThink: (v: boolean | ((v: boolean) => boolean)) => void
   images: { id: string; dataUrl: string; name: string }[]
-  setImages: (fn: (prev: { id: string; dataUrl: string; name: string }[]) => { id: string; dataUrl: string; name: string }[]) => void
+  setImages: (
+    fn: (
+      prev: { id: string; dataUrl: string; name: string }[],
+    ) => { id: string; dataUrl: string; name: string }[],
+  ) => void
   speechSupported: boolean
   listening: boolean
   onToggleVoice: () => void
@@ -39,14 +43,16 @@ export function ChatInputArea({
     if (!files || !files.length) return
     const remain = 4 - imagesRef.current.length
     if (remain <= 0) return
-    Array.from(files).slice(0, remain).forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = reader.result as string
-        setImages((prev) => [...prev, { id: genId(), dataUrl, name: file.name }])
-      }
-      reader.readAsDataURL(file)
-    })
+    Array.from(files)
+      .slice(0, remain)
+      .forEach((file) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          setImages((prev) => [...prev, { id: genId(), dataUrl, name: file.name }])
+        }
+        reader.readAsDataURL(file)
+      })
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -57,7 +63,11 @@ export function ChatInputArea({
         <div className="mb-2 flex flex-wrap gap-2">
           {images.map((img) => (
             <div key={img.id} className="relative">
-              <img src={img.dataUrl} alt={img.name} className="h-14 w-14 rounded-lg border border-white/10 object-cover" />
+              <img
+                src={img.dataUrl}
+                alt={img.name}
+                className="h-14 w-14 rounded-lg border border-white/10 object-cover"
+              />
               <button
                 type="button"
                 onClick={() => setImages((p) => p.filter((x) => x.id !== img.id))}
@@ -70,7 +80,14 @@ export function ChatInputArea({
         </div>
       )}
 
-      <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
 
       <div className="rounded-2xl border border-white/10 bg-white/5 px-3 pb-2 pt-2 transition-colors focus-within:border-white/20 focus-within:bg-white/[0.07]">
         <textarea
@@ -96,7 +113,7 @@ export function ChatInputArea({
                 'flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors',
                 deepThink
                   ? 'border-primary/60 bg-primary/15 text-primary'
-                  : 'border-white/10 text-white/45 hover:border-white/20 hover:text-white/70'
+                  : 'border-white/10 text-white/45 hover:border-white/20 hover:text-white/70',
               )}
               title="开启后 AI 会先一步步推理再回答，适合复杂问题（更慢）"
             >
@@ -117,15 +134,32 @@ export function ChatInputArea({
                 <Mic className="size-4" />
               </Button>
             )}
-            <Button type="button" variant="ghost" size="icon" className="size-8 text-white/40 hover:text-white" title="上传图片" onClick={() => fileRef.current?.click()}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-white/40 hover:text-white"
+              title="上传图片"
+              onClick={() => fileRef.current?.click()}
+            >
               <Paperclip className="size-4" />
             </Button>
             {loading ? (
-              <Button size="icon" className="size-8 shrink-0 rounded-xl" onClick={onStop} title="停止">
+              <Button
+                size="icon"
+                className="size-8 shrink-0 rounded-xl"
+                onClick={onStop}
+                title="停止"
+              >
                 <Square className="size-3.5" />
               </Button>
             ) : (
-              <Button size="icon" className="size-8 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none" disabled={!input.trim()} onClick={() => onSend(input)}>
+              <Button
+                size="icon"
+                className="size-8 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none"
+                disabled={!input.trim()}
+                onClick={() => onSend(input)}
+              >
                 <Send className="size-3.5" />
               </Button>
             )}

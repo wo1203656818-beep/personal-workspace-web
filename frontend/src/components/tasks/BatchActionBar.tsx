@@ -1,6 +1,11 @@
 import { ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface BatchActionBarProps {
   selectedCount: number
@@ -28,9 +33,15 @@ export function BatchActionBar({
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-card px-4 py-2">
       <span className="text-sm text-muted-foreground">已选 {selectedCount} 项</span>
-      <Button size="sm" variant="outline" onClick={onComplete}>标记完成</Button>
-      <Button size="sm" variant="outline" onClick={onMarkImportant}>标记重要</Button>
-      <Button size="sm" variant="outline" onClick={onAddToMyDay}>我的一天</Button>
+      <Button size="sm" variant="outline" onClick={onComplete}>
+        标记完成
+      </Button>
+      <Button size="sm" variant="outline" onClick={onMarkImportant}>
+        标记重要
+      </Button>
+      <Button size="sm" variant="outline" onClick={onAddToMyDay}>
+        我的一天
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="sm" variant="outline">
@@ -45,8 +56,12 @@ export function BatchActionBar({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <Button size="sm" variant="outline" onClick={onDelete} className="text-destructive">删除</Button>
-      <Button size="sm" variant="ghost" onClick={onCancel}>取消选择</Button>
+      <Button size="sm" variant="outline" onClick={onDelete} className="text-destructive">
+        删除
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        取消选择
+      </Button>
     </div>
   )
 }

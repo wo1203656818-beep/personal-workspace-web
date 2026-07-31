@@ -29,7 +29,11 @@ kb.get('/', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
     const limit = Math.min(parseInt(c.req.query('limit') || '20', 10) || 20, 100)
-    const rows = await db.select().from(schema.kbDocuments).orderBy(desc(schema.kbDocuments.updatedAt)).limit(limit)
+    const rows = await db
+      .select()
+      .from(schema.kbDocuments)
+      .orderBy(desc(schema.kbDocuments.updatedAt))
+      .limit(limit)
     return c.json(rows)
   } catch (e: any) {
     console.error('[kb] list failed:', e?.message, e?.cause)
@@ -42,15 +46,19 @@ kb.get('/summary', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
     const limit = Math.min(parseInt(c.req.query('limit') || '50', 10) || 50, 200)
-    const rows = await db.select({
-      id: schema.kbDocuments.id,
-      title: schema.kbDocuments.title,
-      fileType: schema.kbDocuments.fileType,
-      fileSize: schema.kbDocuments.fileSize,
-      r2Key: schema.kbDocuments.r2Key,
-      importedAt: schema.kbDocuments.importedAt,
-      updatedAt: schema.kbDocuments.updatedAt,
-    }).from(schema.kbDocuments).orderBy(desc(schema.kbDocuments.updatedAt)).limit(limit)
+    const rows = await db
+      .select({
+        id: schema.kbDocuments.id,
+        title: schema.kbDocuments.title,
+        fileType: schema.kbDocuments.fileType,
+        fileSize: schema.kbDocuments.fileSize,
+        r2Key: schema.kbDocuments.r2Key,
+        importedAt: schema.kbDocuments.importedAt,
+        updatedAt: schema.kbDocuments.updatedAt,
+      })
+      .from(schema.kbDocuments)
+      .orderBy(desc(schema.kbDocuments.updatedAt))
+      .limit(limit)
     return c.json(rows)
   } catch (e: any) {
     console.error('[kb] summary failed:', e?.message, e?.cause)
@@ -63,7 +71,9 @@ kb.get('/search', async (c) => {
   const q = c.req.query('q') || ''
   if (!q) return c.json([])
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.kbDocuments)
+  const result = await db
+    .select()
+    .from(schema.kbDocuments)
     .where(or(like(schema.kbDocuments.title, `%${q}%`), like(schema.kbDocuments.content, `%${q}%`)))
   return c.json(result)
 })
@@ -87,10 +97,17 @@ kb.post('/:id/summary', async (c) => {
     return c.json({ error: '该文档暂无可用正文，无法总结' }, 400)
   }
   try {
-    const summary = await callAI(c.env, [
-      { role: 'system', content: '你是文档总结助手。用 3 句话以内总结以下文档的核心内容，中文输出，不要分段。' },
-      { role: 'user', content: `文档标题：${doc[0].title}\n\n${content}` },
-    ], { maxTokens: 400 })
+    const summary = await callAI(
+      c.env,
+      [
+        {
+          role: 'system',
+          content: '你是文档总结助手。用 3 句话以内总结以下文档的核心内容，中文输出，不要分段。',
+        },
+        { role: 'user', content: `文档标题：${doc[0].title}\n\n${content}` },
+      ],
+      { maxTokens: 400 },
+    )
     return c.json({ summary: summary.trim() })
   } catch (e: any) {
     console.error('[kb/summary] error:', e)
@@ -110,10 +127,21 @@ kb.post('/:id/ask', async (c) => {
     return c.json({ error: '该文档暂无可用正文，无法问答' }, 400)
   }
   try {
-    const answer = await callAI(c.env, [
-      { role: 'system', content: '你是文档问答助手。请严格基于以下文档内容回答问题，如果文档中没有相关信息，请明确说明。' },
-      { role: 'user', content: `文档标题：${doc[0].title}\n\n文档内容：\n${content}\n\n问题：${question.trim()}` },
-    ], { maxTokens: 500 })
+    const answer = await callAI(
+      c.env,
+      [
+        {
+          role: 'system',
+          content:
+            '你是文档问答助手。请严格基于以下文档内容回答问题，如果文档中没有相关信息，请明确说明。',
+        },
+        {
+          role: 'user',
+          content: `文档标题：${doc[0].title}\n\n文档内容：\n${content}\n\n问题：${question.trim()}`,
+        },
+      ],
+      { maxTokens: 500 },
+    )
     return c.json({ answer: answer.trim() })
   } catch (e: any) {
     console.error('[kb/ask] error:', e)
@@ -143,9 +171,20 @@ kb.post('/ask', async (c) => {
     }
 
     // 2. 从 matches 中提取匹配的知识库文档片段
-    const kbIds = [...new Set(matches.map((m) => (m.metadata as { targetId?: string })?.targetId).filter(Boolean))] as string[]
+    const kbIds = [
+      ...new Set(
+        matches.map((m) => (m.metadata as { targetId?: string })?.targetId).filter(Boolean),
+      ),
+    ] as string[]
     const kbDocs = kbIds.length
-      ? await db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments).where(inArray(schema.kbDocuments.id, kbIds))
+      ? await db
+          .select({
+            id: schema.kbDocuments.id,
+            title: schema.kbDocuments.title,
+            content: schema.kbDocuments.content,
+          })
+          .from(schema.kbDocuments)
+          .where(inArray(schema.kbDocuments.id, kbIds))
       : []
     const docMap = new Map(kbDocs.map((d) => [d.id, d]))
 
@@ -163,15 +202,26 @@ kb.post('/ask', async (c) => {
     }
 
     if (contextParts.length === 0) {
-      return c.json({ answer: '未在知识库中找到相关内容，请尝试换个问题或先上传相关文档。', sources: [] })
+      return c.json({
+        answer: '未在知识库中找到相关内容，请尝试换个问题或先上传相关文档。',
+        sources: [],
+      })
     }
 
     const context = contextParts.join('\n\n---\n\n')
     // 3. 调用 AI 生成回答
-    const answer = await callAI(c.env, [
-      { role: 'system', content: '你是知识库问答助手。请严格基于以下知识库文档片段回答问题，如果文档中没有相关信息，请明确说明。回答时请引用文档来源。' },
-      { role: 'user', content: `知识库文档片段：\n${context}\n\n问题：${question.trim()}` },
-    ], { maxTokens: 800 })
+    const answer = await callAI(
+      c.env,
+      [
+        {
+          role: 'system',
+          content:
+            '你是知识库问答助手。请严格基于以下知识库文档片段回答问题，如果文档中没有相关信息，请明确说明。回答时请引用文档来源。',
+        },
+        { role: 'user', content: `知识库文档片段：\n${context}\n\n问题：${question.trim()}` },
+      ],
+      { maxTokens: 800 },
+    )
 
     return c.json({ answer: answer.trim(), sources })
   } catch (e: any) {
@@ -186,7 +236,9 @@ kb.post('/import', async (c) => {
   const id = crypto.randomUUID()
   await db.insert(schema.kbDocuments).values({ id, title, content, fileType, fileSize })
   // 增量嵌入 KB 文档
-  await indexTarget(c, 'kb', id, `${title}\n${content || ''}`).catch((e) => console.error('[embed] kb import failed:', e?.message))
+  await indexTarget(c, 'kb', id, `${title}\n${content || ''}`).catch((e) =>
+    console.error('[embed] kb import failed:', e?.message),
+  )
   return c.json({ id }, 201)
 })
 
@@ -199,13 +251,17 @@ kb.delete('/:id', async (c) => {
   if (doc.length > 0) {
     // 删除 KB 文件本身的 R2 对象
     if (doc[0].r2Key) {
-      try { await c.env.STORAGE.delete(doc[0].r2Key) } catch (e) {
+      try {
+        await c.env.STORAGE.delete(doc[0].r2Key)
+      } catch (e) {
         console.error('[kb] R2 删除失败:', doc[0].r2Key, e)
       }
     }
   }
   // 清理知识库向量嵌入
-  await indexTarget(c, 'kb', id, '').catch((e) => console.error('[embed] kb delete cleanup failed:', e?.message))
+  await indexTarget(c, 'kb', id, '').catch((e) =>
+    console.error('[embed] kb delete cleanup failed:', e?.message),
+  )
   return c.json({ ok: true })
 })
 
@@ -218,9 +274,19 @@ kb.post('/upload', async (c) => {
   const title = (body['title'] as string) || file.name
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
   const typeMap: Record<string, string> = {
-    pdf: 'pdf', docx: 'docx', doc: 'docx', xlsx: 'xlsx', xls: 'xlsx',
-    md: 'md', markdown: 'md', txt: 'txt', png: 'image', jpg: 'image',
-    jpeg: 'image', webp: 'image', gif: 'image',
+    pdf: 'pdf',
+    docx: 'docx',
+    doc: 'docx',
+    xlsx: 'xlsx',
+    xls: 'xlsx',
+    md: 'md',
+    markdown: 'md',
+    txt: 'txt',
+    png: 'image',
+    jpg: 'image',
+    jpeg: 'image',
+    webp: 'image',
+    gif: 'image',
   }
   const fileType = typeMap[ext] || 'unknown'
 
@@ -254,12 +320,16 @@ kb.post('/upload', async (c) => {
     })
   } catch (e) {
     // D1 写入失败时回滚 R2，避免产生无引用的孤儿对象
-    try { await c.env.STORAGE.delete(r2Key) } catch {}
+    try {
+      await c.env.STORAGE.delete(r2Key)
+    } catch {}
     throw e
   }
 
   // 增量嵌入 KB 文档
-  await indexTarget(c, 'kb', id, `${title}\n${content || ''}`).catch((e) => console.error('[embed] kb upload failed:', e?.message))
+  await indexTarget(c, 'kb', id, `${title}\n${content || ''}`).catch((e) =>
+    console.error('[embed] kb upload failed:', e?.message),
+  )
 
   return c.json({ id }, 201)
 })

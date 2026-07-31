@@ -39,9 +39,17 @@ function createMcpServer(env: Env): McpServer {
           const r = await executeChatTool({ env } as any, db, fn.name, args, ctx)
           return { content: [{ type: 'text' as const, text: r.observation }] }
         } catch (e: any) {
-          return { content: [{ type: 'text' as const, text: `工具 ${fn.name} 执行失败：${String(e?.message || e).slice(0, 200)}` }], isError: true }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `工具 ${fn.name} 执行失败：${String(e?.message || e).slice(0, 200)}`,
+              },
+            ],
+            isError: true,
+          }
         }
-      }
+      },
     )
   }
   return server
@@ -52,7 +60,9 @@ export async function verifyMcpAuth(request: Request, env: Env): Promise<boolean
     const mcpToken = request.headers.get('x-mcp-token')
     if (mcpToken && env.MCP_TOKEN && mcpToken === env.MCP_TOKEN) return true
     // 也支持 URL 里带 token（方便只接受 URL 的 MCP 客户端，如 LobeChat 一键连接）
-    const qToken = new URL(request.url).searchParams.get('mcp_token') || new URL(request.url).searchParams.get('token')
+    const qToken =
+      new URL(request.url).searchParams.get('mcp_token') ||
+      new URL(request.url).searchParams.get('token')
     if (qToken && env.MCP_TOKEN && qToken === env.MCP_TOKEN) return true
     const auth = request.headers.get('authorization') || ''
     const m = auth.match(/^Bearer\s+(.+)$/i)

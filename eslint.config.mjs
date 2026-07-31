@@ -13,9 +13,13 @@ export default tseslint.config(
       '**/build/**',
       '**/.wrangler/**',
       '**/node_modules/**',
+      '**/.tmp/**',
+      'backend/tmp/**',
       '**/*.config.{js,ts,mjs,cjs}',
       'backend/ima-skill/**',
       'backend/scripts/**',
+      '**/proxy_patch.cjs',
+      'backend/test-serving-and-download.ts',
     ],
   },
 

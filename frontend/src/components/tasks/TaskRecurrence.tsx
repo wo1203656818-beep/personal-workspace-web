@@ -3,11 +3,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
-export function parseRecurrence(r: string | null | undefined): { type: 'none' | 'daily' | 'weekly' | 'monthly'; days?: number[]; dayOfMonth?: number } {
+export function parseRecurrence(r: string | null | undefined): {
+  type: 'none' | 'daily' | 'weekly' | 'monthly'
+  days?: number[]
+  dayOfMonth?: number
+} {
   if (!r) return { type: 'none' }
   if (r === 'daily') return { type: 'daily' }
   if (r.startsWith('weekly:')) {
-    const days = r.split(':')[1]?.split(',').map(Number).filter(n => !isNaN(n)) || []
+    const days =
+      r
+        .split(':')[1]
+        ?.split(',')
+        .map(Number)
+        .filter((n) => !isNaN(n)) || []
     return { type: 'weekly', days }
   }
   if (r.startsWith('monthly:')) {
@@ -57,7 +66,7 @@ export function TaskRecurrence({
               if (r.type === 'daily') return '每天'
               if (r.type === 'weekly') {
                 const dayNames = ['日', '一', '二', '三', '四', '五', '六']
-                return `每周 ${r.days?.map(d => dayNames[d]).join('、') || ''}`
+                return `每周 ${r.days?.map((d) => dayNames[d]).join('、') || ''}`
               }
               if (r.type === 'monthly') return `每月 ${r.dayOfMonth} 号`
               return '设置重复'
@@ -66,12 +75,12 @@ export function TaskRecurrence({
         </PopoverTrigger>
         <PopoverContent className="w-auto p-3 space-y-3" align="start">
           <div className="flex flex-wrap gap-1">
-            {([
+            {[
               { key: 'none' as const, label: '不重复' },
               { key: 'daily' as const, label: '每天' },
               { key: 'weekly' as const, label: '每周' },
               { key: 'monthly' as const, label: '每月' },
-            ]).map(opt => (
+            ].map((opt) => (
               <Button
                 key={opt.key}
                 variant={recurrenceType === opt.key ? 'default' : 'outline'}
@@ -104,7 +113,7 @@ export function TaskRecurrence({
                     className="h-8 w-8 p-0 text-xs"
                     onClick={() => {
                       const next = weeklyDays.includes(idx)
-                        ? weeklyDays.filter(d => d !== idx)
+                        ? weeklyDays.filter((d) => d !== idx)
                         : [...weeklyDays, idx].sort()
                       onWeeklyDaysChange(next)
                       if (next.length > 0) {

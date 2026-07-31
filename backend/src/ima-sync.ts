@@ -42,8 +42,14 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 2, baseDelay 
 // 从 settings 表读取 IMA 凭证（api_key 走解密）
 async function getCredentials(env: Env): Promise<ImaCredentials | null> {
   const db = drizzle(env.DB, { schema })
-  const clientIdRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'ima_client_id'))
-  const apiKeyRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'ima_api_key'))
+  const clientIdRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'ima_client_id'))
+  const apiKeyRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'ima_api_key'))
   if (!clientIdRow.length || !apiKeyRow.length) return null
   // api_key 走解密（若以 enc$ 开头则解密，否则明文返回）
   const apiKey = await decrypt(env.JWT_SECRET, apiKeyRow[0].value)
@@ -75,7 +81,12 @@ async function imaPostRaw(apiPath: string, body: any, creds: ImaCredentials): Pr
 }
 
 // 通用 IMA API 调用（含指数退避重试，处理瞬态故障）
-async function imaPost(apiPath: string, body: any, creds: ImaCredentials, maxRetries = 3): Promise<any> {
+async function imaPost(
+  apiPath: string,
+  body: any,
+  creds: ImaCredentials,
+  maxRetries = 3,
+): Promise<any> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await imaPostRaw(apiPath, body, creds)
@@ -83,7 +94,7 @@ async function imaPost(apiPath: string, body: any, creds: ImaCredentials, maxRet
       const isRetryable = /timeout|network|fetch failed|5\d{2}|429/i.test(e?.message || '')
       if (!isRetryable || attempt === maxRetries) throw e
       const delay = Math.min(1000 * 2 ** attempt, 8000)
-      await new Promise(r => setTimeout(r, delay))
+      await new Promise((r) => setTimeout(r, delay))
     }
   }
   throw new Error('unreachable')
@@ -153,18 +164,26 @@ export async function getNoteContent(env: Env, noteId: string): Promise<string> 
 
   return retryWithBackoff(async () => {
     try {
-      const data = await imaPost('openapi/note/v1/get_doc_content', {
-        note_id: noteId,
-        target_content_format: 1, // MARKDOWN，保留原始格式
-      }, creds)
+      const data = await imaPost(
+        'openapi/note/v1/get_doc_content',
+        {
+          note_id: noteId,
+          target_content_format: 1, // MARKDOWN，保留原始格式
+        },
+        creds,
+      )
       return data.content || ''
     } catch (e: any) {
       // 若服务端不支持 Markdown 格式，降级为纯文本
       if (e.message?.includes('target_content_format')) {
-        const data = await imaPost('openapi/note/v1/get_doc_content', {
-          note_id: noteId,
-          target_content_format: 0, // PLAINTEXT
-        }, creds)
+        const data = await imaPost(
+          'openapi/note/v1/get_doc_content',
+          {
+            note_id: noteId,
+            target_content_format: 0, // PLAINTEXT
+          },
+          creds,
+        )
         return data.content || ''
       }
       throw e
@@ -197,8 +216,12 @@ export function normalizeNoteContent(content: string): string {
  * 带 Referer 降级的 fetch，用于 KB 文件下载。
  * 腾讯云 COS 有时要求/禁止特定 Referer，依次尝试多种策略。
  */
-export async function fetchWithImaFallbacks(downloadUrl: string, extraHeaders?: Record<string, string>): Promise<Response | null> {
-  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+export async function fetchWithImaFallbacks(
+  downloadUrl: string,
+  extraHeaders?: Record<string, string>,
+): Promise<Response | null> {
+  const UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   const baseHeaders: Record<string, string> = { 'User-Agent': UA, ...(extraHeaders || {}) }
   const strategies: Record<string, string>[] = [
     { ...baseHeaders },
@@ -209,7 +232,9 @@ export async function fetchWithImaFallbacks(downloadUrl: string, extraHeaders?: 
     try {
       const res = await fetch(downloadUrl, { headers })
       if (res.ok) return res
-    } catch { /* try next strategy */ }
+    } catch {
+      /* try next strategy */
+    }
   }
   return null
 }
@@ -231,7 +256,10 @@ export function stripImagesAndAttachments(md: string): string {
   // 3. Markdown 附件链接 [text](media-id 或 /api/ima/...) — 非 http/https 的引用
   result = result.replace(/\[([^\]]+)\]\((?!https?:\/\/|mailto:|tel:|#)[^)]+\)/g, '[附件: $1]')
   // 4. HTML <a> 附件链接（非 http/https href）
-  result = result.replace(/<a[^>]+href=["'](?!https?:\/\/|mailto:|tel:|#)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi, '[附件: $1]')
+  result = result.replace(
+    /<a[^>]+href=["'](?!https?:\/\/|mailto:|tel:|#)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi,
+    '[附件: $1]',
+  )
   // 5. <figure>/<figcaption> 包裹标签 → 仅保留内容
   result = result.replace(/<figure[^>]*>/gi, '')
   result = result.replace(/<\/figure>/gi, '')
@@ -293,7 +321,8 @@ function inferFileTypeFromContentType(contentType?: string | null): string | nul
   if (!ct) return null
   if (ct.includes('pdf')) return 'pdf'
   if (ct.includes('word') || ct.includes('officedocument.wordprocessingml')) return 'docx'
-  if (ct.includes('sheet') || ct.includes('excel') || ct.includes('officedocument.spreadsheetml')) return 'xlsx'
+  if (ct.includes('sheet') || ct.includes('excel') || ct.includes('officedocument.spreadsheetml'))
+    return 'xlsx'
   if (ct.startsWith('image/')) return 'image'
   if (ct.startsWith('audio/')) return 'audio'
   if (ct.includes('markdown')) return 'md'
@@ -311,16 +340,29 @@ function inferKbFileType(args: {
 }): string {
   const { mediaType, title, downloadUrl, contentType, currentType } = args
   const typeMap: Record<number, string> = {
-    1: 'pdf', 2: 'web', 3: 'docx', 4: 'ppt', 5: 'xlsx',
-    6: 'web', 7: 'md', 9: 'image', 11: 'note', 12: 'session',
-    13: 'txt', 14: 'xmind', 15: 'audio', 20: 'html',
+    1: 'pdf',
+    2: 'web',
+    3: 'docx',
+    4: 'ppt',
+    5: 'xlsx',
+    6: 'web',
+    7: 'md',
+    9: 'image',
+    11: 'note',
+    12: 'session',
+    13: 'txt',
+    14: 'xmind',
+    15: 'audio',
+    20: 'html',
   }
-  return typeMap[mediaType || 0]
-    || inferFileTypeFromName(title)
-    || inferFileTypeFromName(downloadUrl)
-    || inferFileTypeFromContentType(contentType)
-    || currentType
-    || 'unknown'
+  return (
+    typeMap[mediaType || 0] ||
+    inferFileTypeFromName(title) ||
+    inferFileTypeFromName(downloadUrl) ||
+    inferFileTypeFromContentType(contentType) ||
+    currentType ||
+    'unknown'
+  )
 }
 
 /**
@@ -355,11 +397,15 @@ export async function appendNote(env: Env, noteId: string, content: string): Pro
   const creds = await getCredentials(env)
   if (!creds) throw new Error('未配置 IMA 凭证')
 
-  const data = await imaPost('openapi/note/v1/append_doc', {
-    note_id: noteId,
-    content_format: 1, // MARKDOWN
-    content,
-  }, creds)
+  const data = await imaPost(
+    'openapi/note/v1/append_doc',
+    {
+      note_id: noteId,
+      content_format: 1, // MARKDOWN
+      content,
+    },
+    creds,
+  )
 
   return (data.note_id || noteId) as string
 }
@@ -376,7 +422,9 @@ export async function appendNote(env: Env, noteId: string, content: string): Pro
  * - DB 写入批量：collect dirty rows，每 50 条 db.batch 一次
  * - 同步期不下载图片附件，仅发 Queue；超预算返回 partial=true 让前端提示
  */
-export async function syncNotes(env: Env): Promise<{ synced: number; partial?: boolean; skipped?: number }> {
+export async function syncNotes(
+  env: Env,
+): Promise<{ synced: number; partial?: boolean; skipped?: number }> {
   const db = drizzle(env.DB, { schema })
   let syncedCount = 0
   let skippedCount = 0
@@ -426,31 +474,57 @@ export async function syncNotes(env: Env): Promise<{ synced: number; partial?: b
   }
 
   // 前置批量查询：一次性拉全部本地笔记进 Map，代替每条 SELECT（N→1 次 D1 往返）
-  const localRows = await db.select({
-    id: schema.imaNotes.id,
-    content: schema.imaNotes.content,
-    updatedAt: schema.imaNotes.updatedAt,
-  }).from(schema.imaNotes).where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
+  const localRows = await db
+    .select({
+      id: schema.imaNotes.id,
+      content: schema.imaNotes.content,
+      updatedAt: schema.imaNotes.updatedAt,
+    })
+    .from(schema.imaNotes)
+    .where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
   const localMap = new Map<string, { content: string; updatedAt: string | null }>()
-  for (const r of localRows) localMap.set(r.id, { content: r.content || '', updatedAt: r.updatedAt })
+  for (const r of localRows)
+    localMap.set(r.id, { content: r.content || '', updatedAt: r.updatedAt })
 
   // 收集 dirty rows 做批量写入
-  const upserts: Array<{ id: string; title: string; content: string; contentHtml: string; isUpdate: boolean }> = []
+  const upserts: Array<{
+    id: string
+    title: string
+    content: string
+    contentHtml: string
+    isUpdate: boolean
+  }> = []
   const FLUSH_THRESHOLD = 50
   const flushUpserts = async () => {
     if (upserts.length === 0) return
     // 分发为 update/insert 两条 batch（D1 batch 不支持 onConflict）
-    const updates = upserts.filter(u => u.isUpdate)
-    const inserts = upserts.filter(u => !u.isUpdate)
+    const updates = upserts.filter((u) => u.isUpdate)
+    const inserts = upserts.filter((u) => !u.isUpdate)
     const stmts: any[] = []
     for (const u of updates) {
-      stmts.push(db.update(schema.imaNotes)
-        .set({ title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi', updatedAt: nowBeijing() })
-        .where(eq(schema.imaNotes.id, u.id)))
+      stmts.push(
+        db
+          .update(schema.imaNotes)
+          .set({
+            title: u.title,
+            content: u.content,
+            contentHtml: u.contentHtml,
+            sourceFile: 'ima_openapi',
+            updatedAt: nowBeijing(),
+          })
+          .where(eq(schema.imaNotes.id, u.id)),
+      )
     }
     for (const u of inserts) {
-      stmts.push(db.insert(schema.imaNotes)
-        .values({ id: u.id, title: u.title, content: u.content, contentHtml: u.contentHtml, sourceFile: 'ima_openapi' }))
+      stmts.push(
+        db.insert(schema.imaNotes).values({
+          id: u.id,
+          title: u.title,
+          content: u.content,
+          contentHtml: u.contentHtml,
+          sourceFile: 'ima_openapi',
+        }),
+      )
     }
     if (stmts.length > 0) await db.batch(stmts as any)
     upserts.length = 0
@@ -475,7 +549,9 @@ export async function syncNotes(env: Env): Promise<{ synced: number; partial?: b
 
     // 墙钟预算检查（每 5 条检查一次，减少 Date.now() 调用）
     if (noteIdx % 5 === 0 && Date.now() - t0 > MAX_WALL_MS) {
-      console.warn(`[ima] syncNotes 墙钟预算耗尽 (已处理 ${noteIdx}/${allNotesMap.size})，剩余笔记下次同步`)
+      console.warn(
+        `[ima] syncNotes 墙钟预算耗尽 (已处理 ${noteIdx}/${allNotesMap.size})，剩余笔记下次同步`,
+      )
       partial = true
       skippedCount = allNotesMap.size - noteIdx + 1
       break
@@ -518,7 +594,9 @@ export async function syncNotes(env: Env): Promise<{ synced: number; partial?: b
   // partial 时跳过删除，避免把"未拉取到"的笔记误删
   if (rootFetchOk && allFoldersFetchedOk && !partial) {
     const imaNoteIds = Array.from(allNotesMap.keys())
-    const localImaNotes = await db.select({ id: schema.imaNotes.id }).from(schema.imaNotes)
+    const localImaNotes = await db
+      .select({ id: schema.imaNotes.id })
+      .from(schema.imaNotes)
       .where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
     const toDelete = localImaNotes.filter((n) => !imaNoteIds.includes(n.id))
     // 安全检查：仅当 IMA 端确实有笔记时才执行删除
@@ -554,10 +632,14 @@ export async function listAddableKnowledgeBases(env: Env) {
   let isEnd = false
 
   while (!isEnd) {
-    const data = await imaPost('openapi/wiki/v1/get_addable_knowledge_base_list', {
-      cursor,
-      limit: 50,
-    }, creds)
+    const data = await imaPost(
+      'openapi/wiki/v1/get_addable_knowledge_base_list',
+      {
+        cursor,
+        limit: 50,
+      },
+      creds,
+    )
     if (data.addable_knowledge_base_list) {
       bases.push(...data.addable_knowledge_base_list)
     }
@@ -602,9 +684,13 @@ export async function getMediaInfo(env: Env, mediaId: string) {
   const creds = await getCredentials(env)
   if (!creds) throw new Error('未配置 IMA 凭证')
 
-  const data = await imaPost('openapi/wiki/v1/get_media_info', {
-    media_id: mediaId,
-  }, creds)
+  const data = await imaPost(
+    'openapi/wiki/v1/get_media_info',
+    {
+      media_id: mediaId,
+    },
+    creds,
+  )
 
   return data
 }
@@ -669,7 +755,9 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
       }
 
       // 检查是否已存在
-      const existing = await db.select().from(schema.kbDocuments)
+      const existing = await db
+        .select()
+        .from(schema.kbDocuments)
         .where(eq(schema.kbDocuments.id, mediaId))
 
       // 获取媒体信息确定文件类型 + 下载 URL
@@ -724,9 +812,18 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
               const buf = await fileRes.arrayBuffer()
               // 按文件类型选扩展名（补全 ppt 键，避免落到 bin）
               const extMap: Record<string, string> = {
-                pdf: 'pdf', docx: 'docx', ppt: 'pptx', xlsx: 'xlsx',
-                md: 'md', txt: 'txt', image: 'img', web: 'html',
-                xmind: 'xmind', audio: 'mp3', html: 'html', session: '',
+                pdf: 'pdf',
+                docx: 'docx',
+                ppt: 'pptx',
+                xlsx: 'xlsx',
+                md: 'md',
+                txt: 'txt',
+                image: 'img',
+                web: 'html',
+                xmind: 'xmind',
+                audio: 'mp3',
+                html: 'html',
+                session: '',
               }
               const ext = extMap[fileType] || 'bin'
               r2Key = ext ? `ima/${mediaId}.${ext}` : `ima/${mediaId}`
@@ -758,8 +855,19 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
 
       // 已支持的文件类型集合：用于保护已有文档的已知类型不被降级
       const SUPPORTED_TYPES = new Set([
-        'pdf', 'docx', 'xlsx', 'image', 'txt', 'html', 'audio',
-        'md', 'ppt', 'web', 'note', 'session', 'xmind',
+        'pdf',
+        'docx',
+        'xlsx',
+        'image',
+        'txt',
+        'html',
+        'audio',
+        'md',
+        'ppt',
+        'web',
+        'note',
+        'session',
+        'xmind',
       ])
 
       if (existing.length > 0) {
@@ -769,7 +877,8 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
           fileType = oldType
         }
         const oldR2Key = existing[0].r2Key
-        await db.update(schema.kbDocuments)
+        await db
+          .update(schema.kbDocuments)
           .set({
             title: item.title || '无标题',
             fileType,
@@ -781,7 +890,9 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
           .where(eq(schema.kbDocuments.id, mediaId))
         // r2Key 变化时清理旧的 R2 对象，避免孤儿文件
         if (oldR2Key && oldR2Key !== r2Key) {
-          try { await env.STORAGE.delete(oldR2Key) } catch (e) {
+          try {
+            await env.STORAGE.delete(oldR2Key)
+          } catch (e) {
             console.error('[ima] 旧 R2 清理失败:', oldR2Key, e)
           }
         }
@@ -808,7 +919,9 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
 
   // 清理 IMA 端已删除的本地知识库文档及 R2 文件（所有 base 都拉取成功才执行）
   if (allBasesFetchedOk && allFetchedMediaIds.size > 0) {
-    const imaDocs = await db.select({ id: schema.kbDocuments.id, r2Key: schema.kbDocuments.r2Key }).from(schema.kbDocuments)
+    const imaDocs = await db
+      .select({ id: schema.kbDocuments.id, r2Key: schema.kbDocuments.r2Key })
+      .from(schema.kbDocuments)
       .where(like(schema.kbDocuments.r2Key, 'ima/%'))
     const ids = imaDocs.map((d) => d.id)
     const toDeleteIds = ids.filter((id) => !allFetchedMediaIds.has(id))
@@ -816,7 +929,9 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
       for (const id of toDeleteIds) {
         const doc = imaDocs.find((d) => d.id === id)
         if (doc?.r2Key) {
-          try { await env.STORAGE.delete(doc.r2Key) } catch (e) {
+          try {
+            await env.STORAGE.delete(doc.r2Key)
+          } catch (e) {
             console.error('[ima] 删除孤儿 R2 失败:', doc.r2Key, e)
           }
         }
@@ -827,7 +942,7 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
         const vectorIds = toDeleteIds.map((id) => `kb:${id}`)
         for (let i = 0; i < vectorIds.length; i += 50) {
           await env.VECTORIZE.deleteByIds(vectorIds.slice(i, i + 50)).catch((e) =>
-            console.error('[ima] KB vector cleanup batch failed:', e?.message)
+            console.error('[ima] KB vector cleanup batch failed:', e?.message),
           )
         }
       } catch (e) {
@@ -847,13 +962,28 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
 }
 
 // 获取 IMA 同步状态
-export async function getImaStatus(env: Env): Promise<{ authorized: boolean; lastSync: string | null }> {
+export async function getImaStatus(
+  env: Env,
+): Promise<{ authorized: boolean; lastSync: string | null }> {
   const db = drizzle(env.DB, { schema })
-  const clientIdRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'ima_client_id'))
-  const apiKeyRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'ima_api_key'))
-  const lastSyncRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'ima_last_sync'))
+  const clientIdRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'ima_client_id'))
+  const apiKeyRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'ima_api_key'))
+  const lastSyncRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'ima_last_sync'))
   return {
-    authorized: clientIdRow.length > 0 && !!clientIdRow[0].value && apiKeyRow.length > 0 && !!apiKeyRow[0].value,
+    authorized:
+      clientIdRow.length > 0 &&
+      !!clientIdRow[0].value &&
+      apiKeyRow.length > 0 &&
+      !!apiKeyRow[0].value,
     lastSync: lastSyncRow.length > 0 ? lastSyncRow[0].value : null,
   }
 }

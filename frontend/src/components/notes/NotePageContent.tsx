@@ -2,7 +2,12 @@ import { Suspense, lazy } from 'react'
 import type { Note } from '@/lib/api'
 
 const MarkdownPreview = lazy(async () => {
-  const [{ default: ReactMarkdown }, { default: remarkGfm }, { default: rehypeHighlight }, { default: rehypeRaw }] = await Promise.all([
+  const [
+    { default: ReactMarkdown },
+    { default: remarkGfm },
+    { default: rehypeHighlight },
+    { default: rehypeRaw },
+  ] = await Promise.all([
     import('react-markdown'),
     import('remark-gfm'),
     import('rehype-highlight'),

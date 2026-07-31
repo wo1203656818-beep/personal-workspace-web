@@ -1,4 +1,14 @@
-import { Coins, Pen, Shield, Zap, Palette, Lightbulb, Target, Feather, CreditCard } from 'lucide-react'
+import {
+  Coins,
+  Pen,
+  Shield,
+  Zap,
+  Palette,
+  Lightbulb,
+  Target,
+  Feather,
+  CreditCard,
+} from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { DecisionRules } from '@/components/tools/DecisionRules'
@@ -29,7 +39,9 @@ export function ToolsPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight md:text-2xl">工具箱</h1>
-            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">AI 文案 · 决策规则 · 趣味娱乐</p>
+            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
+              AI 文案 · 决策规则 · 趣味娱乐
+            </p>
           </div>
         </div>
       </div>
@@ -64,13 +76,19 @@ export function ToolsPage() {
           </TabsList>
         </div>
         <ScrollArea className="flex-1">
-          <TabsContent value="cyber-fortune" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
+          <TabsContent
+            value="cyber-fortune"
+            className="mt-0 p-4 data-[state=inactive]:hidden md:px-6"
+          >
             <CyberFortuneTool />
           </TabsContent>
           <TabsContent value="persona" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
             <DailyPersonaTool />
           </TabsContent>
-          <TabsContent value="inspiration" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
+          <TabsContent
+            value="inspiration"
+            className="mt-0 p-4 data-[state=inactive]:hidden md:px-6"
+          >
             <InspirationDrawerTool />
           </TabsContent>
           <TabsContent value="challenge" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
@@ -82,7 +100,10 @@ export function ToolsPage() {
           <TabsContent value="tarot" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
             <TarotTool />
           </TabsContent>
-          <TabsContent value="copywriting" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">
+          <TabsContent
+            value="copywriting"
+            className="mt-0 p-4 data-[state=inactive]:hidden md:px-6"
+          >
             <CopywritingTool />
           </TabsContent>
           <TabsContent value="rules" className="mt-0 p-4 data-[state=inactive]:hidden md:px-6">

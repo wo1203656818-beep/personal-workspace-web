@@ -20,7 +20,10 @@ export function DailyPersonaTool() {
       </div>
 
       {result ? (
-        <div className="rounded-xl border p-5 space-y-3" style={{ borderColor: result.luckyColor || undefined }}>
+        <div
+          className="rounded-xl border p-5 space-y-3"
+          style={{ borderColor: result.luckyColor || undefined }}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{result.date}</span>
             {result.cached && <span className="text-xs text-muted-foreground">今日已生成</span>}
@@ -35,7 +38,10 @@ export function DailyPersonaTool() {
             {result.luckyColor && (
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">幸运色:</span>
-                <div className="size-3 rounded-full border" style={{ backgroundColor: result.luckyColor }} />
+                <div
+                  className="size-3 rounded-full border"
+                  style={{ backgroundColor: result.luckyColor }}
+                />
               </div>
             )}
             {result.bgmStyle && (
@@ -50,7 +56,12 @@ export function DailyPersonaTool() {
               </div>
             )}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+          >
             <RefreshCw className={`size-3 mr-1 ${mutation.isPending ? 'animate-spin' : ''}`} />
             重新生成
           </Button>

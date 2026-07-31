@@ -36,13 +36,15 @@ export const kbApi = {
     })
   },
   summary: (id: string) => api.post(`kb/${id}/summary`).json<{ summary: string }>(),
-  ask: (id: string, question: string) => api.post(`kb/${id}/ask`, { json: { question } }).json<{ answer: string }>(),
-  globalAsk: (question: string, topK?: number) => api.post('kb/ask', { json: { question, topK } }).json<{ answer: string; sources: { title: string; snippet: string; score: number }[] }>(),
+  ask: (id: string, question: string) =>
+    api.post(`kb/${id}/ask`, { json: { question } }).json<{ answer: string }>(),
+  globalAsk: (question: string, topK?: number) =>
+    api
+      .post('kb/ask', { json: { question, topK } })
+      .json<{ answer: string; sources: { title: string; snippet: string; score: number }[] }>(),
   search: (q: string) => api.get('kb/search', { searchParams: { q } }).json<KbDocument[]>(),
-  getArrayBuffer: (id: string) =>
-    api.get(`kb/${id}/download`).arrayBuffer(),
-  getBlob: (id: string) =>
-    api.get(`kb/${id}/download`).blob(),
+  getArrayBuffer: (id: string) => api.get(`kb/${id}/download`).arrayBuffer(),
+  getBlob: (id: string) => api.get(`kb/${id}/download`).blob(),
   getBlobUrl: async (id: string): Promise<string> => {
     const blob = await kbApi.getBlob(id)
     return URL.createObjectURL(blob)

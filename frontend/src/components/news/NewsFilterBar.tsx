@@ -1,6 +1,12 @@
 import { Bookmark, Filter, Search, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
 
 export function NewsFilterBar({
   categories,
@@ -25,7 +31,7 @@ export function NewsFilterBar({
     <div className="flex items-center gap-3 flex-wrap">
       <div className="flex items-center gap-1.5 flex-wrap">
         <Filter className="w-4 h-4 text-muted-foreground" />
-        {categories.map(cat => (
+        {categories.map((cat) => (
           <button
             key={cat}
             onClick={() => onCategoryClick(cat)}
@@ -33,7 +39,7 @@ export function NewsFilterBar({
               'px-2.5 py-1 text-xs rounded-full border transition-colors',
               (cat === '收藏' ? showSaved : category === cat && !showSaved)
                 ? 'bg-primary text-primary-foreground border-primary'
-                : 'text-muted-foreground hover:bg-muted border-border'
+                : 'text-muted-foreground hover:bg-muted border-border',
             )}
           >
             {cat === '收藏' && <Bookmark className="w-3 h-3 inline mr-1" />}

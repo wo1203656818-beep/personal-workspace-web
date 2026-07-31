@@ -18,7 +18,8 @@ export function PrioritySuggestionsCard({
   regeneratePriorityMutation: { mutate: () => void; isPending: boolean }
 }) {
   if (currentView !== 'myday') return null
-  if (!priorityLoading && (!priorityData?.suggestions || priorityData.suggestions.length === 0)) return null
+  if (!priorityLoading && (!priorityData?.suggestions || priorityData.suggestions.length === 0))
+    return null
 
   return (
     <div className="mb-3 rounded-2xl border bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-3 md:p-4">
@@ -35,7 +36,9 @@ export function PrioritySuggestionsCard({
           disabled={regeneratePriorityMutation.isPending || priorityLoading}
           title="重新生成"
         >
-          <RefreshCw className={`size-3.5 ${regeneratePriorityMutation.isPending || priorityLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw
+            className={`size-3.5 ${regeneratePriorityMutation.isPending || priorityLoading ? 'animate-spin' : ''}`}
+          />
         </Button>
       </div>
       <div className="mt-2 space-y-2">
@@ -45,7 +48,7 @@ export function PrioritySuggestionsCard({
           </div>
         ) : (
           priorityData?.suggestions.map((s, idx) => {
-            const task = tasks.find(t => t.id === s.taskId)
+            const task = tasks.find((t) => t.id === s.taskId)
             if (!task) return null
             return (
               <div

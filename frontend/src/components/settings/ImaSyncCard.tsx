@@ -82,9 +82,13 @@ export function ImaSyncCard() {
       <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-3">
         <span className="text-sm font-medium text-muted-foreground">配置状态</span>
         {imaStatus?.authorized ? (
-          <Badge className="rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">已配置</Badge>
+          <Badge className="rounded-full bg-emerald-500 px-2.5 py-0.5 hover:bg-emerald-500">
+            已配置
+          </Badge>
         ) : (
-          <Badge variant="secondary" className="rounded-full px-2.5 py-0.5">未配置</Badge>
+          <Badge variant="secondary" className="rounded-full px-2.5 py-0.5">
+            未配置
+          </Badge>
         )}
       </div>
 
@@ -122,7 +126,9 @@ export function ImaSyncCard() {
             type="password"
             placeholder="接口密钥"
             value={apiKey}
-            onFocus={() => { if (apiKey === '••••••••') setApiKey('') }}
+            onFocus={() => {
+              if (apiKey === '••••••••') setApiKey('')
+            }}
             onChange={(e) => setApiKey(e.target.value)}
             className="rounded-lg"
           />
@@ -136,7 +142,9 @@ export function ImaSyncCard() {
             variant="outline"
             size="sm"
             disabled={!clientId || !apiKey || apiKey === '••••••••'}
-            onClick={() => saveCredsMutation.mutate({ ima_client_id: clientId, ima_api_key: apiKey })}
+            onClick={() =>
+              saveCredsMutation.mutate({ ima_client_id: clientId, ima_api_key: apiKey })
+            }
             className="gap-2 rounded-lg"
           >
             <Save className="size-4" /> 保存凭证

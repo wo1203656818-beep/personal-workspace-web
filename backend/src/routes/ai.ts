@@ -1,7 +1,21 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/d1'
-import { eq, and, or, isNotNull, isNull, like, desc, gte, gt, lt, asc, inArray, sql } from 'drizzle-orm'
+import {
+  eq,
+  and,
+  or,
+  isNotNull,
+  isNull,
+  like,
+  desc,
+  gte,
+  gt,
+  lt,
+  asc,
+  inArray,
+  sql,
+} from 'drizzle-orm'
 import * as schema from '../schema'
 import type { Env } from '../types'
 import { callAI } from '../utils/ai-client'
@@ -9,82 +23,109 @@ import { embedText, indexTarget } from '../utils/vectorize'
 import { normalizeSearchText, lexicalScore, buildSnippet } from '../utils/search'
 import { kvCacheGet, kvCacheSet, kvCacheDeletePrefix } from '../utils/kv-cache'
 import { syncParentCompletion, normalizeDate, getISOWeek } from '../utils/helpers'
-import { nowBeijing, todayBeijing, nowCST, todayCST } from '../time'
+import { nowBeijing, todayBeijing, nowCST, todayCST, formatBeijing } from '../time'
 
 const ai = new Hono<{ Bindings: Env }>()
 
 // AI 拆解子任务（支持直接在服务端创建，避免前端 N 次串行请求）
 ai.post('/breakdown', async (c) => {
-    try {
-      const { taskTitle, taskId } = await c.req.json()
-      if (!taskTitle) return c.json({ error: '任务标题不能为空' }, 400)
+  try {
+    const { taskTitle, taskId } = await c.req.json()
+    if (!taskTitle) return c.json({ error: '任务标题不能为空' }, 400)
 
-      const text = await callAI(c.env, [
+    const text = await callAI(
+      c.env,
+      [
         {
           role: 'system',
-          content: '你是任务拆解专家。将任务拆解为3-7个可执行子步骤。每行只写一个步骤，不要编号、不要 JSON、不要额外说明。'
+          content:
+            '你是任务拆解专家。将任务拆解为3-7个可执行子步骤。每行只写一个步骤，不要编号、不要 JSON、不要额外说明。',
         },
-        { role: 'user', content: `任务：${taskTitle}` }
-      ], { maxTokens: 1024 })
+        { role: 'user', content: `任务：${taskTitle}` },
+      ],
+      { maxTokens: 1024 },
+    )
 
-      if (!text || typeof text !== 'string') {
-        return c.json({ subtasks: [] })
-      }
-
-      // 优先尝试解析 JSON 数组，失败则按行拆分
-      const match = text.match(/\[[\s\S]*\]/)
-      let parsedTitles: string[] = []
-      if (match) {
-        try {
-          const parsed = JSON.parse(match[0])
-          if (Array.isArray(parsed)) {
-            parsedTitles = parsed.filter((item: any) => item && item.title).map((item: any) => String(item.title).trim()).filter(Boolean)
-          }
-        } catch { /* ignore */ }
-      }
-
-      if (parsedTitles.length === 0) {
-        parsedTitles = text
-          .split(/\n/)
-          .map((line) => line.replace(/^\s*[-\d\.\*]+\s*/, '').trim())
-          .filter((line) => line.length > 0 && line.length < 200)
-          .slice(0, 10)
-      }
-
-      // 若传了 taskId，直接在服务端创建子任务（免前端逐个请求）
-      if (taskId) {
-        const db = drizzle(c.env.DB, { schema })
-        const now = nowBeijing()
-        const created: { id: string; title: string }[] = []
-        for (const title of parsedTitles) {
-          const id = crypto.randomUUID()
-          await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: created.length + 1, createdAt: now })
-          // 非阻塞索引嵌入
-          c.executionCtx.waitUntil(
-            indexTarget(c, 'subtask', id, title).catch((e) => console.error('[embed] ai subtask failed:', e?.message))
-          )
-          created.push({ id, title })
-        }
-        // 批量创建完成后同步一次父任务完成态
-        await syncParentCompletion(db, taskId)
-        // 令父任务嵌入中包含新子任务信息
-        const parentTitles = parsedTitles.join(', ')
-        const parentTask = await db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note }).from(schema.tasks).where(eq(schema.tasks.id, taskId))
-        if (parentTask[0]) {
-          c.executionCtx.waitUntil(
-            indexTarget(c, 'task', taskId, `${parentTask[0].title}\n${parentTask[0].note || ''}\n${parentTitles}`).catch(() => {})
-          )
-        }
-        return c.json({ subtasks: created, created: true })
-      }
-
-      // 未传 taskId 时兼容旧行为（仅返回标题列表）
-      return c.json({ subtasks: parsedTitles.map((title) => ({ title })) })
-    } catch (e: any) {
-      console.error('[ai/breakdown] error:', e?.message || e)
-      return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)
+    if (!text || typeof text !== 'string') {
+      return c.json({ subtasks: [] })
     }
-  })
+
+    // 优先尝试解析 JSON 数组，失败则按行拆分
+    const match = text.match(/\[[\s\S]*\]/)
+    let parsedTitles: string[] = []
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0])
+        if (Array.isArray(parsed)) {
+          parsedTitles = parsed
+            .filter((item: any) => item && item.title)
+            .map((item: any) => String(item.title).trim())
+            .filter(Boolean)
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (parsedTitles.length === 0) {
+      parsedTitles = text
+        .split(/\n/)
+        .map((line) => line.replace(/^\s*[-\d.*]+\s*/, '').trim())
+        .filter((line) => line.length > 0 && line.length < 200)
+        .slice(0, 10)
+    }
+
+    // 若传了 taskId，直接在服务端创建子任务（免前端逐个请求）
+    if (taskId) {
+      const db = drizzle(c.env.DB, { schema })
+      const now = nowBeijing()
+      const created: { id: string; title: string }[] = []
+      for (const title of parsedTitles) {
+        const id = crypto.randomUUID()
+        await db.insert(schema.subtasks).values({
+          id,
+          taskId,
+          title,
+          isCompleted: false,
+          sortOrder: created.length + 1,
+          createdAt: now,
+        })
+        // 非阻塞索引嵌入
+        c.executionCtx.waitUntil(
+          indexTarget(c, 'subtask', id, title).catch((e) =>
+            console.error('[embed] ai subtask failed:', e?.message),
+          ),
+        )
+        created.push({ id, title })
+      }
+      // 批量创建完成后同步一次父任务完成态
+      await syncParentCompletion(db, taskId)
+      // 令父任务嵌入中包含新子任务信息
+      const parentTitles = parsedTitles.join(', ')
+      const parentTask = await db
+        .select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, taskId))
+      if (parentTask[0]) {
+        c.executionCtx.waitUntil(
+          indexTarget(
+            c,
+            'task',
+            taskId,
+            `${parentTask[0].title}\n${parentTask[0].note || ''}\n${parentTitles}`,
+          ).catch(() => {}),
+        )
+      }
+      return c.json({ subtasks: created, created: true })
+    }
+
+    // 未传 taskId 时兼容旧行为（仅返回标题列表）
+    return c.json({ subtasks: parsedTitles.map((title) => ({ title })) })
+  } catch (e: any) {
+    console.error('[ai/breakdown] error:', e?.message || e)
+    return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)
+  }
+})
 
 // AI 数据分析（带 1 小时 KV 缓存，减少重复 AI 调用）
 ai.post('/analysis', async (c) => {
@@ -110,9 +151,18 @@ ai.post('/analysis', async (c) => {
     : isNull(schema.tasks.msTodoDeletedAt)
 
   const [totalTasksRow, completedTasksRow, importantTasksRow, notesCountRow] = await Promise.all([
-    db.select({ count: sql<number>`COUNT(*)` }).from(schema.tasks).where(taskWhere),
-    db.select({ count: sql<number>`COUNT(*)` }).from(schema.tasks).where(and(taskWhere, eq(schema.tasks.isCompleted, true))),
-    db.select({ count: sql<number>`COUNT(*)` }).from(schema.tasks).where(and(taskWhere, eq(schema.tasks.isImportant, true))),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.tasks)
+      .where(taskWhere),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.tasks)
+      .where(and(taskWhere, eq(schema.tasks.isCompleted, true))),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.tasks)
+      .where(and(taskWhere, eq(schema.tasks.isImportant, true))),
     db.select({ count: sql<number>`COUNT(*)` }).from(schema.imaNotes),
   ])
 
@@ -125,7 +175,9 @@ ai.post('/analysis', async (c) => {
     dailyMap[d.toISOString().split('T')[0]] = 0
   }
   // 仅需 completed + updatedAt 在范围内的任务，用索引覆盖列减少 IO
-  const completedTasks = await db.select({ updatedAt: schema.tasks.updatedAt }).from(schema.tasks)
+  const completedTasks = await db
+    .select({ updatedAt: schema.tasks.updatedAt })
+    .from(schema.tasks)
     .where(and(taskWhere, eq(schema.tasks.isCompleted, true)))
   for (const t of completedTasks) {
     if (!t.updatedAt) continue
@@ -146,9 +198,10 @@ ai.post('/analysis', async (c) => {
     const analysis = await callAI(c.env, [
       {
         role: 'system',
-        content: '你是数据分析专家。根据以下数据生成简洁的中文分析报告，包含趋势洞察和建议。200字以内。'
+        content:
+          '你是数据分析专家。根据以下数据生成简洁的中文分析报告，包含趋势洞察和建议。200字以内。',
       },
-      { role: 'user', content: JSON.stringify(stats) }
+      { role: 'user', content: JSON.stringify(stats) },
     ])
     const response = { analysis, stats }
 
@@ -173,9 +226,18 @@ ai.post('/weekly-report', async (c) => {
 
     const taskWhere = and(gte(schema.tasks.createdAt, since), isNull(schema.tasks.msTodoDeletedAt))
     const [[weekTasksRow], [completedTasksRow], [weekNotesRow]] = await Promise.all([
-      db.select({ count: sql<number>`COUNT(*)` }).from(schema.tasks).where(taskWhere),
-      db.select({ count: sql<number>`COUNT(*)` }).from(schema.tasks).where(and(taskWhere, eq(schema.tasks.isCompleted, true))),
-      db.select({ count: sql<number>`COUNT(*)` }).from(schema.imaNotes).where(gte(schema.imaNotes.importedAt, since)),
+      db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(schema.tasks)
+        .where(taskWhere),
+      db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(schema.tasks)
+        .where(and(taskWhere, eq(schema.tasks.isCompleted, true))),
+      db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(schema.imaNotes)
+        .where(gte(schema.imaNotes.importedAt, since)),
     ])
 
     const weekTasksCount = weekTasksRow?.count ?? 0
@@ -184,29 +246,42 @@ ai.post('/weekly-report', async (c) => {
 
     const summary = `本周新增任务 ${weekTasksCount} 个，完成 ${completedTasksCount} 个，新增笔记 ${weekNotesCount} 篇。`
 
-    const report = await callAI(c.env, [{
-      role: 'system',
-      content: `你是一个个人助手，根据用户本周的工作数据生成一份周报。请用中文输出，包含：本周成就、待改进、下周建议三个部分，每部分 2-3 句话。`
-    }, {
-      role: 'user',
-      content: summary
-    }])
+    const report = await callAI(c.env, [
+      {
+        role: 'system',
+        content: `你是一个个人助手，根据用户本周的工作数据生成一份周报。请用中文输出，包含：本周成就、待改进、下周建议三个部分，每部分 2-3 句话。`,
+      },
+      {
+        role: 'user',
+        content: summary,
+      },
+    ])
 
     // 存入 settings 表（key: weekly_report_YYYYWww，ISO 周）
     const { year, week } = getISOWeek(new Date())
     const reportKey = `weekly_report_${year}W${week.toString().padStart(2, '0')}`
-    await db.insert(schema.settings).values({ key: reportKey, value: report }).onConflictDoUpdate({
-      target: schema.settings.key,
-      set: { value: report, updatedAt: nowBeijing() },
-    })
+    await db
+      .insert(schema.settings)
+      .values({ key: reportKey, value: report })
+      .onConflictDoUpdate({
+        target: schema.settings.key,
+        set: { value: report, updatedAt: nowBeijing() },
+      })
 
     // 保留最近 52 周周报，删除更旧的数据避免 settings 无限增长
-    const allReports = await db.select({ key: schema.settings.key }).from(schema.settings)
+    const allReports = await db
+      .select({ key: schema.settings.key })
+      .from(schema.settings)
       .where(like(schema.settings.key, 'weekly_report_%'))
       .orderBy(desc(schema.settings.key))
     const oldReports = allReports.slice(52)
     if (oldReports.length > 0) {
-      await db.delete(schema.settings).where(inArray(schema.settings.key, oldReports.map((r) => r.key)))
+      await db.delete(schema.settings).where(
+        inArray(
+          schema.settings.key,
+          oldReports.map((r) => r.key),
+        ),
+      )
     }
 
     return c.json({ report, week: `${year}-W${week}` })
@@ -221,10 +296,14 @@ ai.post('/weekly-report', async (c) => {
 ai.get('/weekly-reports', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
-    const reports = await db.select().from(schema.settings)
+    const reports = await db
+      .select()
+      .from(schema.settings)
       .where(like(schema.settings.key, 'weekly_report_%'))
       .orderBy(desc(schema.settings.key))
-    return c.json(reports.map(s => ({ week: s.key.replace('weekly_report_', ''), report: s.value })))
+    return c.json(
+      reports.map((s) => ({ week: s.key.replace('weekly_report_', ''), report: s.value })),
+    )
   } catch (e: any) {
     console.error('[weekly-reports] error:', e)
     return c.json({ error: e.message || String(e) }, 500)
@@ -243,50 +322,62 @@ ai.post('/digest', async (c) => {
 
   try {
     // 我的一天任务（未完成）
-    const myDayTasks = await db.select().from(schema.tasks)
-      .where(and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
+    const myDayTasks = await db
+      .select()
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.isMyDay, true),
+          eq(schema.tasks.isCompleted, false),
+          isNull(schema.tasks.msTodoDeletedAt),
+        ),
+      )
 
     // 今日到期或已过期未完成任务
-    const dueTasks = await db.select().from(schema.tasks)
-      .where(and(
-        eq(schema.tasks.isCompleted, false),
-        isNull(schema.tasks.msTodoDeletedAt),
-        or(
-          eq(schema.tasks.dueDate, today),
-          and(isNotNull(schema.tasks.dueDate), lt(schema.tasks.dueDate, today))
-        )
-      ))
+    const dueTasks = await db
+      .select()
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.isCompleted, false),
+          isNull(schema.tasks.msTodoDeletedAt),
+          or(
+            eq(schema.tasks.dueDate, today),
+            and(isNotNull(schema.tasks.dueDate), lt(schema.tasks.dueDate, today)),
+          ),
+        ),
+      )
 
     // 最近 3 天新增笔记（用北京时间日期计算）
     const now = new Date()
     const threeDaysAgoDate = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-    const fmt3d = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: false,
-    })
-    const parts3d = fmt3d.formatToParts(threeDaysAgoDate)
-    const g3 = (type: string) => parts3d.find(p => p.type === type)?.value || '00'
-    const threeDaysAgo = `${g3('year')}-${g3('month')}-${g3('day')}T${g3('hour')}:${g3('minute')}:${g3('second')}+08:00`
-    const recentNotes = await db.select().from(schema.imaNotes)
+    const threeDaysAgo = formatBeijing(threeDaysAgoDate)
+    const recentNotes = await db
+      .select()
+      .from(schema.imaNotes)
       .where(gte(schema.imaNotes.importedAt, threeDaysAgo))
       .orderBy(desc(schema.imaNotes.importedAt))
       .limit(10)
 
-    const myDayTitles = myDayTasks.map(t => t.title).slice(0, 10)
-    const dueTitles = dueTasks.map(t => `${t.title}${t.dueDate && t.dueDate < today ? '（已过期）' : ''}`).slice(0, 10)
-    const noteTitles = recentNotes.map(n => n.title).slice(0, 10)
+    const myDayTitles = myDayTasks.map((t) => t.title).slice(0, 10)
+    const dueTitles = dueTasks
+      .map((t) => `${t.title}${t.dueDate && t.dueDate < today ? '（已过期）' : ''}`)
+      .slice(0, 10)
+    const noteTitles = recentNotes.map((n) => n.title).slice(0, 10)
 
     const prompt = `你是个人助理。根据以下信息生成一段 150 字以内的今日简报，包含今日重点和一句建议，中文输出：
 - 我的一天任务（未完成）：${myDayTitles.join('、') || '无'}
 - 今日到期或已过期任务：${dueTitles.join('、') || '无'}
 - 最近 3 天笔记：${noteTitles.join('、') || '无'}`
 
-    const digest = await callAI(c.env, [
-      { role: 'system', content: '你是个人助理，用简洁、温暖的语气生成今日简报。' },
-      { role: 'user', content: prompt },
-    ], { maxTokens: 300 })
+    const digest = await callAI(
+      c.env,
+      [
+        { role: 'system', content: '你是个人助理，用简洁、温暖的语气生成今日简报。' },
+        { role: 'user', content: prompt },
+      ],
+      { maxTokens: 300 },
+    )
 
     const trimmed = digest.trim()
     await kvCacheSet(c.env, cacheKey, trimmed, cacheTTL)
@@ -300,7 +391,10 @@ ai.post('/digest', async (c) => {
 
 // AI 笔记辅助：总结 / 要点 / 转任务
 ai.post('/note-summary', async (c) => {
-  const { noteId, action } = await c.req.json<{ noteId: string; action: 'summary' | 'points' | 'to-task' }>()
+  const { noteId, action } = await c.req.json<{
+    noteId: string
+    action: 'summary' | 'points' | 'to-task'
+  }>()
   if (!noteId) return c.json({ error: 'noteId 必填' }, 400)
   const db = drizzle(c.env.DB, { schema })
   const note = await db.select().from(schema.imaNotes).where(eq(schema.imaNotes.id, noteId)).get()
@@ -315,10 +409,14 @@ ai.post('/note-summary', async (c) => {
   if (!content.trim()) return c.json({ result: '' })
 
   try {
-    const result = await callAI(c.env, [
-      { role: 'system', content: prompts[action] || prompts.summary },
-      { role: 'user', content },
-    ], { maxTokens: action === 'summary' ? 400 : 300 })
+    const result = await callAI(
+      c.env,
+      [
+        { role: 'system', content: prompts[action] || prompts.summary },
+        { role: 'user', content },
+      ],
+      { maxTokens: action === 'summary' ? 400 : 300 },
+    )
     return c.json({ result })
   } catch (e: any) {
     console.error('[ai/note-summary] error:', e)
@@ -335,7 +433,10 @@ ai.post('/semantic-search', async (c) => {
   const queryNorm = query.trim().toLowerCase()
   const cacheKeyBase = `${queryNorm}:${topK}`
   const cacheKeyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(cacheKeyBase))
-  const cacheKey = `ai:search:${Array.from(new Uint8Array(cacheKeyHash)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16)}`
+  const cacheKey = `ai:search:${Array.from(new Uint8Array(cacheKeyHash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 16)}`
   const cacheTTLSeconds = 300 // 5 min
   const cacheTTLMs = cacheTTLSeconds * 1000
   const db = drizzle(c.env.DB, { schema })
@@ -377,21 +478,70 @@ ai.post('/semantic-search', async (c) => {
   }
 
   const [notes, tasks, subtasks, kbDocs] = await Promise.all([
-    idsByType.note.length ? db.select({ id: schema.imaNotes.id, title: schema.imaNotes.title, content: schema.imaNotes.content }).from(schema.imaNotes).where(inArray(schema.imaNotes.id, idsByType.note)) : [],
-    idsByType.task.length ? db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note, isCompleted: schema.tasks.isCompleted, isImportant: schema.tasks.isImportant, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(and(inArray(schema.tasks.id, idsByType.task), isNull(schema.tasks.msTodoDeletedAt))) : [],
-    idsByType.subtask.length ? db.select({ id: schema.subtasks.id, title: schema.subtasks.title, taskId: schema.subtasks.taskId }).from(schema.subtasks).where(inArray(schema.subtasks.id, idsByType.subtask)) : [],
-    idsByType.kb.length ? db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments).where(inArray(schema.kbDocuments.id, idsByType.kb)) : [],
+    idsByType.note.length
+      ? db
+          .select({
+            id: schema.imaNotes.id,
+            title: schema.imaNotes.title,
+            content: schema.imaNotes.content,
+          })
+          .from(schema.imaNotes)
+          .where(inArray(schema.imaNotes.id, idsByType.note))
+      : [],
+    idsByType.task.length
+      ? db
+          .select({
+            id: schema.tasks.id,
+            title: schema.tasks.title,
+            note: schema.tasks.note,
+            isCompleted: schema.tasks.isCompleted,
+            isImportant: schema.tasks.isImportant,
+            dueDate: schema.tasks.dueDate,
+          })
+          .from(schema.tasks)
+          .where(
+            and(inArray(schema.tasks.id, idsByType.task), isNull(schema.tasks.msTodoDeletedAt)),
+          )
+      : [],
+    idsByType.subtask.length
+      ? db
+          .select({
+            id: schema.subtasks.id,
+            title: schema.subtasks.title,
+            taskId: schema.subtasks.taskId,
+          })
+          .from(schema.subtasks)
+          .where(inArray(schema.subtasks.id, idsByType.subtask))
+      : [],
+    idsByType.kb.length
+      ? db
+          .select({
+            id: schema.kbDocuments.id,
+            title: schema.kbDocuments.title,
+            content: schema.kbDocuments.content,
+          })
+          .from(schema.kbDocuments)
+          .where(inArray(schema.kbDocuments.id, idsByType.kb))
+      : [],
   ])
 
   // 4. 构建 D1 记录查找表 + 文本
   const recordMap = new Map<string, { title: string; text: string }>()
-  for (const n of notes) recordMap.set(`note:${n.id}`, { title: n.title, text: `${n.title}\n${n.content || ''}`.slice(0, 4000) })
+  for (const n of notes)
+    recordMap.set(`note:${n.id}`, {
+      title: n.title,
+      text: `${n.title}\n${n.content || ''}`.slice(0, 4000),
+    })
   for (const t of tasks) {
     const meta = `${t.isCompleted ? '已完成' : '未完成'}\n${t.isImportant ? '重要' : ''}\n${t.dueDate ? '截止: ' + t.dueDate : ''}`
-    recordMap.set(`task:${t.id}`, { title: t.title, text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000) })
+    recordMap.set(`task:${t.id}`, {
+      title: t.title,
+      text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000),
+    })
   }
   for (const st of subtasks) recordMap.set(`subtask:${st.id}`, { title: st.title, text: st.title })
-  for (const k of kbDocs) recordMap.set(`kb:${k.id}`, { title: k.title, text: `${k.title}\n${k.content}`.slice(0, 4000) })
+  for (const k of kbDocs)
+    recordMap.set(`kb:${k.id}`, { title: k.title, text: `${k.title}\n${k.content}`.slice(0, 4000) })
 
   // 5. 综合评分（语义 + 词法 + 标题加权），Vectorize score 已是余弦相似度
   const scored: { type: string; id: string; title: string; snippet: string; score: number }[] = []
@@ -403,7 +553,9 @@ ai.post('/semantic-search', async (c) => {
     if (!record) continue // D1 中已删除的记录，跳过
     const semantic = m.score
     const lexical = lexicalScore(query, record.title, record.text)
-    const titleBoost = normalizeSearchText(record.title).includes(normalizeSearchText(query)) ? 0.08 : 0
+    const titleBoost = normalizeSearchText(record.title).includes(normalizeSearchText(query))
+      ? 0.08
+      : 0
     const finalScore = Math.min(1, semantic * 0.72 + lexical + titleBoost)
     scored.push({
       type: meta.type,
@@ -429,21 +581,57 @@ ai.post('/semantic-search', async (c) => {
 ai.post('/reindex', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
-    const notes = await db.select({ id: schema.imaNotes.id, title: schema.imaNotes.title, content: schema.imaNotes.content }).from(schema.imaNotes)
-    const tasks = await db.select({ id: schema.tasks.id, title: schema.tasks.title, note: schema.tasks.note, isCompleted: schema.tasks.isCompleted, isImportant: schema.tasks.isImportant, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(isNull(schema.tasks.msTodoDeletedAt))
-    const subtasks = await db.select({ id: schema.subtasks.id, title: schema.subtasks.title }).from(schema.subtasks)
-    const kb = await db.select({ id: schema.kbDocuments.id, title: schema.kbDocuments.title, content: schema.kbDocuments.content }).from(schema.kbDocuments)
+    const notes = await db
+      .select({
+        id: schema.imaNotes.id,
+        title: schema.imaNotes.title,
+        content: schema.imaNotes.content,
+      })
+      .from(schema.imaNotes)
+    const tasks = await db
+      .select({
+        id: schema.tasks.id,
+        title: schema.tasks.title,
+        note: schema.tasks.note,
+        isCompleted: schema.tasks.isCompleted,
+        isImportant: schema.tasks.isImportant,
+        dueDate: schema.tasks.dueDate,
+      })
+      .from(schema.tasks)
+      .where(isNull(schema.tasks.msTodoDeletedAt))
+    const subtasks = await db
+      .select({ id: schema.subtasks.id, title: schema.subtasks.title })
+      .from(schema.subtasks)
+    const kb = await db
+      .select({
+        id: schema.kbDocuments.id,
+        title: schema.kbDocuments.title,
+        content: schema.kbDocuments.content,
+      })
+      .from(schema.kbDocuments)
 
     // 构建全部待索引文本
     type Pending = { type: 'note' | 'task' | 'kb' | 'subtask'; id: string; text: string }
     const pending: Pending[] = []
-    for (const n of notes) pending.push({ type: 'note', id: n.id, text: `${n.title}\n${n.content || ''}`.slice(0, 4000) })
+    for (const n of notes)
+      pending.push({
+        type: 'note',
+        id: n.id,
+        text: `${n.title}\n${n.content || ''}`.slice(0, 4000),
+      })
     for (const t of tasks) {
       const meta = `${t.isCompleted ? '已完成' : '未完成'}\n${t.isImportant ? '重要' : ''}\n${t.dueDate ? '截止: ' + t.dueDate : ''}`
-      pending.push({ type: 'task', id: t.id, text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000) })
+      pending.push({
+        type: 'task',
+        id: t.id,
+        text: `${t.title}\n${t.note || ''}\n${meta}`.slice(0, 4000),
+      })
     }
     for (const st of subtasks) pending.push({ type: 'subtask', id: st.id, text: st.title })
-    for (const k of kb) { if (k.content?.trim()) pending.push({ type: 'kb', id: k.id, text: `${k.title}\n${k.content}`.slice(0, 4000) }) }
+    for (const k of kb) {
+      if (k.content?.trim())
+        pending.push({ type: 'kb', id: k.id, text: `${k.title}\n${k.content}`.slice(0, 4000) })
+    }
 
     // 批量嵌入 + upsert（每批 25 条，控制 AI 调用并发）
     let count = 0
@@ -455,17 +643,27 @@ ai.post('/reindex', async (c) => {
       for (const item of batch) {
         try {
           const vec = await embedText(c, item.text)
-          vectors.push({ id: `${item.type}:${item.id}`, values: vec, metadata: { type: item.type, targetId: item.id } })
+          vectors.push({
+            id: `${item.type}:${item.id}`,
+            values: vec,
+            metadata: { type: item.type, targetId: item.id },
+          })
           count++
         } catch (e: any) {
           console.error('[reindex] 嵌入失败，跳过', item.type, item.id, e?.message)
         }
       }
       if (vectors.length > 0) {
-        try { await c.env.VECTORIZE.upsert(vectors) } catch (e: any) {
+        try {
+          await c.env.VECTORIZE.upsert(vectors)
+        } catch (e: any) {
           console.error('[reindex] 批量 upsert 失败，降级逐条', e?.message)
           for (const v of vectors) {
-            try { await c.env.VECTORIZE.upsert([v]) } catch { /* skip */ }
+            try {
+              await c.env.VECTORIZE.upsert([v])
+            } catch {
+              /* skip */
+            }
           }
         }
       }
@@ -482,7 +680,9 @@ ai.post('/parse-task', async (c) => {
   const { text } = await c.req.json<{ text: string }>()
   if (!text || !text.trim()) return c.json({ error: 'text 必填' }, 400)
   const db = drizzle(c.env.DB, { schema })
-  const lists = await db.select({ id: schema.taskLists.id, name: schema.taskLists.name }).from(schema.taskLists)
+  const lists = await db
+    .select({ id: schema.taskLists.id, name: schema.taskLists.name })
+    .from(schema.taskLists)
   const listNames = lists.map((l) => l.name).join('、') || '（暂无列表）'
   const system = `你是一个任务解析助手。用户用一句话描述要做的事，请提取结构化任务并只输出一个严格 JSON 对象（不要解释、不要 markdown 代码块、不要反引号），字段：
 {"title": string, "dueDate": string|null, "listName": string|null, "note": string|null}
@@ -492,29 +692,55 @@ ai.post('/parse-task', async (c) => {
 - note：补充说明，没有则 null。
 候选列表：${listNames}`
   try {
-    const raw = await callAI(c.env, [
-      { role: 'system', content: system },
-      { role: 'user', content: text },
-    ], { maxTokens: 300 })
+    const raw = await callAI(
+      c.env,
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: text },
+      ],
+      { maxTokens: 300 },
+    )
     let parsed: any = null
     try {
-      parsed = JSON.parse(raw.trim().replace(/^```json\s*|```$/g, '').trim())
+      parsed = JSON.parse(
+        raw
+          .trim()
+          .replace(/^```json\s*|```$/g, '')
+          .trim(),
+      )
     } catch {
       parsed = null
     }
     if (!parsed || !parsed.title) {
       // 回退：整句作标题
-      return c.json({ task: { title: text.trim(), dueDate: null, listName: null, note: null, listId: lists[0]?.id ?? null } })
+      return c.json({
+        task: {
+          title: text.trim(),
+          dueDate: null,
+          listName: null,
+          note: null,
+          listId: lists[0]?.id ?? null,
+        },
+      })
     }
     let listId: string | null = null
     if (parsed.listName) {
-      const match = lists.find((l) => l.name === parsed.listName)
-        || lists.find((l) => parsed.listName.includes(l.name) || l.name.includes(parsed.listName))
+      const match =
+        lists.find((l) => l.name === parsed.listName) ||
+        lists.find((l) => parsed.listName.includes(l.name) || l.name.includes(parsed.listName))
       listId = match?.id ?? null
     }
     // 统一日期格式为 yyyy-MM-dd
     const dueDate = normalizeDate(parsed.dueDate)
-    return c.json({ task: { title: parsed.title, dueDate, listName: parsed.listName ?? null, note: parsed.note ?? null, listId } })
+    return c.json({
+      task: {
+        title: parsed.title,
+        dueDate,
+        listName: parsed.listName ?? null,
+        note: parsed.note ?? null,
+        listId,
+      },
+    })
   } catch (e: any) {
     console.error('[parse-task] AI 调用失败:', e)
     return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)
@@ -532,23 +758,24 @@ ai.post('/priority-suggestions', async (c) => {
   if (cached) return c.json({ suggestions: cached, cached: true })
 
   try {
-    const candidates = await db.select({
-      id: schema.tasks.id,
-      title: schema.tasks.title,
-      note: schema.tasks.note,
-      isImportant: schema.tasks.isImportant,
-      isMyDay: schema.tasks.isMyDay,
-      dueDate: schema.tasks.dueDate,
-    }).from(schema.tasks).where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt)
-    )).orderBy(asc(schema.tasks.dueDate))
+    const candidates = await db
+      .select({
+        id: schema.tasks.id,
+        title: schema.tasks.title,
+        note: schema.tasks.note,
+        isImportant: schema.tasks.isImportant,
+        isMyDay: schema.tasks.isMyDay,
+        dueDate: schema.tasks.dueDate,
+      })
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)))
+      .orderBy(asc(schema.tasks.dueDate))
 
     if (candidates.length === 0) {
       return c.json({ suggestions: [], cached: false })
     }
 
-    const items = candidates.slice(0, 20).map(t => ({
+    const items = candidates.slice(0, 20).map((t) => ({
       id: t.id,
       title: t.title,
       isImportant: t.isImportant,
@@ -562,16 +789,30 @@ ai.post('/priority-suggestions', async (c) => {
 今天是 ${today}。
 候选任务：${JSON.stringify(items)}`
 
-    const raw = await callAI(c.env, [
-      { role: 'system', content: '你是时间管理助手，擅长根据截止日期、重要性和「我的一天」标记判断优先级。' },
-      { role: 'user', content: prompt },
-    ], { maxTokens: 400 })
+    const raw = await callAI(
+      c.env,
+      [
+        {
+          role: 'system',
+          content: '你是时间管理助手，擅长根据截止日期、重要性和「我的一天」标记判断优先级。',
+        },
+        { role: 'user', content: prompt },
+      ],
+      { maxTokens: 400 },
+    )
 
     let suggestions: { taskId: string; reason: string }[] = []
     try {
-      const parsed = JSON.parse(raw.trim().replace(/^```json\s*|```$/g, '').trim())
+      const parsed = JSON.parse(
+        raw
+          .trim()
+          .replace(/^```json\s*|```$/g, '')
+          .trim(),
+      )
       if (Array.isArray(parsed)) {
-        suggestions = parsed.filter((p: any) => items.some((i: any) => i.id === p.taskId) && typeof p.reason === 'string')
+        suggestions = parsed.filter(
+          (p: any) => items.some((i: any) => i.id === p.taskId) && typeof p.reason === 'string',
+        )
       }
     } catch {
       suggestions = []
@@ -592,17 +833,25 @@ ai.post('/suggest-list', async (c) => {
   if (!title || !title.trim()) return c.json({ listId: null, listName: null }, 400)
 
   const db = drizzle(c.env.DB, { schema })
-  const lists = await db.select({ id: schema.taskLists.id, name: schema.taskLists.name }).from(schema.taskLists)
+  const lists = await db
+    .select({ id: schema.taskLists.id, name: schema.taskLists.name })
+    .from(schema.taskLists)
   if (lists.length === 0) return c.json({ listId: null, listName: null })
 
   const listNames = lists.map((l) => l.name).join('、')
   const normalizedTitle = title.trim().toLowerCase()
   const cacheKeyBase = `${normalizedTitle}:${listNames}`
   const cacheKeyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(cacheKeyBase))
-  const cacheKey = `ai:suggest-list:${Array.from(new Uint8Array(cacheKeyHash)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16)}`
+  const cacheKey = `ai:suggest-list:${Array.from(new Uint8Array(cacheKeyHash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 16)}`
   const cacheTTL = 60 * 60 * 1000 // 1 小时
 
-  const cached = await kvCacheGet<{ listId: string | null; listName: string | null }>(c.env, cacheKey)
+  const cached = await kvCacheGet<{ listId: string | null; listName: string | null }>(
+    c.env,
+    cacheKey,
+  )
   if (cached) return c.json({ ...cached, cached: true })
 
   const system = `你是一个任务分类助手。用户要创建一个任务，标题是："${title.trim()}"
@@ -612,14 +861,23 @@ ai.post('/suggest-list', async (c) => {
 候选列表：${listNames}`
 
   try {
-    const raw = await callAI(c.env, [
-      { role: 'system', content: system },
-      { role: 'user', content: title.trim() },
-    ], { maxTokens: 100 })
+    const raw = await callAI(
+      c.env,
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: title.trim() },
+      ],
+      { maxTokens: 100 },
+    )
 
     let parsed: any = null
     try {
-      parsed = JSON.parse(raw.trim().replace(/^```json\s*|```$/g, '').trim())
+      parsed = JSON.parse(
+        raw
+          .trim()
+          .replace(/^```json\s*|```$/g, '')
+          .trim(),
+      )
     } catch {
       parsed = null
     }
@@ -627,8 +885,9 @@ ai.post('/suggest-list', async (c) => {
     const listName = parsed?.listName
     const result = { listId: null as string | null, listName: null as string | null }
     if (listName) {
-      const match = lists.find((l) => l.name === listName)
-        || lists.find((l) => listName.includes(l.name) || l.name.includes(listName))
+      const match =
+        lists.find((l) => l.name === listName) ||
+        lists.find((l) => listName.includes(l.name) || l.name.includes(listName))
       result.listId = match?.id ?? null
       result.listName = match?.name ?? null
     }
@@ -645,7 +904,11 @@ ai.post('/suggest-list', async (c) => {
 // ========== AI 文案生成器 ==========
 ai.post('/copywriting', async (c) => {
   let body: any
-  try { body = await c.req.json() } catch { return c.json({ error: '请求格式错误' }, 400) }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: '请求格式错误' }, 400)
+  }
   const { platform, topic, style, referenceUrl, count } = body || {}
   if (!topic || !topic.trim()) return c.json({ error: '请输入主题或关键词' }, 400)
   if (!platform) return c.json({ error: '请选择目标平台' }, 400)
@@ -731,10 +994,18 @@ ai.post('/copywriting', async (c) => {
       if (refRes.ok) {
         const html = (await refRes.text()).slice(0, 5000)
         // 粗提取：去标签，取前 1000 字
-        const text = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000)
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 1000)
         if (text.length > 50) refSection = `\n\n参考链接内容摘要：\n${text}`
       }
-    } catch { /* 抓取失败不阻断 */ }
+    } catch {
+      /* 抓取失败不阻断 */
+    }
   }
 
   const systemPrompt = `你是顶尖的社交媒体文案写手，精通各平台的内容风格和算法偏好。
@@ -765,26 +1036,38 @@ ${p.guide}
   const userPrompt = `请为以下主题撰写${p.name}文案：\n\n主题：${topic.trim()}${refSection}`
 
   try {
-    const raw = await callAI(c.env, [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ], { maxTokens: 2000 })
+    const raw = await callAI(
+      c.env,
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      { maxTokens: 2000 },
+    )
 
     const jsonMatch = raw.match(/\[[\s\S]*\]/)
     if (!jsonMatch) return c.json({ error: 'AI 返回格式异常，请重试' }, 500)
 
     const parsed = JSON.parse(jsonMatch[0])
-    const results = (Array.isArray(parsed) ? parsed : [parsed]).slice(0, genCount).map((item: any) => ({
-      content: String(item?.content || ''),
-      hashtags: Array.isArray(item?.hashtags) ? item.hashtags.map(String) : [],
-      hook: String(item?.hook || ''),
-    })).filter((item: any) => item.content)
+    const results = (Array.isArray(parsed) ? parsed : [parsed])
+      .slice(0, genCount)
+      .map((item: any) => ({
+        content: String(item?.content || ''),
+        hashtags: Array.isArray(item?.hashtags) ? item.hashtags.map(String) : [],
+        hook: String(item?.hook || ''),
+      }))
+      .filter((item: any) => item.content)
 
     if (results.length === 0) return c.json({ error: '生成结果为空，请重试' }, 500)
     return c.json({ results })
   } catch (e: any) {
     console.error('[copywriting] AI 调用失败:', e?.message || e)
-    return c.json({ error: e?.message?.includes('timeout') ? 'AI 调用超时，请重试' : 'AI 调用失败，请稍后重试' }, 500)
+    return c.json(
+      {
+        error: e?.message?.includes('timeout') ? 'AI 调用超时，请重试' : 'AI 调用失败，请稍后重试',
+      },
+      500,
+    )
   }
 })
 

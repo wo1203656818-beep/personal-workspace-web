@@ -30,7 +30,8 @@ export function DecisionTimer({ duration = 5, onTimeUp, onCancel }: DecisionTime
   const progress = 1 - seconds / (duration * 60)
 
   // 颜色：绿→黄→红
-  const color = progress < 0.5 ? 'text-green-500' : progress < 0.8 ? 'text-yellow-500' : 'text-red-500'
+  const color =
+    progress < 0.5 ? 'text-green-500' : progress < 0.8 ? 'text-yellow-500' : 'text-red-500'
 
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-card p-3">

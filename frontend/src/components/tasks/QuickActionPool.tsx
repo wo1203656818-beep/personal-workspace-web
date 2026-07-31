@@ -54,13 +54,24 @@ export function QuickActionPool() {
   )
 }
 
-function QuickTaskRow({ task, onComplete, onUnmark }: { task: Task; onComplete: () => void; onUnmark: () => void }) {
+function QuickTaskRow({
+  task,
+  onComplete,
+  onUnmark,
+}: {
+  task: Task
+  onComplete: () => void
+  onUnmark: () => void
+}) {
   const [remaining, setRemaining] = useState(0)
 
   useEffect(() => {
     if (!task.quickDeadline) return
     const update = () => {
-      const diff = Math.max(0, Math.floor((new Date(task.quickDeadline!).getTime() - Date.now()) / 1000))
+      const diff = Math.max(
+        0,
+        Math.floor((new Date(task.quickDeadline!).getTime() - Date.now()) / 1000),
+      )
       setRemaining(diff)
     }
     update()
@@ -75,12 +86,7 @@ function QuickTaskRow({ task, onComplete, onUnmark }: { task: Task; onComplete: 
 
   return (
     <div className="flex items-center gap-2 rounded-lg bg-background p-2">
-      <Button
-        size="sm"
-        variant="ghost"
-        className="size-8 p-0"
-        onClick={onComplete}
-      >
+      <Button size="sm" variant="ghost" className="size-8 p-0" onClick={onComplete}>
         <CheckCircle className="size-4" />
       </Button>
       <div className="flex-1 min-w-0">
@@ -88,14 +94,11 @@ function QuickTaskRow({ task, onComplete, onUnmark }: { task: Task; onComplete: 
       </div>
       <div className={`flex items-center gap-1 text-xs font-mono ${color}`}>
         <Clock className="size-3" />
-        {isExpired ? '已过期' : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`}
+        {isExpired
+          ? '已过期'
+          : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`}
       </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="text-xs h-6 px-2"
-        onClick={onUnmark}
-      >
+      <Button size="sm" variant="ghost" className="text-xs h-6 px-2" onClick={onUnmark}>
         取消
       </Button>
     </div>

@@ -3,12 +3,13 @@ import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
 import { useSidebar } from '@/components/ui/sidebar'
 import {
-  SidebarMenuItem, SidebarMenuButton, SidebarMenuSub,
-  SidebarMenuSubButton, SidebarMenuSubItem,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from '@/components/ui/sidebar'
-import {
-  Collapsible, CollapsibleContent, CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 
 type NavItemData = {
@@ -22,13 +23,7 @@ type NavItemData = {
   }>
 }
 
-export function NavItem({
-  item,
-  isActive,
-}: {
-  item: NavItemData
-  isActive: boolean
-}) {
+export function NavItem({ item, isActive }: { item: NavItemData; isActive: boolean }) {
   const { setOpenMobile } = useSidebar()
   const location = useLocation()
   const [open, setOpen] = useState(isActive)
@@ -44,7 +39,9 @@ export function NavItem({
             >
               <item.icon className="size-[18px]" />
               <span className="flex-1 text-sm text-left">{item.title}</span>
-              <ChevronDown className={cn('size-4 transition-transform duration-200', open && 'rotate-180')} />
+              <ChevronDown
+                className={cn('size-4 transition-transform duration-200', open && 'rotate-180')}
+              />
             </SidebarMenuButton>
           </CollapsibleTrigger>
           <CollapsibleContent>

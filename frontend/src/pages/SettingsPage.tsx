@@ -156,7 +156,11 @@ export function SettingsPage() {
                       永久删除所有任务、笔记、知识库及配置数据，且无法恢复。
                     </p>
                   </div>
-                  <AlertDialog onOpenChange={(open) => { if (!open) setResetConfirmText('') }}>
+                  <AlertDialog
+                    onOpenChange={(open) => {
+                      if (!open) setResetConfirmText('')
+                    }}
+                  >
                     <AlertDialogTrigger asChild>
                       <Button variant="destructive" size="sm" className="gap-2 rounded-lg">
                         <Trash2 className="size-4" /> 清空
@@ -164,7 +168,9 @@ export function SettingsPage() {
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle className="text-destructive">确认清空所有数据？</AlertDialogTitle>
+                        <AlertDialogTitle className="text-destructive">
+                          确认清空所有数据？
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
                           此操作将永久删除所有任务、笔记、知识库及配置数据，且无法恢复。
                         </AlertDialogDescription>
@@ -172,10 +178,14 @@ export function SettingsPage() {
                       <div className="space-y-3 py-2">
                         <div className="rounded-xl bg-destructive/5 p-3 text-sm text-destructive/80">
                           <p className="font-medium text-destructive">请先备份数据</p>
-                          <p className="mt-1 text-xs">在执行清空前，请确保已通过顶部菜单「导出数据」功能备份了重要信息。</p>
+                          <p className="mt-1 text-xs">
+                            在执行清空前，请确保已通过顶部菜单「导出数据」功能备份了重要信息。
+                          </p>
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-muted-foreground">请输入「确认清空」以继续</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            请输入「确认清空」以继续
+                          </Label>
                           <Input
                             value={resetConfirmText}
                             onChange={(e) => setResetConfirmText(e.target.value)}

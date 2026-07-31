@@ -8,14 +8,20 @@ const mood = new Hono<{ Bindings: Env }>()
 
 mood.get('/', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const logs = await db.select().from(schema.moodLogs).orderBy(desc(schema.moodLogs.createdAt)).limit(30)
+  const logs = await db
+    .select()
+    .from(schema.moodLogs)
+    .orderBy(desc(schema.moodLogs.createdAt))
+    .limit(30)
   return c.json(logs)
 })
 
 mood.get('/today', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = new Date().toISOString().slice(0, 10)
-  const [log] = await db.select().from(schema.moodLogs)
+  const [log] = await db
+    .select()
+    .from(schema.moodLogs)
     .where(gte(schema.moodLogs.createdAt, today))
     .orderBy(desc(schema.moodLogs.createdAt))
     .limit(1)
@@ -44,22 +50,29 @@ mood.post('/', async (c) => {
 mood.get('/trends', async (c) => {
   const db = drizzle(c.env.DB, { schema })
 
-  const byWeather = await db.select({
-    weather: schema.moodLogs.weather,
-    count: sql<number>`count(*)`,
-  }).from(schema.moodLogs).groupBy(schema.moodLogs.weather)
+  const byWeather = await db
+    .select({
+      weather: schema.moodLogs.weather,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.moodLogs)
+    .groupBy(schema.moodLogs.weather)
 
-  const last7Days = await db.select({
-    date: sql<string>`date(${schema.moodLogs.createdAt})`,
-    weather: schema.moodLogs.weather,
-    count: sql<number>`count(*)`,
-  }).from(schema.moodLogs)
+  const last7Days = await db
+    .select({
+      date: sql<string>`date(${schema.moodLogs.createdAt})`,
+      weather: schema.moodLogs.weather,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.moodLogs)
     .where(gte(schema.moodLogs.createdAt, sql`(datetime('now', '-7 days'))`))
     .groupBy(sql`date(${schema.moodLogs.createdAt})`, schema.moodLogs.weather)
 
-  const streak = await db.select({
-    date: sql<string>`date(${schema.moodLogs.createdAt})`,
-  }).from(schema.moodLogs)
+  const streak = await db
+    .select({
+      date: sql<string>`date(${schema.moodLogs.createdAt})`,
+    })
+    .from(schema.moodLogs)
     .groupBy(sql`date(${schema.moodLogs.createdAt})`)
     .orderBy(desc(sql`date(${schema.moodLogs.createdAt})`))
     .limit(30)

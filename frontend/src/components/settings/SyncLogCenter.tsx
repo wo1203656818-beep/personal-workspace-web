@@ -31,14 +31,21 @@ const SOURCE_LABELS: Record<SyncLog['source'], string> = {
 const STATUS_VARIANTS: Record<SyncLog['status'], { label: string; className: string }> = {
   success: { label: '成功', className: 'bg-emerald-500 hover:bg-emerald-500 text-white' },
   partial: { label: '部分', className: 'bg-amber-500 hover:bg-amber-500 text-white' },
-  error: { label: '失败', className: 'bg-destructive hover:bg-destructive text-destructive-foreground' },
+  error: {
+    label: '失败',
+    className: 'bg-destructive hover:bg-destructive text-destructive-foreground',
+  },
 }
 
 export function SyncLogCenter() {
   const [source, setSource] = useState<'all' | SyncLog['source']>('all')
   const [status, setStatus] = useState<'all' | SyncLog['status']>('all')
 
-  const { data = [], isLoading, refetch } = useQuery({
+  const {
+    data = [],
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ['syncLogs', source, status],
     queryFn: () =>
       syncLogsApi.list(
@@ -47,7 +54,7 @@ export function SyncLogCenter() {
           : {
               ...(source !== 'all' ? { source } : {}),
               ...(status !== 'all' ? { status } : {}),
-            }
+            },
       ),
   })
   const logs = Array.isArray(data) ? data : []
@@ -114,13 +121,20 @@ export function SyncLogCenter() {
               加载中…
             </div>
           ) : logs.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">暂无同步日志</div>
+            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+              暂无同步日志
+            </div>
           ) : (
             <div className="divide-y">
               {logs.map((log) => (
                 <div key={log.id} className="p-3 text-sm transition-colors hover:bg-accent/40">
                   <div className="flex items-center gap-2">
-                    <Badge className={cn('rounded-full px-2 py-0.5 text-xs', STATUS_VARIANTS[log.status].className)}>
+                    <Badge
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-xs',
+                        STATUS_VARIANTS[log.status].className,
+                      )}
+                    >
                       {STATUS_VARIANTS[log.status].label}
                     </Badge>
                     <Badge variant="outline" className="rounded-full px-2 py-0.5 text-xs">
@@ -134,12 +148,16 @@ export function SyncLogCenter() {
                   {(log.synced > 0 || log.failed > 0 || log.skipped > 0) && (
                     <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
                       {log.synced > 0 && <span>成功 {log.synced}</span>}
-                      {log.failed > 0 && <span className="text-destructive">失败 {log.failed}</span>}
+                      {log.failed > 0 && (
+                        <span className="text-destructive">失败 {log.failed}</span>
+                      )}
                       {log.skipped > 0 && <span>跳过 {log.skipped}</span>}
                     </div>
                   )}
                   {log.details && (
-                    <p className="mt-1.5 whitespace-pre-wrap text-xs text-muted-foreground">{log.details}</p>
+                    <p className="mt-1.5 whitespace-pre-wrap text-xs text-muted-foreground">
+                      {log.details}
+                    </p>
                   )}
                 </div>
               ))}

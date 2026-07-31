@@ -44,7 +44,7 @@ export function MsTodoCallback() {
         // ky 对 500 状态码抛 HTTPError，需读取响应体中的 error 字段
         if (e instanceof HTTPError) {
           try {
-            const body = await e.response.json() as { error?: string; ok?: boolean }
+            const body = (await e.response.json()) as { error?: string; ok?: boolean }
             setError(body.error || e.message)
           } catch {
             setError(e.message || '请求失败')

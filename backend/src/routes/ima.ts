@@ -7,10 +7,18 @@ import { imaCreateNoteSchema, imaAppendNoteSchema } from '../validation'
 import { nowBeijing } from '../time'
 import { logSync } from '../sync-logger'
 import {
-  syncNotes, syncKnowledgeBase, getImaStatus, listNotebooks, listNotes,
-  listAddableKnowledgeBases, getKnowledgeList, getMediaInfo,
-  createNote as imaCreateNote, appendNote as imaAppendNote,
-  stripImagesAndAttachments, markdownToCleanHtml,
+  syncNotes,
+  syncKnowledgeBase,
+  getImaStatus,
+  listNotebooks,
+  listNotes,
+  listAddableKnowledgeBases,
+  getKnowledgeList,
+  getMediaInfo,
+  createNote as imaCreateNote,
+  appendNote as imaAppendNote,
+  stripImagesAndAttachments,
+  markdownToCleanHtml,
 } from '../ima-sync'
 import { withIdempotency } from '../idempotent'
 import { indexTarget } from '../utils/vectorize'
@@ -30,7 +38,8 @@ ima.post('/sync-notes', async (c) => {
     if (!result.partial) {
       const db = drizzle(c.env.DB, { schema })
       const now = nowBeijing()
-      await db.insert(schema.settings)
+      await db
+        .insert(schema.settings)
         .values({ key: 'ima_last_sync', value: now })
         .onConflictDoUpdate({ target: schema.settings.key, set: { value: now } })
     }
@@ -39,7 +48,10 @@ ima.post('/sync-notes', async (c) => {
       status,
       synced: result.synced,
       skipped: result.skipped,
-      message: status === 'partial' ? `部分同步 · ${result.synced} 条笔记` : `同步完成 · ${result.synced} 条笔记`,
+      message:
+        status === 'partial'
+          ? `部分同步 · ${result.synced} 条笔记`
+          : `同步完成 · ${result.synced} 条笔记`,
     })
     return c.json({ ok: true, ...result })
   } catch (e: any) {
@@ -57,7 +69,9 @@ ima.post('/sync-notes', async (c) => {
 ima.post('/backfill-content-html', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
-    const rows = await db.select().from(schema.imaNotes)
+    const rows = await db
+      .select()
+      .from(schema.imaNotes)
       .where(eq(schema.imaNotes.sourceFile, 'ima_openapi'))
     let updated = 0
     const stmts: any[] = []
@@ -65,9 +79,12 @@ ima.post('/backfill-content-html', async (c) => {
       if (row.contentHtml) continue
       const cleanMd = stripImagesAndAttachments(row.content || '')
       const html = markdownToCleanHtml(cleanMd)
-      stmts.push(db.update(schema.imaNotes)
-        .set({ content: cleanMd, contentHtml: html, updatedAt: nowBeijing() })
-        .where(eq(schema.imaNotes.id, row.id)))
+      stmts.push(
+        db
+          .update(schema.imaNotes)
+          .set({ content: cleanMd, contentHtml: html, updatedAt: nowBeijing() })
+          .where(eq(schema.imaNotes.id, row.id)),
+      )
       updated++
       if (stmts.length >= 50) {
         await db.batch(stmts as any)
@@ -87,7 +104,8 @@ ima.post('/sync-kb', async (c) => {
   try {
     const result = await syncKnowledgeBase(c.env)
     const db = drizzle(c.env.DB, { schema })
-    await db.insert(schema.settings)
+    await db
+      .insert(schema.settings)
       .values({ key: 'ima_last_sync', value: nowBeijing() })
       .onConflictDoUpdate({ target: schema.settings.key, set: { value: nowBeijing() } })
     await logSync(c.env, 'ima_kb', {
@@ -197,10 +215,13 @@ ima.post('/notes/:id/append', async (c) => {
     const existing = await db.select().from(schema.imaNotes).where(eq(schema.imaNotes.id, id))
     if (existing.length > 0) {
       const newContent = (existing[0].content || '') + '\n\n' + content
-      await db.update(schema.imaNotes)
+      await db
+        .update(schema.imaNotes)
         .set({ content: newContent, updatedAt: nowBeijing() })
         .where(eq(schema.imaNotes.id, id))
-      await indexTarget(c, 'note', id, `${existing[0].title}\n${newContent}`).catch((e) => console.error('[embed] ima append failed:', e?.message))
+      await indexTarget(c, 'note', id, `${existing[0].title}\n${newContent}`).catch((e) =>
+        console.error('[embed] ima append failed:', e?.message),
+      )
     }
     return c.json({ ok: true })
   } catch (e: any) {

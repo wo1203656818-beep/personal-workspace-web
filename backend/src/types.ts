@@ -29,7 +29,23 @@ export interface ChatMessage {
 }
 
 // API 统一响应类型
-export interface ApiSuccess<T = any> { ok: true; data?: T }
-export interface ApiError { ok?: false; error: string; detail?: string; requestId?: string }
-export interface PaginatedResponse<T> { items: T[]; pagination: { page: number; pageSize: number; total: number } }
-export interface ToolResult { observation: string; refresh: boolean; action?: any; sources?: any[] }
+export interface ApiSuccess<T = any> {
+  ok: true
+  data?: T
+}
+export interface ApiError {
+  ok?: false
+  error: string
+  detail?: string
+  requestId?: string
+}
+export interface PaginatedResponse<T> {
+  items: T[]
+  pagination: { page: number; pageSize: number; total: number }
+}
+export interface ToolResult {
+  observation: string
+  refresh: boolean
+  action?: any
+  sources?: any[]
+}

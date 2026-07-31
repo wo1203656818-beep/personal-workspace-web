@@ -1,11 +1,16 @@
 import { api, API_BASE } from './client'
-import type { AiAnalysisStats, WeeklyReport, ChatSessionPreview, ChatMessageRow } from './types'
+import type { AiAnalysisStats, ChatSessionPreview, ChatMessageRow } from './types'
 
 export const aiApi = {
-  breakdown: (taskTitle: string, taskId?: string) => api.post('ai/breakdown', { json: { taskTitle, taskId } }).json<{ subtasks: { id?: string; title: string }[]; created?: boolean }>(),
-  analysis: (range?: string) => api.post(`ai/analysis${range ? `?range=${range}` : ''}`).json<{ analysis: string; stats: AiAnalysisStats }>(),
+  breakdown: (taskTitle: string, taskId?: string) =>
+    api
+      .post('ai/breakdown', { json: { taskTitle, taskId } })
+      .json<{ subtasks: { id?: string; title: string }[]; created?: boolean }>(),
+  analysis: (range?: string) =>
+    api
+      .post(`ai/analysis${range ? `?range=${range}` : ''}`)
+      .json<{ analysis: string; stats: AiAnalysisStats }>(),
   weeklyReport: () => api.post('ai/weekly-report').json<{ report: string; week: string }>(),
-  weeklyReports: () => api.get('ai/weekly-reports').json<WeeklyReport[]>(),
   noteSummary: (noteId: string, action: 'summary' | 'points' | 'to-task') =>
     api.post('ai/note-summary', { json: { noteId, action } }).json<{ result: string }>(),
   semanticSearch: (query: string, topK = 5) =>
@@ -15,15 +20,33 @@ export const aiApi = {
   reindex: () => api.post('ai/reindex').json<{ ok: boolean; indexed: number }>(),
   parseTask: (text: string) =>
     api.post('ai/parse-task', { json: { text } }).json<{
-      task: { title: string; dueDate: string | null; listName: string | null; note: string | null; listId: string | null }
+      task: {
+        title: string
+        dueDate: string | null
+        listName: string | null
+        note: string | null
+        listId: string | null
+      }
     }>(),
   digest: () => api.post('ai/digest').json<{ digest: string; cached?: boolean }>(),
   prioritySuggestions: () =>
-    api.post('ai/priority-suggestions').json<{ suggestions: { taskId: string; reason: string }[]; cached?: boolean }>(),
+    api
+      .post('ai/priority-suggestions')
+      .json<{ suggestions: { taskId: string; reason: string }[]; cached?: boolean }>(),
   suggestList: (title: string) =>
-    api.post('ai/suggest-list', { json: { title } }).json<{ listId: string | null; listName: string | null }>(),
-  copywriting: (data: { platform: string; topic: string; style: string; referenceUrl?: string; count?: number }) =>
-    api.post('ai/copywriting', { json: data }).json<{ results: { content: string; hashtags: string[]; hook: string }[] }>(),
+    api
+      .post('ai/suggest-list', { json: { title } })
+      .json<{ listId: string | null; listName: string | null }>(),
+  copywriting: (data: {
+    platform: string
+    topic: string
+    style: string
+    referenceUrl?: string
+    count?: number
+  }) =>
+    api
+      .post('ai/copywriting', { json: data })
+      .json<{ results: { content: string; hashtags: string[]; hook: string }[] }>(),
   chatStream: (
     message: string,
     sessionId: string | null,
@@ -39,7 +62,7 @@ export const aiApi = {
       onSources?: (sources: { title: string; url: string }[]) => void
       onDone?: (ev: { reply: string; refresh: boolean; action: any; sessionId: string }) => void
       onError?: (msg: string) => void
-    }
+    },
   ) => {
     const token = localStorage.getItem('token')
     const ctrl = new AbortController()
@@ -47,7 +70,10 @@ export const aiApi = {
       try {
         const res = await fetch(`${API_BASE}/ai/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({
             message,
             sessionId,
@@ -61,7 +87,10 @@ export const aiApi = {
         })
         if (!res.ok || !res.body) {
           let msg = `请求失败 (${res.status})`
-          try { const j = await res.json(); if (j?.error) msg = j.error } catch {}
+          try {
+            const j = await res.json()
+            if (j?.error) msg = j.error
+          } catch {}
           handlers.onError?.(msg)
           return
         }
@@ -84,10 +113,16 @@ export const aiApi = {
               const ev = JSON.parse(data)
               if (ev.type === 'delta') handlers.onDelta?.(ev.text)
               else if (ev.type === 'reasoning') handlers.onReasoning?.(ev.text)
-              else if (ev.type === 'tool') handlers.onTool?.({ name: ev.name, observation: ev.observation })
+              else if (ev.type === 'tool')
+                handlers.onTool?.({ name: ev.name, observation: ev.observation })
               else if (ev.type === 'sources') handlers.onSources?.(ev.sources)
-              else if (ev.type === 'done') { doneReceived = true; handlers.onDone?.(ev) }
-              else if (ev.type === 'error') { doneReceived = true; handlers.onError?.(ev.message) }
+              else if (ev.type === 'done') {
+                doneReceived = true
+                handlers.onDone?.(ev)
+              } else if (ev.type === 'error') {
+                doneReceived = true
+                handlers.onError?.(ev.message)
+              }
             } catch {}
           }
         }
@@ -101,7 +136,10 @@ export const aiApi = {
     return ctrl
   },
   listChatSessions: () => api.get('ai/chat/sessions').json<ChatSessionPreview[]>(),
-  getChatSession: (id: string) => api.get(`ai/chat/sessions/${id}`).json<{ session: { id: string; title: string } | null; messages: ChatMessageRow[] }>(),
+  getChatSession: (id: string) =>
+    api
+      .get(`ai/chat/sessions/${id}`)
+      .json<{ session: { id: string; title: string } | null; messages: ChatMessageRow[] }>(),
   deleteChatSession: (id: string) => api.delete(`ai/chat/sessions/${id}`).json<{ ok: boolean }>(),
   updateChatSession: (id: string, patch: { title?: string; tags?: string[]; pinned?: boolean }) =>
     api.patch(`ai/chat/sessions/${id}`, { json: patch }).json<{ ok: boolean }>(),

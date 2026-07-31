@@ -6,11 +6,51 @@ import { toast } from 'sonner'
 import { Sun, Cloud, CloudRain, CloudLightning, Snowflake } from 'lucide-react'
 
 const WEATHERS = [
-  { value: 'sunny', label: '晴朗', emoji: '☀️', icon: Sun, color: 'text-yellow-500', bg: 'bg-yellow-500/10', desc: '心情很好' },
-  { value: 'cloudy', label: '多云', emoji: '⛅', icon: Cloud, color: 'text-gray-500', bg: 'bg-gray-500/10', desc: '一般般' },
-  { value: 'rainy', label: '下雨', emoji: '🌧️', icon: CloudRain, color: 'text-blue-500', bg: 'bg-blue-500/10', desc: '有点低落' },
-  { value: 'stormy', label: '暴风雨', emoji: '⛈️', icon: CloudLightning, color: 'text-red-500', bg: 'bg-red-500/10', desc: '很糟糕' },
-  { value: 'snowy', label: '下雪', emoji: '🌨️', icon: Snowflake, color: 'text-cyan-500', bg: 'bg-cyan-500/10', desc: '平静/麻木' },
+  {
+    value: 'sunny',
+    label: '晴朗',
+    emoji: '☀️',
+    icon: Sun,
+    color: 'text-yellow-500',
+    bg: 'bg-yellow-500/10',
+    desc: '心情很好',
+  },
+  {
+    value: 'cloudy',
+    label: '多云',
+    emoji: '⛅',
+    icon: Cloud,
+    color: 'text-gray-500',
+    bg: 'bg-gray-500/10',
+    desc: '一般般',
+  },
+  {
+    value: 'rainy',
+    label: '下雨',
+    emoji: '🌧️',
+    icon: CloudRain,
+    color: 'text-blue-500',
+    bg: 'bg-blue-500/10',
+    desc: '有点低落',
+  },
+  {
+    value: 'stormy',
+    label: '暴风雨',
+    emoji: '⛈️',
+    icon: CloudLightning,
+    color: 'text-red-500',
+    bg: 'bg-red-500/10',
+    desc: '很糟糕',
+  },
+  {
+    value: 'snowy',
+    label: '下雪',
+    emoji: '🌨️',
+    icon: Snowflake,
+    color: 'text-cyan-500',
+    bg: 'bg-cyan-500/10',
+    desc: '平静/麻木',
+  },
 ] as const
 
 export function MoodWeatherCard() {
@@ -36,7 +76,7 @@ export function MoodWeatherCard() {
   })
 
   if (todayMood) {
-    const weather = WEATHERS.find(w => w.value === todayMood.weather)
+    const weather = WEATHERS.find((w) => w.value === todayMood.weather)
     return (
       <div className={`rounded-xl border p-4 ${weather?.bg || ''}`}>
         <div className="flex items-center gap-3">
@@ -82,7 +122,9 @@ export function MoodWeatherCard() {
           <Button
             size="sm"
             className="w-full"
-            onClick={() => createMutation.mutate({ weather: selectedWeather, note: note || undefined })}
+            onClick={() =>
+              createMutation.mutate({ weather: selectedWeather, note: note || undefined })
+            }
             disabled={createMutation.isPending}
           >
             {createMutation.isPending ? '记录中...' : '记录'}

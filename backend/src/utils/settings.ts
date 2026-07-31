@@ -11,7 +11,11 @@ export async function getSetting(env: Env, key: string): Promise<string | null> 
   if (!row.length) return null
   const val = row[0].value
   if (val.startsWith('enc$')) {
-    try { return await decrypt(env.JWT_SECRET, val) } catch { return val }
+    try {
+      return await decrypt(env.JWT_SECRET, val)
+    } catch {
+      return val
+    }
   }
   return val
 }
@@ -21,7 +25,11 @@ export async function setSetting(env: Env, key: string, value: string): Promise<
   const now = nowBeijing()
   // 敏感字段（refresh_token / api_key 等）自动加密存储，避免明文落库
   const storedValue = SENSITIVE_KEYS.includes(key) ? await encrypt(env.JWT_SECRET, value) : value
-  await db.insert(schema.settings)
+  await db
+    .insert(schema.settings)
     .values({ key, value: storedValue })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value: storedValue, updatedAt: now } })
+    .onConflictDoUpdate({
+      target: schema.settings.key,
+      set: { value: storedValue, updatedAt: now },
+    })
 }

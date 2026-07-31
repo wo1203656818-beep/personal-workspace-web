@@ -1,4 +1,4 @@
-import { Skeleton } from "@/components/ui/skeleton"
+import { Skeleton } from '@/components/ui/skeleton'
 
 /**
  * 列表型骨架屏：页面壳（顶部标题栏 + 6 行列表项）

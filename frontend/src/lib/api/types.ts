@@ -94,40 +94,18 @@ export interface KbSummary {
   updatedAt?: string | null
 }
 
-export interface CoinFlip {
-  id: string
-  result: 'heads' | 'tails'
-  entropySource: string
-  rawValue: number
-  interpretation: string
-  createdAt: string
-}
-
-export interface AnswerBookDraw {
-  id: string
-  result: string
-  entropySource: string
-  rawValue: number
-  interpretation?: string | null
-  createdAt: string
-}
-
-export interface DailyFortune {
-  id: string
-  date: string
-  result: string
-  level?: string
-  poem?: string
-  interpret?: string
-  entropySource: string
-  rawValue: number
-  interpretation?: string
-  createdAt: string
-}
-
 export interface SyncLog {
   id: string
-  source: 'ms_todo' | 'ima_notes' | 'ima_kb' | 'news_fetch' | 'news_digest' | 'news_ai' | 'news_push' | 'monitor' | 'monitor_push'
+  source:
+    | 'ms_todo'
+    | 'ima_notes'
+    | 'ima_kb'
+    | 'news_fetch'
+    | 'news_digest'
+    | 'news_ai'
+    | 'news_push'
+    | 'monitor'
+    | 'monitor_push'
   status: 'success' | 'partial' | 'error'
   synced: number
   failed: number
@@ -149,11 +127,6 @@ export interface AiAnalysisStats {
   importantTasks: number
   notesCount: number
   dailyCompleted: { date: string; count: number }[]
-}
-
-export interface WeeklyReport {
-  week: string
-  report: string
 }
 
 export interface ChatSessionPreview {
@@ -183,7 +156,12 @@ export interface AiConfig {
   createdAt: string | null
 }
 
-export interface Tag { id: string; name: string; color: string; createdAt: string }
+export interface Tag {
+  id: string
+  name: string
+  color: string
+  createdAt: string
+}
 
 export interface MonitorTarget {
   id: string

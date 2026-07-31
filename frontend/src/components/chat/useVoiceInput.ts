@@ -1,11 +1,7 @@
 import { useState, useRef } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-export function useVoiceInput({
-  setInput,
-}: {
-  setInput: Dispatch<SetStateAction<string>>
-}) {
+export function useVoiceInput({ setInput }: { setInput: Dispatch<SetStateAction<string>> }) {
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<any>(null)
   const [speechSupported] = useState<boolean>(() => {
@@ -30,7 +26,10 @@ export function useVoiceInput({
     rec.onend = () => setListening(false)
     rec.onerror = () => setListening(false)
     recognitionRef.current = rec
-    try { rec.start(); setListening(true) } catch {}
+    try {
+      rec.start()
+      setListening(true)
+    } catch {}
   }
 
   return { listening, speechSupported, toggleVoice }

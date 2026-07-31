@@ -35,7 +35,9 @@ export function DailyDigestCard({
             disabled={regenerateDigestMutation.isPending || digestLoading}
             title="重新生成"
           >
-            <RefreshCw className={`size-3.5 ${regenerateDigestMutation.isPending || digestLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`size-3.5 ${regenerateDigestMutation.isPending || digestLoading ? 'animate-spin' : ''}`}
+            />
           </Button>
           <Button
             variant="ghost"
@@ -43,7 +45,11 @@ export function DailyDigestCard({
             className="size-7"
             onClick={() => onDigestExpandedChange(!digestExpanded)}
           >
-            {digestExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {digestExpanded ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
           </Button>
         </div>
       </div>
@@ -54,7 +60,9 @@ export function DailyDigestCard({
               <RefreshCw className="size-3.5 animate-spin" /> 正在生成今日简报...
             </div>
           ) : (
-            <p className="text-sm leading-relaxed text-foreground/90">{(digestData as { digest?: string } | undefined)?.digest}</p>
+            <p className="text-sm leading-relaxed text-foreground/90">
+              {(digestData as { digest?: string } | undefined)?.digest}
+            </p>
           )}
         </div>
       )}

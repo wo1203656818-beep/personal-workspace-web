@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { FileText, Plus, Trash2, ArrowLeft, Search, Save, Sparkles, Columns2 } from 'lucide-react'
 import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type NoteSummary } from '@/lib/api'
+import { STALE_TIME } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import { formatCST } from '@/lib/datetime'
 import { Button } from '@/components/ui/button'
@@ -12,8 +13,23 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { DetailSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -71,8 +87,13 @@ export function NotesPage() {
   const [aiAction, setAiAction] = useState<'summary' | 'points' | 'to-task'>('summary')
   const [aiResult, setAiResult] = useState('')
   const parsedAiTasks = useMemo(
-    () => aiResult.split('\n').map((s) => s.replace(/^[-*\d.\s、]+/, '').trim()).filter(Boolean).filter((t) => t.length < 200),
-    [aiResult]
+    () =>
+      aiResult
+        .split('\n')
+        .map((s) => s.replace(/^[-*\d.\s、]+/, '').trim())
+        .filter(Boolean)
+        .filter((t) => t.length < 200),
+    [aiResult],
   )
 
   const noteAiMutation = useMutation({
@@ -116,14 +137,14 @@ export function NotesPage() {
     queryKey: ['notes'],
     queryFn: notesApi.listSummary,
     enabled: trimmedQuery.length === 0,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['notes', 'search', trimmedQuery],
     queryFn: () => notesApi.search(trimmedQuery),
     enabled: trimmedQuery.length > 0,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   const displayedNotes = useMemo<NoteSummary[]>(() => {
@@ -134,9 +155,8 @@ export function NotesPage() {
       sourceFile: n.sourceFile,
       importedAt: n.importedAt,
       updatedAt: n.updatedAt,
-      snippet: 'snippet' in n
-        ? n.snippet
-        : (n.content || '').replace(/[#*`>[\]-]/g, '').slice(0, 100),
+      snippet:
+        'snippet' in n ? n.snippet : (n.content || '').replace(/[#*`>[\]-]/g, '').slice(0, 100),
     }))
   }, [trimmedQuery, searchResults, notes])
 
@@ -144,7 +164,7 @@ export function NotesPage() {
     queryKey: ['note', id],
     queryFn: () => notesApi.get(id!),
     enabled: !!id,
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE_TIME,
   })
 
   useEffect(() => {
@@ -233,19 +253,19 @@ export function NotesPage() {
             setAppendContent('')
             setEditableContent((prev) => (prev ? prev + '\n\n' + toAppend : toAppend))
           },
-        }
+        },
       )
     } else {
       updateNoteMutation.mutate({ content: editableContent, title: editableTitle })
     }
   }
 
-  const isDirty = selectedNote && (
-    (selectedNote.sourceFile === 'ima_openapi'
+  const isDirty =
+    selectedNote &&
+    ((selectedNote.sourceFile === 'ima_openapi'
       ? appendContent.trim().length > 0
       : editableContent !== (selectedNote.content ?? '')) ||
-    editableTitle !== (selectedNote.title ?? '')
-  )
+      editableTitle !== (selectedNote.title ?? ''))
 
   const autoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
@@ -362,7 +382,7 @@ export function NotesPage() {
           }
         }
       },
-      { rootMargin: '-20px 0px -70% 0px', threshold: 0 }
+      { rootMargin: '-20px 0px -70% 0px', threshold: 0 },
     )
 
     headings.forEach((h) => {
@@ -382,131 +402,144 @@ export function NotesPage() {
     return (
       <>
         <div className="flex h-full flex-col">
-        <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
-          <Button variant="ghost" size="icon" className="rounded-lg" onClick={() => navigate('/notes')}>
-            <ArrowLeft className="size-4" />
-          </Button>
-          <Input
-            value={editableTitle}
-            onChange={(e) => setEditableTitle(e.target.value)}
-            onBlur={() => {
-              const trimmed = editableTitle.trim()
-              if (trimmed && trimmed !== selectedNote.title) {
-                updateNoteMutation.mutate({ title: trimmed })
-              } else if (!trimmed) {
-                setEditableTitle(selectedNote.title)
+          <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-lg"
+              onClick={() => navigate('/notes')}
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+            <Input
+              value={editableTitle}
+              onChange={(e) => setEditableTitle(e.target.value)}
+              onBlur={() => {
+                const trimmed = editableTitle.trim()
+                if (trimmed && trimmed !== selectedNote.title) {
+                  updateNoteMutation.mutate({ title: trimmed })
+                } else if (!trimmed) {
+                  setEditableTitle(selectedNote.title)
+                }
+              }}
+              className="flex-1 border-0 px-0 text-xl font-semibold tracking-tight focus-visible:ring-0"
+            />
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={
+                updateNoteMutation.isPending ||
+                appendImaMutation.isPending ||
+                (selectedNote?.sourceFile === 'ima_openapi' && !appendContent.trim())
               }
-            }}
-            className="flex-1 border-0 px-0 text-xl font-semibold tracking-tight focus-visible:ring-0"
-          />
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={
-              updateNoteMutation.isPending ||
-              appendImaMutation.isPending ||
-              (selectedNote?.sourceFile === 'ima_openapi' && !appendContent.trim())
-            }
-            className="gap-2 rounded-lg"
-          >
-            <Save className="size-4" />
-            {selectedNote?.sourceFile === 'ima_openapi'
-              ? (appendContent.trim() ? '追加*' : '追加')
-              : (isDirty ? '保存*' : '保存')}
-          </Button>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => handleAi('summary')} disabled={noteAiMutation.isPending} className="gap-1 rounded-lg">
-              <Sparkles className="size-3.5" /> 总结
+              className="gap-2 rounded-lg"
+            >
+              <Save className="size-4" />
+              {selectedNote?.sourceFile === 'ima_openapi'
+                ? appendContent.trim()
+                  ? '追加*'
+                  : '追加'
+                : isDirty
+                  ? '保存*'
+                  : '保存'}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => handleAi('points')} disabled={noteAiMutation.isPending} className="rounded-lg">
-              要点
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleAi('to-task')} disabled={noteAiMutation.isPending} className="rounded-lg">
-              转任务
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAi('summary')}
+                disabled={noteAiMutation.isPending}
+                className="gap-1 rounded-lg"
+              >
+                <Sparkles className="size-3.5" /> 总结
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAi('points')}
+                disabled={noteAiMutation.isPending}
+                className="rounded-lg"
+              >
+                要点
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAi('to-task')}
+                disabled={noteAiMutation.isPending}
+                className="rounded-lg"
+              >
+                转任务
+              </Button>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-1 overflow-hidden">
-          <ScrollArea className="flex-1">
-            <div className="p-4 md:p-6">
-              <MobileTocDropdown
-                items={tocItems}
-                activeSlug={activeSlug}
-                onTocClick={handleTocClick}
-                mobileOpen={showMobileToc}
-                onMobileToggle={() => setShowMobileToc((v) => !v)}
-                onMobileItemClick={() => setShowMobileToc(false)}
-              />
-              <Tabs value={splitView ? 'split' : activeTab} onValueChange={(v) => { if (v !== 'split') { setSplitView(false); setActiveTab(v) } }}>
-                <div className="flex items-center gap-2">
-                  <TabsList>
-                    <TabsTrigger value="edit">编辑</TabsTrigger>
-                    <TabsTrigger value="preview">预览</TabsTrigger>
-                  </TabsList>
-                  {!isMobile && (
-                    <Button
-                      variant={splitView ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="h-9 gap-1.5 text-xs"
-                      onClick={() => setSplitView(!splitView)}
-                    >
-                      <Columns2 className="size-3.5" />
-                      {splitView ? '关闭分屏' : '分屏预览'}
-                    </Button>
-                  )}
-                </div>
-                <TabsContent value="edit" className="mt-4">
-                  {selectedNote?.sourceFile !== 'ima_openapi' && (
-                    <MarkdownToolbar onInsert={insertMarkdown} />
-                  )}
-                  {selectedNote?.sourceFile === 'ima_openapi' ? (
-                    <div className="space-y-4">
-                      <div className="rounded-xl bg-muted/30 p-4">
-                        <p className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <FileText className="size-3.5" /> 原文（只读，IMA 仅支持追加）
-                        </p>
-                        <Textarea
-                          readOnly
-                          className="min-h-[40vh] resize-none border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
-                          value={editableContent}
-                        />
-                      </div>
-                      <div className="rounded-xl bg-muted/30 p-4">
-                        <p className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <Plus className="size-3.5" /> 追加内容
-                        </p>
-                        <Textarea
-                          ref={textareaRef}
-                          className="min-h-[20vh] border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
-                          value={appendContent}
-                          onChange={(e) => setAppendContent(e.target.value)}
-                          placeholder="在此输入要追加到 IMA 原笔记末尾的内容..."
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl bg-muted/30 p-4">
-                      <Textarea
-                        ref={textareaRef}
-                        className="min-h-[60vh] border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
-                        value={editableContent}
-                        onChange={(e) => setEditableContent(e.target.value)}
-                        placeholder="在此编辑 Markdown 内容..."
-                      />
-                    </div>
-                  )}
-                </TabsContent>
-                <TabsContent value="preview" className="mt-4">
-                  <div className="w-full overflow-x-hidden">
-                    {selectedNote && <NotePageContent note={selectedNote} />}
+          <div className="flex flex-1 overflow-hidden">
+            <ScrollArea className="flex-1">
+              <div className="p-4 md:p-6">
+                <MobileTocDropdown
+                  items={tocItems}
+                  activeSlug={activeSlug}
+                  onTocClick={handleTocClick}
+                  mobileOpen={showMobileToc}
+                  onMobileToggle={() => setShowMobileToc((v) => !v)}
+                  onMobileItemClick={() => setShowMobileToc(false)}
+                />
+                <Tabs
+                  value={splitView ? 'split' : activeTab}
+                  onValueChange={(v) => {
+                    if (v !== 'split') {
+                      setSplitView(false)
+                      setActiveTab(v)
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <TabsList>
+                      <TabsTrigger value="edit">编辑</TabsTrigger>
+                      <TabsTrigger value="preview">预览</TabsTrigger>
+                    </TabsList>
+                    {!isMobile && (
+                      <Button
+                        variant={splitView ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="h-9 gap-1.5 text-xs"
+                        onClick={() => setSplitView(!splitView)}
+                      >
+                        <Columns2 className="size-3.5" />
+                        {splitView ? '关闭分屏' : '分屏预览'}
+                      </Button>
+                    )}
                   </div>
-                </TabsContent>
-                {splitView && (
-                  <div className="mt-4 flex gap-4">
-                    <div className="flex-1 min-w-0 space-y-3">
-                      {selectedNote?.sourceFile !== 'ima_openapi' && (
-                        <MarkdownToolbar onInsert={insertMarkdown} />
-                      )}
+                  <TabsContent value="edit" className="mt-4">
+                    {selectedNote?.sourceFile !== 'ima_openapi' && (
+                      <MarkdownToolbar onInsert={insertMarkdown} />
+                    )}
+                    {selectedNote?.sourceFile === 'ima_openapi' ? (
+                      <div className="space-y-4">
+                        <div className="rounded-xl bg-muted/30 p-4">
+                          <p className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                            <FileText className="size-3.5" /> 原文（只读，IMA 仅支持追加）
+                          </p>
+                          <Textarea
+                            readOnly
+                            className="min-h-[40vh] resize-none border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
+                            value={editableContent}
+                          />
+                        </div>
+                        <div className="rounded-xl bg-muted/30 p-4">
+                          <p className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                            <Plus className="size-3.5" /> 追加内容
+                          </p>
+                          <Textarea
+                            ref={textareaRef}
+                            className="min-h-[20vh] border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
+                            value={appendContent}
+                            onChange={(e) => setAppendContent(e.target.value)}
+                            placeholder="在此输入要追加到 IMA 原笔记末尾的内容..."
+                          />
+                        </div>
+                      </div>
+                    ) : (
                       <div className="rounded-xl bg-muted/30 p-4">
                         <Textarea
                           ref={textareaRef}
@@ -516,54 +549,83 @@ export function NotesPage() {
                           placeholder="在此编辑 Markdown 内容..."
                         />
                       </div>
+                    )}
+                  </TabsContent>
+                  <TabsContent value="preview" className="mt-4">
+                    <div className="w-full overflow-x-hidden">
+                      {selectedNote && <NotePageContent note={selectedNote} />}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="sticky top-4">
-                        <div
-                          ref={previewRef}
-                          className="max-h-[75vh] overflow-auto"
-                        >
-                          {selectedNote && <NotePageContent note={selectedNote} />}
+                  </TabsContent>
+                  {splitView && (
+                    <div className="mt-4 flex gap-4">
+                      <div className="flex-1 min-w-0 space-y-3">
+                        {selectedNote?.sourceFile !== 'ima_openapi' && (
+                          <MarkdownToolbar onInsert={insertMarkdown} />
+                        )}
+                        <div className="rounded-xl bg-muted/30 p-4">
+                          <Textarea
+                            ref={textareaRef}
+                            className="min-h-[60vh] border-0 bg-transparent font-mono text-sm shadow-none focus-visible:ring-0"
+                            value={editableContent}
+                            onChange={(e) => setEditableContent(e.target.value)}
+                            placeholder="在此编辑 Markdown 内容..."
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="sticky top-4">
+                          <div ref={previewRef} className="max-h-[75vh] overflow-auto">
+                            {selectedNote && <NotePageContent note={selectedNote} />}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </Tabs>
-            </div>
-          </ScrollArea>
-          <TocSidebar items={tocItems} activeSlug={activeSlug} onTocClick={handleTocClick} />
-        </div>
-      </div>
-
-      <Dialog open={aiOpen} onOpenChange={setAiOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="size-4 text-primary" />
-              {aiAction === 'summary' ? '笔记总结' : aiAction === 'points' ? '关键要点' : '可转任务'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl bg-muted/30 p-4 text-sm leading-relaxed">
-            {aiResult || '（暂无内容）'}
+                  )}
+                </Tabs>
+              </div>
+            </ScrollArea>
+            <TocSidebar items={tocItems} activeSlug={activeSlug} onTocClick={handleTocClick} />
           </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            {aiAction === 'to-task' ? (
-              <Button
-                disabled={createFromAiMutation.isPending || parsedAiTasks.length === 0}
-                onClick={() => createFromAiMutation.mutate(parsedAiTasks)}
-                className="gap-2"
-              >
-                {createFromAiMutation.isPending ? '创建中...' : `创建 ${parsedAiTasks.length} 个任务`}
-              </Button>
-            ) : (
-              <Button variant="outline" onClick={() => navigator.clipboard?.writeText(aiResult)} className="gap-2">
-                复制
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+
+        <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                {aiAction === 'summary'
+                  ? '笔记总结'
+                  : aiAction === 'points'
+                    ? '关键要点'
+                    : '可转任务'}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-xl bg-muted/30 p-4 text-sm leading-relaxed">
+              {aiResult || '（暂无内容）'}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              {aiAction === 'to-task' ? (
+                <Button
+                  disabled={createFromAiMutation.isPending || parsedAiTasks.length === 0}
+                  onClick={() => createFromAiMutation.mutate(parsedAiTasks)}
+                  className="gap-2"
+                >
+                  {createFromAiMutation.isPending
+                    ? '创建中...'
+                    : `创建 ${parsedAiTasks.length} 个任务`}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => navigator.clipboard?.writeText(aiResult)}
+                  className="gap-2"
+                >
+                  复制
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     )
   }
@@ -581,7 +643,12 @@ export function NotesPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => createNoteMutation.mutate()} disabled={createNoteMutation.isPending} className="rounded-lg gap-1">
+          <Button
+            size="sm"
+            onClick={() => createNoteMutation.mutate()}
+            disabled={createNoteMutation.isPending}
+            className="rounded-lg gap-1"
+          >
             <FileText className="size-4" /> 新建笔记
           </Button>
           <Button size="sm" onClick={() => setShowImport(!showImport)} className="rounded-lg gap-1">
@@ -602,15 +669,26 @@ export function NotesPage() {
         </div>
       </div>
 
-      {showImport && <ImportNoteForm onDone={() => { setShowImport(false); queryClient.invalidateQueries({ queryKey: ['notes'] }) }} />}
+      {showImport && (
+        <ImportNoteForm
+          onDone={() => {
+            setShowImport(false)
+            queryClient.invalidateQueries({ queryKey: ['notes'] })
+          }}
+        />
+      )}
 
       <ScrollArea className="flex-1">
         <div className="space-y-1 p-2 md:p-4">
-          {(!displayedNotes || displayedNotes.length === 0) ? (
+          {!displayedNotes || displayedNotes.length === 0 ? (
             <EmptyState
               icon={FileText}
               title={trimmedQuery ? '未找到匹配的笔记' : '暂无笔记'}
-              description={trimmedQuery ? '尝试更换关键词' : '点击「IMA 同步」拉取笔记，或「导入」本地 Markdown'}
+              description={
+                trimmedQuery
+                  ? '尝试更换关键词'
+                  : '点击「IMA 同步」拉取笔记，或「导入」本地 Markdown'
+              }
             />
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -623,7 +701,14 @@ export function NotesPage() {
                     onClick={() => navigate(`/notes/${note.id}`)}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={cn('icon-badge size-9', isIma ? 'bg-gradient-to-br from-sky-500 to-blue-500' : 'bg-gradient-to-br from-primary to-primary/80')}>
+                      <div
+                        className={cn(
+                          'icon-badge size-9',
+                          isIma
+                            ? 'bg-gradient-to-br from-sky-500 to-blue-500'
+                            : 'bg-gradient-to-br from-primary to-primary/80',
+                        )}
+                      >
                         <FileText className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -637,7 +722,14 @@ export function NotesPage() {
                     </div>
                     <div className="flex items-center justify-between pt-1">
                       <div className="flex items-center gap-2">
-                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', isIma ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-muted text-muted-foreground')}>
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                            isIma
+                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : 'bg-muted text-muted-foreground',
+                          )}
+                        >
                           {isIma ? 'IMA' : '本地'}
                         </span>
                         <span className="text-xs text-muted-foreground">
@@ -664,7 +756,10 @@ export function NotesPage() {
         </div>
       </ScrollArea>
 
-      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+      <AlertDialog
+        open={!!deleteConfirmId}
+        onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除笔记？</AlertDialogTitle>

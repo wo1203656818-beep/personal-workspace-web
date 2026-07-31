@@ -68,7 +68,10 @@ export const entertainmentApi = {
   dailyChallenge: () => api.post('daily-challenge').json<DailyChallenge>(),
   completeChallenge: (data: { challenge: string; category: string }) =>
     api.post('daily-challenge/complete', { json: data }).json(),
-  challengeStats: () => api.get('daily-challenge/stats').json<{ total: number; last7: { date: string; count: number }[] }>(),
+  challengeStats: () =>
+    api
+      .get('daily-challenge/stats')
+      .json<{ total: number; last7: { date: string; count: number }[] }>(),
 
   // AI 写诗
   aiPoem: (data: { topic: string; style?: string }) =>

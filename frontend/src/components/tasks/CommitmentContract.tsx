@@ -10,7 +10,11 @@ interface CommitmentContractProps {
   onUpdate: (data: { commitmentDeadline: string | null }) => void
 }
 
-export function CommitmentContract({ commitmentDeadline, status, onUpdate }: CommitmentContractProps) {
+export function CommitmentContract({
+  commitmentDeadline,
+  status,
+  onUpdate,
+}: CommitmentContractProps) {
   const [editing, setEditing] = useState(false)
   const [deadline, setDeadline] = useState(commitmentDeadline || '')
 
@@ -45,8 +49,12 @@ export function CommitmentContract({ commitmentDeadline, status, onUpdate }: Com
           onChange={(e) => setDeadline(e.target.value)}
           className="h-8 text-xs"
         />
-        <Button size="sm" onClick={handleSave}>保存</Button>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>取消</Button>
+        <Button size="sm" onClick={handleSave}>
+          保存
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          取消
+        </Button>
       </div>
     )
   }
@@ -61,7 +69,13 @@ export function CommitmentContract({ commitmentDeadline, status, onUpdate }: Com
       ) : (
         <Badge variant="secondary" className="gap-1 text-xs">
           <Calendar className="size-3" />
-          承诺截止: {new Date(commitmentDeadline!).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          承诺截止:{' '}
+          {new Date(commitmentDeadline!).toLocaleString('zh-CN', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
         </Badge>
       )}
       <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => setEditing(true)}>

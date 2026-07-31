@@ -41,7 +41,8 @@ function useAuthBlob(docId?: string) {
     setLoading(true)
     setError(null)
 
-    kbApi.getBlob(docId)
+    kbApi
+      .getBlob(docId)
       .then(async (blob) => {
         if (cancelled) return
         const buf = await blob.arrayBuffer()
@@ -130,7 +131,10 @@ function XlsxViewer({ arrayBuffer }: { arrayBuffer: ArrayBuffer }) {
   }, [arrayBuffer])
   return (
     <div className="overflow-x-auto">
-      <div className="break-words [&_table]:block [&_table]:overflow-x-auto [&_table]:my-2 [&_table]:border-collapse" dangerouslySetInnerHTML={{ __html: html }} />
+      <div
+        className="break-words [&_table]:block [&_table]:overflow-x-auto [&_table]:my-2 [&_table]:border-collapse"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </div>
   )
 }
@@ -149,7 +153,9 @@ function MarkdownViewer({ content }: { content: string }) {
   return (
     <div className="overflow-x-hidden">
       <div className="break-words prose prose-sm dark:prose-invert max-w-none [&_img]:mx-auto [&_img]:max-h-[70vh] [&_img]:max-w-full [&_img]:object-contain [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_table]:block [&_table]:overflow-x-auto [&_table]:max-w-full">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   )
@@ -256,7 +262,9 @@ export function DocViewer({ fileType, content, title, docId }: DocViewerProps) {
   }
 
   // 二进制类型：pdf/docx/xlsx/image/txt/html/audio 都通过 docId 拉 ArrayBuffer
-  const needsBinary = ['pdf', 'docx', 'xlsx', 'image', 'txt', 'html', 'audio'].includes(normalizedType)
+  const needsBinary = ['pdf', 'docx', 'xlsx', 'image', 'txt', 'html', 'audio'].includes(
+    normalizedType,
+  )
   if (!needsBinary) {
     return (
       <div className="py-12 text-center text-muted-foreground">
@@ -273,13 +281,7 @@ export function DocViewer({ fileType, content, title, docId }: DocViewerProps) {
 }
 
 // 二进制查看器：负责带认证拉取并分发到对应组件
-function BinaryViewer({
-  fileType,
-  docId,
-}: {
-  fileType: string
-  docId: string
-}) {
+function BinaryViewer({ fileType, docId }: { fileType: string; docId: string }) {
   const { blobUrl, arrayBuffer, loading, error } = useAuthBlob(docId)
 
   if (loading) return <LoadState loading error={null} />

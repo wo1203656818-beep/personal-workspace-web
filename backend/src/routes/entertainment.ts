@@ -13,8 +13,11 @@ entertainment.post('/cyber-fortune', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
 
-  const existing = await db.select().from(schema.cyberFortunes)
-    .where(eq(schema.cyberFortunes.date, today)).limit(1)
+  const existing = await db
+    .select()
+    .from(schema.cyberFortunes)
+    .where(eq(schema.cyberFortunes.date, today))
+    .limit(1)
   if (existing.length > 0) {
     return c.json({ ...existing[0], cached: true })
   }
@@ -23,14 +26,17 @@ entertainment.post('/cyber-fortune', async (c) => {
   let moodScore = 5
   let luckyColor = '#6366f1'
   try {
-    const aiResult = await callAI(c.env, [{
-      role: 'system',
-      content: `你是一个赛博朋克风格的运势生成器。用科技感的语言生成今日运势。
-返回JSON格式：{"content": "运势文案(100字以内，用编程/科技比喻生活)", "moodScore": 1-10的数字, "luckyColor": "hex颜色值"}`
-    }, {
-      role: 'user',
-      content: `今天是${today}，请生成今日赛博运势。`
-    }])
+    const aiResult = await callAI(c.env, [
+      {
+        role: 'system',
+        content: `你是一个赛博朋克风格的运势生成器。用科技感的语言生成今日运势。
+返回JSON格式：{"content": "运势文案(100字以内，用编程/科技比喻生活)", "moodScore": 1-10的数字, "luckyColor": "hex颜色值"}`,
+      },
+      {
+        role: 'user',
+        content: `今天是${today}，请生成今日赛博运势。`,
+      },
+    ])
     const parsed = JSON.parse(aiResult)
     content = parsed.content || aiResult
     moodScore = parsed.moodScore || 5
@@ -46,7 +52,11 @@ entertainment.post('/cyber-fortune', async (c) => {
 
 entertainment.get('/cyber-fortune/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const history = await db.select().from(schema.cyberFortunes).orderBy(desc(schema.cyberFortunes.date)).limit(30)
+  const history = await db
+    .select()
+    .from(schema.cyberFortunes)
+    .orderBy(desc(schema.cyberFortunes.date))
+    .limit(30)
   return c.json(history)
 })
 
@@ -55,8 +65,11 @@ entertainment.post('/daily-persona', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
 
-  const existing = await db.select().from(schema.dailyPersonas)
-    .where(eq(schema.dailyPersonas.date, today)).limit(1)
+  const existing = await db
+    .select()
+    .from(schema.dailyPersonas)
+    .where(eq(schema.dailyPersonas.date, today))
+    .limit(1)
   if (existing.length > 0) {
     return c.json({ ...existing[0], cached: true })
   }
@@ -67,14 +80,17 @@ entertainment.post('/daily-persona', async (c) => {
   let bgmStyle = 'Lo-fi Hip Hop'
   let suitableFor = '喝杯咖啡，写点代码'
   try {
-    const aiResult = await callAI(c.env, [{
-      role: 'system',
-      content: `你是一个趣味人设生成器。每天为用户生成一个有趣的角色人设。
-返回JSON格式：{"name": "人设名(4-8字，有趣)", "description": "人设描述(50字以内)", "luckyColor": "hex颜色值", "bgmStyle": "今日推荐BGM风格", "suitableFor": "今天适合做的事(20字以内)"}`
-    }, {
-      role: 'user',
-      content: `今天是${today}，请生成今日人设。`
-    }])
+    const aiResult = await callAI(c.env, [
+      {
+        role: 'system',
+        content: `你是一个趣味人设生成器。每天为用户生成一个有趣的角色人设。
+返回JSON格式：{"name": "人设名(4-8字，有趣)", "description": "人设描述(50字以内)", "luckyColor": "hex颜色值", "bgmStyle": "今日推荐BGM风格", "suitableFor": "今天适合做的事(20字以内)"}`,
+      },
+      {
+        role: 'user',
+        content: `今天是${today}，请生成今日人设。`,
+      },
+    ])
     const parsed = JSON.parse(aiResult)
     name = parsed.name || name
     description = parsed.description || description
@@ -84,13 +100,19 @@ entertainment.post('/daily-persona', async (c) => {
   } catch {}
 
   const id = crypto.randomUUID()
-  await db.insert(schema.dailyPersonas).values({ id, date: today, name, description, luckyColor, bgmStyle, suitableFor })
+  await db
+    .insert(schema.dailyPersonas)
+    .values({ id, date: today, name, description, luckyColor, bgmStyle, suitableFor })
   return c.json({ id, date: today, name, description, luckyColor, bgmStyle, suitableFor })
 })
 
 entertainment.get('/daily-persona/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const history = await db.select().from(schema.dailyPersonas).orderBy(desc(schema.dailyPersonas.date)).limit(30)
+  const history = await db
+    .select()
+    .from(schema.dailyPersonas)
+    .orderBy(desc(schema.dailyPersonas.date))
+    .limit(30)
   return c.json(history)
 })
 
@@ -136,7 +158,11 @@ entertainment.post('/inspiration', async (c) => {
 
 entertainment.get('/inspiration/saved', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const saved = await db.select().from(schema.savedInspirations).orderBy(desc(schema.savedInspirations.createdAt)).limit(50)
+  const saved = await db
+    .select()
+    .from(schema.savedInspirations)
+    .orderBy(desc(schema.savedInspirations.createdAt))
+    .limit(50)
   return c.json(saved)
 })
 
@@ -189,7 +215,9 @@ entertainment.post('/daily-challenge', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
 
-  const existing = await db.select().from(schema.challengeCompletions)
+  const existing = await db
+    .select()
+    .from(schema.challengeCompletions)
     .where(eq(schema.challengeCompletions.date, today))
 
   const idx = Math.floor(Math.random() * CHALLENGES.length)
@@ -209,17 +237,21 @@ entertainment.post('/daily-challenge/complete', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
   const id = crypto.randomUUID()
-  await db.insert(schema.challengeCompletions).values({ id, date: today, challenge, category: category || '其他' })
+  await db
+    .insert(schema.challengeCompletions)
+    .values({ id, date: today, challenge, category: category || '其他' })
   return c.json({ ok: true, id }, 201)
 })
 
 entertainment.get('/daily-challenge/stats', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const total = await db.select({ count: sql<number>`count(*)` }).from(schema.challengeCompletions)
-  const last7 = await db.select({
-    date: sql<string>`date(${schema.challengeCompletions.completedAt})`,
-    count: sql<number>`count(*)`,
-  }).from(schema.challengeCompletions)
+  const last7 = await db
+    .select({
+      date: sql<string>`date(${schema.challengeCompletions.completedAt})`,
+      count: sql<number>`count(*)`,
+    })
+    .from(schema.challengeCompletions)
     .where(sql`${schema.challengeCompletions.completedAt} >= datetime('now', '-7 days')`)
     .groupBy(sql`date(${schema.challengeCompletions.completedAt})`)
 
@@ -228,7 +260,7 @@ entertainment.get('/daily-challenge/stats', async (c) => {
 
 // ========== AI 写诗 ==========
 entertainment.post('/ai-poem', async (c) => {
-  const { topic, style } = await c.req.json() as { topic: string; style?: string }
+  const { topic, style } = (await c.req.json()) as { topic: string; style?: string }
   if (!topic) return c.json({ error: '请输入主题' }, 400)
 
   const styleMap: Record<string, string> = {
@@ -241,14 +273,17 @@ entertainment.post('/ai-poem', async (c) => {
 
   let poem = ''
   try {
-    poem = await callAI(c.env, [{
-      role: 'system',
-      content: `你是一个才华横溢的诗人。请根据用户的要求写一首${styleDesc}。
-要求：4-8行，语言优美，有意境。直接输出诗句，不要解释。`
-    }, {
-      role: 'user',
-      content: `主题：${topic}`
-    }])
+    poem = await callAI(c.env, [
+      {
+        role: 'system',
+        content: `你是一个才华横溢的诗人。请根据用户的要求写一首${styleDesc}。
+要求：4-8行，语言优美，有意境。直接输出诗句，不要解释。`,
+      },
+      {
+        role: 'user',
+        content: `主题：${topic}`,
+      },
+    ])
   } catch {
     poem = '灵感如星辰，\n散落在心间。\n轻轻拾起一颗，\n便是永恒。'
   }
@@ -301,30 +336,52 @@ entertainment.post('/tarot', async (c) => {
 
   let interpretation = ''
   try {
-    const cardsDesc = drawn.map((card, i) => {
-      const positions = spread === 'celtic'
-        ? ['当前处境', '挑战', '过去基础', '近期过去', '可能结果', '近期未来', '自我态度', '环境影响', '希望与恐惧', '最终结果']
-        : spread === 'three' ? ['过去', '现在', '未来'] : ['当前指引']
-      return `第${i + 1}张「${card.name}」(${positions[i] || ''})：${card.meaning}`
-    }).join('\n')
+    const cardsDesc = drawn
+      .map((card, i) => {
+        const positions =
+          spread === 'celtic'
+            ? [
+                '当前处境',
+                '挑战',
+                '过去基础',
+                '近期过去',
+                '可能结果',
+                '近期未来',
+                '自我态度',
+                '环境影响',
+                '希望与恐惧',
+                '最终结果',
+              ]
+            : spread === 'three'
+              ? ['过去', '现在', '未来']
+              : ['当前指引']
+        return `第${i + 1}张「${card.name}」(${positions[i] || ''})：${card.meaning}`
+      })
+      .join('\n')
 
-    interpretation = await callAI(c.env, [{
-      role: 'system',
-      content: `你是一个资深塔罗牌解读师。请根据牌面和问题，给出温暖、有深度的解读。
+    interpretation = await callAI(c.env, [
+      {
+        role: 'system',
+        content: `你是一个资深塔罗牌解读师。请根据牌面和问题，给出温暖、有深度的解读。
 解读要：1) 结合每张牌的位置含义 2) 回应用户的问题 3) 给出建议
-总字数控制在200字以内。`
-    }, {
-      role: 'user',
-      content: `问题：${question}\n牌阵：${spreadNames[spread || 'single']}\n抽到的牌：\n${cardsDesc}`
-    }])
+总字数控制在200字以内。`,
+      },
+      {
+        role: 'user',
+        content: `问题：${question}\n牌阵：${spreadNames[spread || 'single']}\n抽到的牌：\n${cardsDesc}`,
+      },
+    ])
   } catch {
     interpretation = '塔罗牌在沉默中等待，建议你静心思考后再次提问。'
   }
 
   const id = crypto.randomUUID()
   await db.insert(schema.tarotReadings).values({
-    id, question, spread: spread || 'single',
-    cards: JSON.stringify(drawn), interpretation,
+    id,
+    question,
+    spread: spread || 'single',
+    cards: JSON.stringify(drawn),
+    interpretation,
   })
 
   return c.json({ id, question, spread: spread || 'single', cards: drawn, interpretation })
@@ -332,7 +389,11 @@ entertainment.post('/tarot', async (c) => {
 
 entertainment.get('/tarot/history', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const history = await db.select().from(schema.tarotReadings).orderBy(desc(schema.tarotReadings.createdAt)).limit(20)
+  const history = await db
+    .select()
+    .from(schema.tarotReadings)
+    .orderBy(desc(schema.tarotReadings.createdAt))
+    .limit(20)
   return c.json(history)
 })
 

@@ -26,16 +26,19 @@ export function useSwipeGesture({ onSwipeLeft, onSwipeRight, threshold = 80 }: S
     }
   }, [])
 
-  const onTouchEnd = useCallback((e: TouchEvent) => {
-    if (!swiping.current) return
-    const dx = e.changedTouches[0].clientX - startX.current
-    if (dx < -threshold && onSwipeLeft) {
-      onSwipeLeft()
-    } else if (dx > threshold && onSwipeRight) {
-      onSwipeRight()
-    }
-    swiping.current = false
-  }, [onSwipeLeft, onSwipeRight, threshold])
+  const onTouchEnd = useCallback(
+    (e: TouchEvent) => {
+      if (!swiping.current) return
+      const dx = e.changedTouches[0].clientX - startX.current
+      if (dx < -threshold && onSwipeLeft) {
+        onSwipeLeft()
+      } else if (dx > threshold && onSwipeRight) {
+        onSwipeRight()
+      }
+      swiping.current = false
+    },
+    [onSwipeLeft, onSwipeRight, threshold],
+  )
 
   return { onTouchStart, onTouchMove, onTouchEnd }
 }

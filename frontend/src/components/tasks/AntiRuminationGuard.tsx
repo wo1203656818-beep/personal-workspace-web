@@ -62,7 +62,8 @@ export function AntiRuminationGuard({
             </p>
             {matchingRules.slice(0, 2).map((rule) => (
               <p key={rule.id} className="text-xs text-muted-foreground">
-                如果 <span className="font-medium">{rule.condition}</span>，就 <span className="font-medium text-primary">{rule.action}</span>
+                如果 <span className="font-medium">{rule.condition}</span>，就{' '}
+                <span className="font-medium text-primary">{rule.action}</span>
               </p>
             ))}
           </div>
@@ -76,7 +77,10 @@ export function AntiRuminationGuard({
         <div className="flex items-center justify-between rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-3">
           <div className="space-y-1">
             {warnings.map((w, i) => (
-              <p key={i} className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400">
+              <p
+                key={i}
+                className="flex items-center gap-1.5 text-sm text-yellow-600 dark:text-yellow-400"
+              >
                 <Clock className="size-4" />
                 {w}
               </p>

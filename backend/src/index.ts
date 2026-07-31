@@ -20,13 +20,18 @@ import monitor from './routes/monitor'
 import tools from './routes/tools'
 import tags from './routes/tags'
 import decisionRules from './routes/decision-rules'
-import decisionTemplates from './routes/decision-templates'
-import decisionLogs from './routes/decision-logs'
 import mood from './routes/mood'
-import declutter from './routes/declutter'
 import nightlyReview from './routes/nightly-review'
 import entertainment from './routes/entertainment'
-import { listAiConfigs, createAiConfig, updateAiConfig, deleteAiConfig, setDefaultAiConfig, testAiConfig } from './ai-configs'
+import habits from './routes/habits'
+import {
+  listAiConfigs,
+  createAiConfig,
+  updateAiConfig,
+  deleteAiConfig,
+  setDefaultAiConfig,
+  testAiConfig,
+} from './ai-configs'
 
 // MCP + Cron
 import { verifyMcpAuth, handleMcp } from './mcp'
@@ -38,12 +43,15 @@ const app = new Hono<{ Bindings: Env }>()
 // 中间件
 // ═══════════════════════════════════════
 
-app.use('*', cors({
-  origin: (_origin, c) => c.env.ALLOWED_ORIGIN ?? '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
-  maxAge: 86400,
-}))
+app.use(
+  '*',
+  cors({
+    origin: (_origin, c) => c.env.ALLOWED_ORIGIN ?? '*',
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+    maxAge: 86400,
+  }),
+)
 
 // JWT 认证 — 白名单路径免鉴权
 const PUBLIC_PATHS = new Set([
@@ -98,18 +106,21 @@ app.get('/health', async (c) => {
     checks.kv = -1
   }
 
-  const healthy = Object.values(checks).every(v => v >= 0)
-  return c.json({
-    status: healthy ? 'ok' : 'degraded',
-    latency: checks,
-    bindings: {
-      db: !!c.env.DB,
-      kv: !!c.env.CACHE,
-      r2: !!c.env.STORAGE,
-      ai: !!c.env.AI,
-      vectorize: !!c.env.VECTORIZE,
+  const healthy = Object.values(checks).every((v) => v >= 0)
+  return c.json(
+    {
+      status: healthy ? 'ok' : 'degraded',
+      latency: checks,
+      bindings: {
+        db: !!c.env.DB,
+        kv: !!c.env.CACHE,
+        r2: !!c.env.STORAGE,
+        ai: !!c.env.AI,
+        vectorize: !!c.env.VECTORIZE,
+      },
     },
-  }, healthy ? 200 : 503)
+    healthy ? 200 : 503,
+  )
 })
 
 // ═══════════════════════════════════════
@@ -158,15 +169,13 @@ app.route('/api/settings', settings)
 app.route('/api/news', news)
 app.route('/api/telegram', telegram)
 app.route('/api/monitor', monitor)
-app.route('/api', tools)          // coin/* + tools/* + sync-logs
+app.route('/api', tools) // coin/* + tools/* + sync-logs
 app.route('/api/tags', tags)
 app.route('/api/decision-rules', decisionRules)
-app.route('/api/decision-templates', decisionTemplates)
-app.route('/api/decision-logs', decisionLogs)
 app.route('/api/mood', mood)
-app.route('/api/declutter', declutter)
 app.route('/api/nightly-review', nightlyReview)
 app.route('/api', entertainment)
+app.route('/api/habits', habits)
 app.route('/api/ai-configs', aiConfigRoutes)
 
 // 根路径
@@ -181,7 +190,10 @@ export default {
     const url = new URL(request.url)
     if (url.pathname === '/mcp') {
       if (!(await verifyMcpAuth(request, env))) {
-        return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer' },
+        })
       }
       return handleMcp(request, env, ctx)
     }

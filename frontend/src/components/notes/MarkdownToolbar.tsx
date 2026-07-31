@@ -10,19 +10,54 @@ interface MarkdownToolbarProps {
 export function MarkdownToolbar({ onInsert }: MarkdownToolbarProps) {
   return (
     <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-muted/30 p-1.5">
-      <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => onInsert('bold')} title="粗体">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2"
+        onClick={() => onInsert('bold')}
+        title="粗体"
+      >
         <Bold className="size-4" />
       </Button>
-      <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => onInsert('italic')} title="斜体">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2"
+        onClick={() => onInsert('italic')}
+        title="斜体"
+      >
         <Italic className="size-4" />
       </Button>
-      <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => onInsert('heading')} title="标题">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2"
+        onClick={() => onInsert('heading')}
+        title="标题"
+      >
         <Heading className="size-4" />
       </Button>
-      <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => onInsert('link')} title="链接">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2"
+        onClick={() => onInsert('link')}
+        title="链接"
+      >
         <LinkIcon className="size-4" />
       </Button>
-      <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => onInsert('list')} title="列表">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-8 px-2"
+        onClick={() => onInsert('list')}
+        title="列表"
+      >
         <List className="size-4" />
       </Button>
     </div>

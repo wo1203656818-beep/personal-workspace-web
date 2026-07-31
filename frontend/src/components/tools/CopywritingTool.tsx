@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import {
-  Loader2, Copy, Check, Bookmark, ChevronDown, ChevronUp,
-} from 'lucide-react'
+import { Loader2, Copy, Check, Bookmark, ChevronDown, ChevronUp } from 'lucide-react'
 import { aiApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -29,7 +27,11 @@ interface SavedCopy {
 }
 
 function loadSaved(): SavedCopy[] {
-  try { return JSON.parse(localStorage.getItem('copywriting:saved') || '[]') } catch { return [] }
+  try {
+    return JSON.parse(localStorage.getItem('copywriting:saved') || '[]')
+  } catch {
+    return []
+  }
 }
 function saveToLocal(item: SavedCopy) {
   const list = loadSaved()
@@ -38,7 +40,7 @@ function saveToLocal(item: SavedCopy) {
   localStorage.setItem('copywriting:saved', JSON.stringify(list))
 }
 function removeSaved(id: string) {
-  const list = loadSaved().filter(i => i.id !== id)
+  const list = loadSaved().filter((i) => i.id !== id)
   localStorage.setItem('copywriting:saved', JSON.stringify(list))
 }
 
@@ -53,13 +55,14 @@ export function CopywritingTool() {
   const [saved, setSaved] = useState<SavedCopy[]>(loadSaved())
 
   const generateMutation = useMutation({
-    mutationFn: () => aiApi.copywriting({
-      platform,
-      topic,
-      style,
-      referenceUrl: referenceUrl.trim() || undefined,
-      count: 3,
-    }),
+    mutationFn: () =>
+      aiApi.copywriting({
+        platform,
+        topic,
+        style,
+        referenceUrl: referenceUrl.trim() || undefined,
+        count: 3,
+      }),
     onSuccess: (data) => {
       setResults(data.results || [])
       if (data.results?.length === 0) toast.info('生成结果为空，请换个描述重试')
@@ -73,7 +76,9 @@ export function CopywritingTool() {
       setCopiedIdx(idx)
       toast.success('已复制到剪贴板')
       setTimeout(() => setCopiedIdx(null), 2000)
-    } catch { toast.error('复制失败') }
+    } catch {
+      toast.error('复制失败')
+    }
   }
 
   const handleSave = (item: CopyResult) => {
@@ -97,14 +102,13 @@ export function CopywritingTool() {
   }
 
   const formatFullText = (item: { content: string; hashtags: string[] }) => {
-    const tags = item.hashtags.length > 0
-      ? '\n\n' + item.hashtags.map(t => `#${t}#`).join(' ')
-      : ''
+    const tags =
+      item.hashtags.length > 0 ? '\n\n' + item.hashtags.map((t) => `#${t}#`).join(' ') : ''
     return item.content + tags
   }
 
-  const platformLabel = PLATFORMS.find(p => p.value === platform)?.label || ''
-  const styleLabel = STYLES.find(s => s.value === style)?.label || ''
+  const platformLabel = PLATFORMS.find((p) => p.value === platform)?.label || ''
+  const styleLabel = STYLES.find((s) => s.value === style)?.label || ''
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -114,7 +118,7 @@ export function CopywritingTool() {
           <div>
             <label className="text-sm font-medium mb-2 block">目标平台</label>
             <div className="flex flex-wrap gap-2">
-              {PLATFORMS.map(p => (
+              {PLATFORMS.map((p) => (
                 <button
                   key={p.value}
                   onClick={() => setPlatform(p.value)}
@@ -122,7 +126,7 @@ export function CopywritingTool() {
                     'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-all',
                     platform === p.value
                       ? 'border-primary bg-primary/5 font-medium shadow-sm'
-                      : 'border-border hover:bg-muted text-muted-foreground'
+                      : 'border-border hover:bg-muted text-muted-foreground',
                   )}
                 >
                   <p.icon className={cn('size-4', platform === p.value ? p.color : '')} />
@@ -136,7 +140,7 @@ export function CopywritingTool() {
           <div>
             <label className="text-sm font-medium mb-2 block">写作风格</label>
             <div className="flex flex-wrap gap-2">
-              {STYLES.map(s => (
+              {STYLES.map((s) => (
                 <button
                   key={s.value}
                   onClick={() => setStyle(s.value)}
@@ -144,7 +148,7 @@ export function CopywritingTool() {
                     'px-3 py-1.5 rounded-full border text-sm transition-all',
                     style === s.value
                       ? 'border-primary bg-primary/5 font-medium shadow-sm'
-                      : 'border-border hover:bg-muted text-muted-foreground'
+                      : 'border-border hover:bg-muted text-muted-foreground',
                   )}
                 >
                   {s.label}
@@ -191,10 +195,14 @@ export function CopywritingTool() {
             className="w-full"
             size="lg"
           >
-            {generateMutation.isPending
-              ? <><Loader2 className="mr-2 size-4 animate-spin" />AI 正在撰写{platformLabel}文案...</>
-              : <>生成文案</>
-            }
+            {generateMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                AI 正在撰写{platformLabel}文案...
+              </>
+            ) : (
+              <>生成文案</>
+            )}
           </Button>
 
           {/* 生成结果 */}
@@ -206,14 +214,19 @@ export function CopywritingTool() {
               {results.map((item, idx) => (
                 <div key={idx} className="border rounded-xl p-4 space-y-3 bg-card">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">方案 {idx + 1}</span>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      方案 {idx + 1}
+                    </span>
                     <span className="text-xs text-muted-foreground italic">{item.hook}</span>
                   </div>
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">{item.content}</div>
                   {item.hashtags.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {item.hashtags.map((tag, ti) => (
-                        <span key={ti} className="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 text-xs">
+                        <span
+                          key={ti}
+                          className="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 text-xs"
+                        >
                           #{tag}#
                         </span>
                       ))}
@@ -226,7 +239,11 @@ export function CopywritingTool() {
                       onClick={() => handleCopy(formatFullText(item), idx)}
                       className="gap-1.5"
                     >
-                      {copiedIdx === idx ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
+                      {copiedIdx === idx ? (
+                        <Check className="size-3.5 text-green-500" />
+                      ) : (
+                        <Copy className="size-3.5" />
+                      )}
                       {copiedIdx === idx ? '已复制' : '复制全文'}
                     </Button>
                     <Button
@@ -247,15 +264,21 @@ export function CopywritingTool() {
           {/* 历史收藏 */}
           {saved.length > 0 && (
             <div className="space-y-3 border-t pt-5">
-              <h3 className="text-sm font-medium text-muted-foreground">收藏记录（{saved.length}）</h3>
-              {saved.slice(0, 20).map(item => {
-                const p = PLATFORMS.find(pp => pp.value === item.platform)
+              <h3 className="text-sm font-medium text-muted-foreground">
+                收藏记录（{saved.length}）
+              </h3>
+              {saved.slice(0, 20).map((item) => {
+                const p = PLATFORMS.find((pp) => pp.value === item.platform)
                 return (
                   <div key={item.id} className="border rounded-lg p-3 text-sm space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted">{p?.label || item.platform}</span>
-                        <span className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-muted">
+                          {p?.label || item.platform}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(item.createdAt).toLocaleDateString()}
+                        </span>
                       </div>
                       <button
                         onClick={() => handleRemoveSaved(item.id)}
@@ -264,7 +287,9 @@ export function CopywritingTool() {
                         删除
                       </button>
                     </div>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-4">{item.content}</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap line-clamp-4">
+                      {item.content}
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"

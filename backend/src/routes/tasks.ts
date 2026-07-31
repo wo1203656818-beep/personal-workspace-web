@@ -1,16 +1,38 @@
 import { Hono } from 'hono'
 import { drizzle } from 'drizzle-orm/d1'
-import { eq, and, or, isNotNull, isNull, like, desc, gte, sql, getTableColumns, max, count, inArray } from 'drizzle-orm'
+import {
+  eq,
+  and,
+  or,
+  isNotNull,
+  isNull,
+  like,
+  desc,
+  gte,
+  sql,
+  getTableColumns,
+  max,
+  count,
+  inArray,
+} from 'drizzle-orm'
 import * as schema from '../schema'
 import type { Env } from '../types'
 import {
-  createListSchema, updateListSchema,
-  createTaskSchema, updateTaskSchema,
-  createSubtaskSchema, updateSubtaskSchema,
+  createListSchema,
+  updateListSchema,
+  createTaskSchema,
+  updateTaskSchema,
+  createSubtaskSchema,
+  updateSubtaskSchema,
 } from '../validation'
 import { nowBeijing, todayBeijing, nowCST, todayCST } from '../time'
 import { indexTarget } from '../utils/vectorize'
-import { buildSubtaskAgg, TASK_COLUMNS, TASK_SUMMARY_COLUMNS, syncParentCompletion } from '../utils/helpers'
+import {
+  buildSubtaskAgg,
+  TASK_COLUMNS,
+  TASK_SUMMARY_COLUMNS,
+  syncParentCompletion,
+} from '../utils/helpers'
 import { deleteMsList } from '../ms-sync'
 
 const tasks = new Hono<{ Bindings: Env }>()
@@ -21,7 +43,8 @@ async function queryTasksWithSubtaskStats(
   whereClause: any,
   orderClause: any[],
 ): Promise<any[]> {
-  const rows: any[] = await db.select({ ...TASK_SUMMARY_COLUMNS })
+  const rows: any[] = await db
+    .select({ ...TASK_SUMMARY_COLUMNS })
     .from(schema.tasks)
     .where(whereClause)
     .orderBy(...orderClause)
@@ -53,7 +76,12 @@ tasks.get('/lists', async (c) => {
     .where(isNull(schema.tasks.msTodoDeletedAt))
     .groupBy(schema.tasks.listId)
   const sm = new Map<string, { total: number; active: number; completed: number }>()
-  for (const s of stats) sm.set(s.listId, { total: Number(s.total), active: Number(s.active) ?? 0, completed: Number(s.completed) ?? 0 })
+  for (const s of stats)
+    sm.set(s.listId, {
+      total: Number(s.total),
+      active: Number(s.active) || 0,
+      completed: Number(s.completed) || 0,
+    })
   const enriched = lists.map((l) => {
     const s = sm.get(l.id) || { total: 0, active: 0, completed: 0 }
     return { ...l, taskCount: s.total, activeTaskCount: s.active, completedTaskCount: s.completed }
@@ -86,7 +114,8 @@ tasks.put('/lists/:id', async (c) => {
   const { id } = c.req.param()
   const { name, color } = updateListSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.taskLists)
+  await db
+    .update(schema.taskLists)
     .set({ name, color, updatedAt: nowBeijing() })
     .where(eq(schema.taskLists.id, id))
   const list = await db.select().from(schema.taskLists).where(eq(schema.taskLists.id, id))
@@ -102,13 +131,27 @@ tasks.delete('/lists/:id', async (c) => {
   const list = await db.select().from(schema.taskLists).where(eq(schema.taskLists.id, id))
   const msTodoListId = list[0]?.msTodoListId
   // 先记录列表下所有任务 ID 及其子任务 ID，用于清理嵌入
-  const tasksInList = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(eq(schema.tasks.listId, id))
+  const tasksInList = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.listId, id))
   const subtaskIds = tasksInList.length
-    ? await db.select({ id: schema.subtasks.id }).from(schema.subtasks).where(inArray(schema.subtasks.taskId, tasksInList.map((t) => t.id)))
+    ? await db
+        .select({ id: schema.subtasks.id })
+        .from(schema.subtasks)
+        .where(
+          inArray(
+            schema.subtasks.taskId,
+            tasksInList.map((t) => t.id),
+          ),
+        )
     : []
   // 关联 MS 的任务做软删除（下次同步会从 MS 端删除）；无 MS 关联的直接硬删；删列表本身，三者并行安全
   await db.batch([
-    db.update(schema.tasks).set({ msTodoDeletedAt: now, updatedAt: now }).where(and(eq(schema.tasks.listId, id), isNotNull(schema.tasks.msTodoId))),
+    db
+      .update(schema.tasks)
+      .set({ msTodoDeletedAt: now, updatedAt: now })
+      .where(and(eq(schema.tasks.listId, id), isNotNull(schema.tasks.msTodoId))),
     db.delete(schema.tasks).where(and(eq(schema.tasks.listId, id), isNull(schema.tasks.msTodoId))),
     db.delete(schema.taskLists).where(eq(schema.taskLists.id, id)),
   ])
@@ -123,7 +166,7 @@ tasks.delete('/lists/:id', async (c) => {
       const chunk = allTargetIds.slice(i, i + batchSize)
       const vectorIds = chunk.map((x) => `${x.type}:${x.id}`)
       await c.env.VECTORIZE.deleteByIds(vectorIds).catch((e) =>
-        console.error('[embed] list delete batch cleanup failed:', e?.message)
+        console.error('[embed] list delete batch cleanup failed:', e?.message),
       )
     }
   }
@@ -154,7 +197,11 @@ tasks.get('/myday', async (c) => {
   const today = todayCST()
   const result = await queryTasksWithSubtaskStats(
     db,
-    and(eq(schema.tasks.isMyDay, true), eq(schema.tasks.myDayDate, today), isNull(schema.tasks.msTodoDeletedAt)),
+    and(
+      eq(schema.tasks.isMyDay, true),
+      eq(schema.tasks.myDayDate, today),
+      isNull(schema.tasks.msTodoDeletedAt),
+    ),
     [schema.tasks.sortOrder, desc(schema.tasks.createdAt)],
   )
   return c.json(result)
@@ -165,7 +212,11 @@ tasks.get('/important', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await queryTasksWithSubtaskStats(
     db,
-    and(eq(schema.tasks.isImportant, true), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)),
+    and(
+      eq(schema.tasks.isImportant, true),
+      eq(schema.tasks.isCompleted, false),
+      isNull(schema.tasks.msTodoDeletedAt),
+    ),
     [schema.tasks.sortOrder, desc(schema.tasks.createdAt)],
   )
   return c.json(result)
@@ -176,7 +227,11 @@ tasks.get('/planned', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await queryTasksWithSubtaskStats(
     db,
-    and(isNotNull(schema.tasks.dueDate), eq(schema.tasks.isCompleted, false), isNull(schema.tasks.msTodoDeletedAt)),
+    and(
+      isNotNull(schema.tasks.dueDate),
+      eq(schema.tasks.isCompleted, false),
+      isNull(schema.tasks.msTodoDeletedAt),
+    ),
     [schema.tasks.dueDate, schema.tasks.sortOrder],
   )
   return c.json(result)
@@ -189,7 +244,10 @@ tasks.get('/search', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const result = await queryTasksWithSubtaskStats(
     db,
-    and(or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)), isNull(schema.tasks.msTodoDeletedAt)),
+    and(
+      or(like(schema.tasks.title, `%${q}%`), like(schema.tasks.note, `%${q}%`)),
+      isNull(schema.tasks.msTodoDeletedAt),
+    ),
     [desc(schema.tasks.createdAt)],
   )
   return c.json(result)
@@ -198,11 +256,9 @@ tasks.get('/search', async (c) => {
 // 全部任务（用于任务总览页）
 tasks.get('/', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const result = await queryTasksWithSubtaskStats(
-    db,
-    isNull(schema.tasks.msTodoDeletedAt),
-    [desc(schema.tasks.createdAt)],
-  )
+  const result = await queryTasksWithSubtaskStats(db, isNull(schema.tasks.msTodoDeletedAt), [
+    desc(schema.tasks.createdAt),
+  ])
   return c.json(result)
 })
 
@@ -210,34 +266,45 @@ tasks.get('/', async (c) => {
 tasks.get('/stats', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
-  const [stats] = await db.select({
-    total: sql<number>`count(*)::int`,
-    completed: sql<number>`sum(case when ${schema.tasks.isCompleted} = 1 then 1 else 0 end)::int`,
-    important: sql<number>`sum(case when ${schema.tasks.isImportant} = 1 and ${schema.tasks.isCompleted} = 0 then 1 else 0 end)::int`,
-    myDay: sql<number>`sum(case when ${schema.tasks.isMyDay} = 1 then 1 else 0 end)::int`,
-    todayCompleted: sql<number>`sum(case when ${schema.tasks.isCompleted} = 1 and date(${schema.tasks.updatedAt}) = ${today} then 1 else 0 end)::int`,
-    overdue: sql<number>`sum(case when ${schema.tasks.isCompleted} = 0 and ${schema.tasks.dueDate} < ${today} then 1 else 0 end)::int`,
-  }).from(schema.tasks).where(isNull(schema.tasks.msTodoDeletedAt))
-  return c.json(stats || { total: 0, completed: 0, important: 0, myDay: 0, todayCompleted: 0, overdue: 0 })
+  const [stats] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      completed: sql<number>`sum(case when ${schema.tasks.isCompleted} = 1 then 1 else 0 end)::int`,
+      important: sql<number>`sum(case when ${schema.tasks.isImportant} = 1 and ${schema.tasks.isCompleted} = 0 then 1 else 0 end)::int`,
+      myDay: sql<number>`sum(case when ${schema.tasks.isMyDay} = 1 then 1 else 0 end)::int`,
+      todayCompleted: sql<number>`sum(case when ${schema.tasks.isCompleted} = 1 and date(${schema.tasks.updatedAt}) = ${today} then 1 else 0 end)::int`,
+      overdue: sql<number>`sum(case when ${schema.tasks.isCompleted} = 0 and ${schema.tasks.dueDate} < ${today} then 1 else 0 end)::int`,
+    })
+    .from(schema.tasks)
+    .where(isNull(schema.tasks.msTodoDeletedAt))
+  return c.json(
+    stats || { total: 0, completed: 0, important: 0, myDay: 0, todayCompleted: 0, overdue: 0 },
+  )
 })
 
 // WIP 状态（进行中的任务数量，须放在 /:id 之前）
 tasks.get('/wip', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const [committed] = await db.select({ count: sql<number>`count(*)::int` })
+  const [committed] = await db
+    .select({ count: sql<number>`count(*)::int` })
     .from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      eq(schema.tasks.status, 'committed'),
-    ))
-  const [inProgress] = await db.select({ count: sql<number>`CAST(count(*) AS INTEGER)` })
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        eq(schema.tasks.status, 'committed'),
+      ),
+    )
+  const [inProgress] = await db
+    .select({ count: sql<number>`CAST(count(*) AS INTEGER)` })
     .from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      eq(schema.tasks.status, 'in_progress'),
-    ))
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        eq(schema.tasks.status, 'in_progress'),
+      ),
+    )
   const limit = 5
   const total = (committed?.count || 0) + (inProgress?.count || 0)
   return c.json({
@@ -253,16 +320,17 @@ tasks.get('/wip', async (c) => {
 tasks.get('/stale', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString()
-  const stale = await db.select().from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      or(
-        eq(schema.tasks.status, 'planned'),
-        isNull(schema.tasks.status),
+  const stale = await db
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        or(eq(schema.tasks.status, 'planned'), isNull(schema.tasks.status)),
+        sql`${schema.tasks.createdAt} < ${threeDaysAgo}`,
       ),
-      sql`${schema.tasks.createdAt} < ${threeDaysAgo}`,
-    ))
+    )
     .orderBy(schema.tasks.createdAt)
   return c.json(stale)
 })
@@ -271,7 +339,9 @@ tasks.get('/stale', async (c) => {
 tasks.get('/:id', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const task = await db.select().from(schema.tasks)
+  const task = await db
+    .select()
+    .from(schema.tasks)
     .where(and(eq(schema.tasks.id, id), isNull(schema.tasks.msTodoDeletedAt)))
   if (task.length === 0) return c.json({ error: '任务不存在' }, 404)
   return c.json(task[0])
@@ -284,29 +354,38 @@ tasks.post('/', async (c) => {
 
   // WIP 限制检查：committed + in_progress 不能超过上限
   const WIP_LIMIT = 5
-  const [wipCount] = await db.select({ count: sql<number>`CAST(count(*) AS INTEGER)` })
+  const [wipCount] = await db
+    .select({ count: sql<number>`CAST(count(*) AS INTEGER)` })
     .from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      or(
-        eq(schema.tasks.status, 'committed'),
-        eq(schema.tasks.status, 'in_progress'),
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        or(eq(schema.tasks.status, 'committed'), eq(schema.tasks.status, 'in_progress')),
       ),
-    ))
+    )
   if ((wipCount?.count || 0) >= WIP_LIMIT) {
-    return c.json({
-      error: '已达到进行中任务上限',
-      wipLimit: WIP_LIMIT,
-      activeCount: wipCount?.count || 0,
-      message: '请先完成或放弃一个任务再添加新的',
-    }, 409)
+    return c.json(
+      {
+        error: '已达到进行中任务上限',
+        wipLimit: WIP_LIMIT,
+        activeCount: wipCount?.count || 0,
+        message: '请先完成或放弃一个任务再添加新的',
+      },
+      409,
+    )
   }
 
   // 校验 listId 存在 + SQL MAX(sortOrder) 代替全表拉回
   const [list, maxRow] = await Promise.all([
-    db.select({ id: schema.taskLists.id }).from(schema.taskLists).where(eq(schema.taskLists.id, body.listId)),
-    db.select({ v: max(schema.tasks.sortOrder) }).from(schema.tasks).where(eq(schema.tasks.listId, body.listId)),
+    db
+      .select({ id: schema.taskLists.id })
+      .from(schema.taskLists)
+      .where(eq(schema.taskLists.id, body.listId)),
+    db
+      .select({ v: max(schema.tasks.sortOrder) })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.listId, body.listId)),
   ])
   if (list.length === 0) {
     return c.json({ error: '指定的任务列表不存在' }, 400)
@@ -337,7 +416,11 @@ tasks.post('/', async (c) => {
   })
   // 增量嵌入，供语义检索即时命中（AI 异常不阻断创建）。用 waitUntil 后台执行，不阻塞响应。
   const taskText = `${body.title}\n${body.note || ''}\n${body.isImportant ? '重要' : ''}\n${body.dueDate ? '截止: ' + body.dueDate : ''}\n${body.isMyDay ? '我的一天' : ''}`
-  c.executionCtx.waitUntil(indexTarget(c, 'task', id, taskText).catch((e) => console.error('[embed] task create failed:', e?.message)))
+  c.executionCtx.waitUntil(
+    indexTarget(c, 'task', id, taskText).catch((e) =>
+      console.error('[embed] task create failed:', e?.message),
+    ),
+  )
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   return c.json(task[0], 201)
 })
@@ -348,19 +431,44 @@ tasks.put('/:id', async (c) => {
   const body = updateTaskSchema.parse(await c.req.json())
   const db = drizzle(c.env.DB, { schema })
   const updateData: Record<string, unknown> = { updatedAt: nowBeijing() }
-  for (const key of ['title', 'note', 'isCompleted', 'isImportant', 'isMyDay', 'myDayDate', 'dueDate', 'reminder', 'recurrence', 'sortOrder', 'listId', 'status', 'why', 'firstStep', 'commitmentDeadline', 'energyLevel', 'ifThenPlan'] as const) {
+  for (const key of [
+    'title',
+    'note',
+    'isCompleted',
+    'isImportant',
+    'isMyDay',
+    'myDayDate',
+    'dueDate',
+    'reminder',
+    'recurrence',
+    'sortOrder',
+    'listId',
+    'status',
+    'why',
+    'firstStep',
+    'commitmentDeadline',
+    'energyLevel',
+    'ifThenPlan',
+  ] as const) {
     if (key in body) updateData[key] = body[key]
   }
   await db.update(schema.tasks).set(updateData).where(eq(schema.tasks.id, id))
   // 主任务勾选完成 → 其下所有子任务同步完成（"父完成即子完成"）。取消完成时应保留子任务已有进度，不应强拆。
   if (body.isCompleted === true) {
-    await db.update(schema.subtasks).set({ isCompleted: true }).where(eq(schema.subtasks.taskId, id))
+    await db
+      .update(schema.subtasks)
+      .set({ isCompleted: true })
+      .where(eq(schema.subtasks.taskId, id))
   }
   const task = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   // 增量嵌入，供语义检索即时命中（AI 异常不阻断更新）。用 waitUntil 后台执行，不阻塞响应。
   if (task[0]) {
     const taskText = `${task[0].title}\n${task[0].note || ''}\n${task[0].isCompleted ? '已完成' : '未完成'}\n${task[0].isImportant ? '重要' : ''}\n${task[0].dueDate ? '截止: ' + task[0].dueDate : ''}\n${task[0].isMyDay ? '我的一天' : ''}`
-    c.executionCtx.waitUntil(indexTarget(c, 'task', task[0].id, taskText).catch((e) => console.error('[embed] task update failed:', e?.message)))
+    c.executionCtx.waitUntil(
+      indexTarget(c, 'task', task[0].id, taskText).catch((e) =>
+        console.error('[embed] task update failed:', e?.message),
+      ),
+    )
   }
   return c.json(task[0])
 })
@@ -373,12 +481,16 @@ tasks.delete('/:id', async (c) => {
   if (existing.length === 0) return c.json({ ok: true })
   const task = existing[0]
   // 删除前先记录子任务 ID，用于清理嵌入向量
-  const subtaskIds = await db.select({ id: schema.subtasks.id }).from(schema.subtasks).where(eq(schema.subtasks.taskId, id))
+  const subtaskIds = await db
+    .select({ id: schema.subtasks.id })
+    .from(schema.subtasks)
+    .where(eq(schema.subtasks.taskId, id))
   if (task.msTodoId) {
     // 关联 MS Todo：软删除标记，等下次同步时 DELETE MS 端再硬删本地
     // 同步清理子任务，避免软删除任务产生隐藏孤儿子任务
     await db.batch([
-      db.update(schema.tasks)
+      db
+        .update(schema.tasks)
         .set({ msTodoDeletedAt: nowBeijing(), updatedAt: nowBeijing() })
         .where(eq(schema.tasks.id, id)),
       db.delete(schema.subtasks).where(eq(schema.subtasks.taskId, id)),
@@ -388,13 +500,16 @@ tasks.delete('/:id', async (c) => {
     await db.delete(schema.tasks).where(eq(schema.tasks.id, id))
   }
   // 批量清理任务及子任务的向量嵌入（Vectorize deleteByIds）
-  const allTargetIds = [{ type: 'task' as const, id }, ...subtaskIds.map((st) => ({ type: 'subtask' as const, id: st.id }))]
+  const allTargetIds = [
+    { type: 'task' as const, id },
+    ...subtaskIds.map((st) => ({ type: 'subtask' as const, id: st.id })),
+  ]
   const batchSize = 50
   for (let i = 0; i < allTargetIds.length; i += batchSize) {
     const chunk = allTargetIds.slice(i, i + batchSize)
     const vectorIds = chunk.map((x) => `${x.type}:${x.id}`)
     await c.env.VECTORIZE.deleteByIds(vectorIds).catch((e) =>
-      console.error('[embed] task delete batch cleanup failed:', e?.message)
+      console.error('[embed] task delete batch cleanup failed:', e?.message),
     )
   }
   return c.json({ ok: true })
@@ -404,11 +519,14 @@ tasks.delete('/:id', async (c) => {
 tasks.post('/:id/myday', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks).set({
-    isMyDay: true,
-    myDayDate: todayCST(),
-    updatedAt: nowBeijing(),
-  }).where(eq(schema.tasks.id, id))
+  await db
+    .update(schema.tasks)
+    .set({
+      isMyDay: true,
+      myDayDate: todayCST(),
+      updatedAt: nowBeijing(),
+    })
+    .where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
 })
 
@@ -416,18 +534,21 @@ tasks.post('/:id/myday', async (c) => {
 tasks.delete('/:id/myday', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks).set({
-    isMyDay: false,
-    myDayDate: null,
-    updatedAt: nowBeijing(),
-  }).where(eq(schema.tasks.id, id))
+  await db
+    .update(schema.tasks)
+    .set({
+      isMyDay: false,
+      myDayDate: null,
+      updatedAt: nowBeijing(),
+    })
+    .where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
 })
 
 // 任务批量排序（拖拽后，1 次 roundtrip 代替 N 次单任务 PUT）
 tasks.put('/reorder', async (c) => {
   try {
-    const { orders } = await c.req.json() as { orders: { id: string; sortOrder: number }[] }
+    const { orders } = (await c.req.json()) as { orders: { id: string; sortOrder: number }[] }
     if (!orders || !Array.isArray(orders)) return c.json({ error: 'orders required' }, 400)
     const db = drizzle(c.env.DB, { schema })
     const valid = orders.filter((o) => o && typeof o.sortOrder === 'number')
@@ -435,7 +556,10 @@ tasks.put('/reorder', async (c) => {
     const now = nowBeijing()
     // 逐条更新；D1/D1-like drizzle batch 类型严格，顺序执行更稳且数量有限
     for (const o of valid) {
-      await db.update(schema.tasks).set({ sortOrder: o.sortOrder, updatedAt: now }).where(eq(schema.tasks.id, o.id))
+      await db
+        .update(schema.tasks)
+        .set({ sortOrder: o.sortOrder, updatedAt: now })
+        .where(eq(schema.tasks.id, o.id))
     }
     return c.json({ ok: true })
   } catch (e: any) {
@@ -449,7 +573,8 @@ tasks.put('/reorder', async (c) => {
 tasks.post('/:id/commit', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks)
+  await db
+    .update(schema.tasks)
     .set({ status: 'committed', updatedAt: nowBeijing() })
     .where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
@@ -459,7 +584,8 @@ tasks.post('/:id/commit', async (c) => {
 tasks.post('/:id/start', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks)
+  await db
+    .update(schema.tasks)
     .set({ status: 'in_progress', startedAt: nowBeijing(), updatedAt: nowBeijing() })
     .where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
@@ -469,7 +595,8 @@ tasks.post('/:id/start', async (c) => {
 tasks.post('/:id/abandon', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks)
+  await db
+    .update(schema.tasks)
     .set({
       status: 'done',
       abandonedAt: nowBeijing(),
@@ -508,16 +635,17 @@ tasks.get('/energy-match', async (c) => {
   }
 
   // 获取匹配能量等级的任务
-  const tasks = await db.select().from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      eq(schema.tasks.energyLevel, recommendedEnergy),
-      or(
-        eq(schema.tasks.status, 'planned'),
-        isNull(schema.tasks.status),
+  const tasks = await db
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        eq(schema.tasks.energyLevel, recommendedEnergy),
+        or(eq(schema.tasks.status, 'planned'), isNull(schema.tasks.status)),
       ),
-    ))
+    )
     .orderBy(schema.tasks.createdAt)
     .limit(5)
 
@@ -525,11 +653,12 @@ tasks.get('/energy-match', async (c) => {
     timeContext,
     recommendedEnergy,
     tasks,
-    tip: recommendedEnergy === 'high'
-      ? '💡 现在是你精力最好的时候，挑一个最重要的任务开始'
-      : recommendedEnergy === 'low'
-        ? '💡 现在精力较低，选一个2分钟能完成的小任务保持 momentum'
-        : '💡 现在精力中等，适合推进进行中的任务',
+    tip:
+      recommendedEnergy === 'high'
+        ? '💡 现在是你精力最好的时候，挑一个最重要的任务开始'
+        : recommendedEnergy === 'low'
+          ? '💡 现在精力较低，选一个2分钟能完成的小任务保持 momentum'
+          : '💡 现在精力中等，适合推进进行中的任务',
   })
 })
 
@@ -539,23 +668,25 @@ tasks.get('/commitment-check', async (c) => {
   const now = new Date().toISOString()
 
   // 找出已过承诺截止时间但未完成的任务
-  const overdue = await db.select().from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      isNotNull(schema.tasks.commitmentDeadline),
-      sql`${schema.tasks.commitmentDeadline} < ${now}`,
-      or(
-        eq(schema.tasks.status, 'committed'),
-        eq(schema.tasks.status, 'in_progress'),
+  const overdue = await db
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        isNotNull(schema.tasks.commitmentDeadline),
+        sql`${schema.tasks.commitmentDeadline} < ${now}`,
+        or(eq(schema.tasks.status, 'committed'), eq(schema.tasks.status, 'in_progress')),
       ),
-    ))
+    )
 
   return c.json({
     overdueTasks: overdue,
-    message: overdue.length > 0
-      ? `⚠️ 有 ${overdue.length} 个任务的承诺已过期，你还需要继续吗？`
-      : '✅ 所有承诺都在有效期内',
+    message:
+      overdue.length > 0
+        ? `⚠️ 有 ${overdue.length} 个任务的承诺已过期，你还需要继续吗？`
+        : '✅ 所有承诺都在有效期内',
   })
 })
 
@@ -567,11 +698,14 @@ tasks.post('/:id/mark-quick', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const now = new Date()
   const deadline = new Date(now.getTime() + 2 * 60 * 1000).toISOString()
-  await db.update(schema.tasks).set({
-    isQuick: true,
-    quickDeadline: deadline,
-    updatedAt: nowBeijing(),
-  }).where(eq(schema.tasks.id, id))
+  await db
+    .update(schema.tasks)
+    .set({
+      isQuick: true,
+      quickDeadline: deadline,
+      updatedAt: nowBeijing(),
+    })
+    .where(eq(schema.tasks.id, id))
   return c.json({ ok: true, deadline })
 })
 
@@ -579,13 +713,17 @@ tasks.post('/:id/mark-quick', async (c) => {
 tasks.get('/quick-pool', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const now = new Date().toISOString()
-  const quickTasks = await db.select().from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isQuick, true),
-      eq(schema.tasks.isCompleted, false),
-      isNull(schema.tasks.msTodoDeletedAt),
-      sql`${schema.tasks.quickDeadline} > ${now}`,
-    ))
+  const quickTasks = await db
+    .select()
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.isQuick, true),
+        eq(schema.tasks.isCompleted, false),
+        isNull(schema.tasks.msTodoDeletedAt),
+        sql`${schema.tasks.quickDeadline} > ${now}`,
+      ),
+    )
     .orderBy(schema.tasks.quickDeadline)
   return c.json(quickTasks)
 })
@@ -594,20 +732,27 @@ tasks.get('/quick-pool', async (c) => {
 tasks.post('/quick-expire', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const now = new Date().toISOString()
-  const expired = await db.select({ id: schema.tasks.id }).from(schema.tasks)
-    .where(and(
-      eq(schema.tasks.isQuick, true),
-      eq(schema.tasks.isCompleted, false),
-      isNotNull(schema.tasks.quickDeadline),
-      sql`${schema.tasks.quickDeadline} <= ${now}`,
-    ))
+  const expired = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.isQuick, true),
+        eq(schema.tasks.isCompleted, false),
+        isNotNull(schema.tasks.quickDeadline),
+        sql`${schema.tasks.quickDeadline} <= ${now}`,
+      ),
+    )
   if (expired.length > 0) {
-    const ids = expired.map(e => e.id)
-    await db.update(schema.tasks).set({
-      isQuick: false,
-      quickDeadline: null,
-      updatedAt: nowBeijing(),
-    }).where(inArray(schema.tasks.id, ids))
+    const ids = expired.map((e) => e.id)
+    await db
+      .update(schema.tasks)
+      .set({
+        isQuick: false,
+        quickDeadline: null,
+        updatedAt: nowBeijing(),
+      })
+      .where(inArray(schema.tasks.id, ids))
   }
   return c.json({ expired: expired.length })
 })
@@ -616,11 +761,14 @@ tasks.post('/quick-expire', async (c) => {
 tasks.post('/:id/unmark-quick', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  await db.update(schema.tasks).set({
-    isQuick: false,
-    quickDeadline: null,
-    updatedAt: nowBeijing(),
-  }).where(eq(schema.tasks.id, id))
+  await db
+    .update(schema.tasks)
+    .set({
+      isQuick: false,
+      quickDeadline: null,
+      updatedAt: nowBeijing(),
+    })
+    .where(eq(schema.tasks.id, id))
   return c.json({ ok: true })
 })
 

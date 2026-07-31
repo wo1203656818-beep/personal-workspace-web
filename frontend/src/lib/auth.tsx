@@ -10,9 +10,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => !!localStorage.getItem('token')
-  )
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'))
 
   const login = async (password: string): Promise<{ success: boolean; error?: string }> => {
     try {

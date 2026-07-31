@@ -6,15 +6,29 @@ import * as schema from '../schema'
 import type { Env } from '../types'
 import { decrypt } from '../crypto-utils'
 import { todayCST } from '../time'
-import { buildChatCtx, buildChatSystem, chatCompletion, executeChatTool, CHAT_TOOLS } from './ai-chat'
+import {
+  buildChatCtx,
+  buildChatSystem,
+  chatCompletion,
+  executeChatTool,
+  CHAT_TOOLS,
+} from './ai-chat'
 
 const telegram = new Hono<{ Bindings: Env }>()
 
 // 读取 Telegram 配置（token 解密）
-async function getTelegramConfig(env: Env): Promise<{ botToken: string | null; chatId: string | null }> {
+async function getTelegramConfig(
+  env: Env,
+): Promise<{ botToken: string | null; chatId: string | null }> {
   const db = drizzle(env.DB, { schema })
-  const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
-  const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
+  const tokenRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'telegram_bot_token'))
+  const chatRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'telegram_chat_id'))
   const botToken = tokenRow[0]?.value ? await decrypt(env.JWT_SECRET, tokenRow[0].value) : null
   return { botToken, chatId: chatRow[0]?.value || null }
 }
@@ -25,7 +39,13 @@ let tgSecretCache: string | null = null
 async function telegramWebhookSecret(env: Env): Promise<string> {
   if (tgSecretCache) return tgSecretCache
   const enc = new TextEncoder()
-  const key = await crypto.subtle.importKey('raw', enc.encode(env.JWT_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(env.JWT_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode('telegram-webhook'))
   tgSecretCache = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
   return tgSecretCache
@@ -33,7 +53,11 @@ async function telegramWebhookSecret(env: Env): Promise<string> {
 
 // 发送 Telegram 消息：纯文本（不用 parse_mode，避免 AI 输出含 <、_ 等字符导致 400 静默失败）、
 // 超长自动分段（Telegram 单条上限 4096 字符）、失败打日志
-async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<boolean> {
+async function sendTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string,
+): Promise<boolean> {
   const t = (text || '').trim() || '（空回复）'
   const chunks: string[] = []
   for (let i = 0; i < t.length && chunks.length < 5; i += 3800) chunks.push(t.slice(i, i + 3800))
@@ -47,7 +71,11 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
       })
       if (!res.ok) {
         allOk = false
-        console.error('[telegram] sendMessage failed:', res.status, await res.text().catch(() => ''))
+        console.error(
+          '[telegram] sendMessage failed:',
+          res.status,
+          await res.text().catch(() => ''),
+        )
       }
     } catch (e: any) {
       allOk = false
@@ -61,8 +89,9 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
 async function telegramAIReply(c: Context<{ Bindings: Env }>, text: string): Promise<string> {
   const db = drizzle(c.env.DB, { schema })
   const ctx = await buildChatCtx(db)
-  const system = buildChatSystem(ctx)
-    + '\n当前通过 Telegram 对话：回复必须是纯文本（禁用 Markdown/HTML 格式符号），尽量简短直接。'
+  const system =
+    buildChatSystem(ctx) +
+    '\n当前通过 Telegram 对话：回复必须是纯文本（禁用 Markdown/HTML 格式符号），尽量简短直接。'
   const messages: any[] = [
     { role: 'system', content: system },
     { role: 'user', content: text },
@@ -75,7 +104,11 @@ async function telegramAIReply(c: Context<{ Bindings: Env }>, text: string): Pro
         type: 'function',
         function: { name: tc.name, arguments: JSON.stringify(tc.args || {}) },
       }))
-      const assistantMsg: any = { role: 'assistant', content: result.content || null, tool_calls: toolCalls }
+      const assistantMsg: any = {
+        role: 'assistant',
+        content: result.content || null,
+        tool_calls: toolCalls,
+      }
       if (result.reasoning) assistantMsg.reasoning_content = result.reasoning
       messages.push(assistantMsg)
       for (let i = 0; i < result.toolCalls.length; i++) {
@@ -114,9 +147,11 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
     let reply = ''
 
     if (text === '/start' || text === '/help') {
-      reply = '📋 可用命令：\n/tasks - 查看待办\n/news - 最新资讯\n/add <标题> - 快速添加任务\n/digest - 今日简报\n/help - 帮助\n\n也可以直接打字和我对话：我是你的 AI 管家，能建任务、记笔记、查知识库、联网搜索。'
+      reply =
+        '📋 可用命令：\n/tasks - 查看待办\n/news - 最新资讯\n/add <标题> - 快速添加任务\n/digest - 今日简报\n/help - 帮助\n\n也可以直接打字和我对话：我是你的 AI 管家，能建任务、记笔记、查知识库、联网搜索。'
     } else if (text === '/tasks') {
-      const tasks = await db.select({ title: schema.tasks.title, dueDate: schema.tasks.dueDate })
+      const tasks = await db
+        .select({ title: schema.tasks.title, dueDate: schema.tasks.dueDate })
         .from(schema.tasks)
         .where(eq(schema.tasks.isCompleted, false))
         .orderBy(desc(schema.tasks.isImportant), asc(schema.tasks.sortOrder))
@@ -124,12 +159,20 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
       if (tasks.length === 0) {
         reply = '🎉 没有待办任务！'
       } else {
-        reply = '📋 待办任务：\n' + tasks.map((t, i) =>
-          `${i + 1}. ${t.title}${t.dueDate ? ` (${t.dueDate})` : ''}`
-        ).join('\n')
+        reply =
+          '📋 待办任务：\n' +
+          tasks
+            .map((t, i) => `${i + 1}. ${t.title}${t.dueDate ? ` (${t.dueDate})` : ''}`)
+            .join('\n')
       }
     } else if (text === '/news') {
-      const items = await db.select({ titleZh: schema.feedItems.titleZh, title: schema.feedItems.title, score: schema.feedItems.aiScore, url: schema.feedItems.url })
+      const items = await db
+        .select({
+          titleZh: schema.feedItems.titleZh,
+          title: schema.feedItems.title,
+          score: schema.feedItems.aiScore,
+          url: schema.feedItems.url,
+        })
         .from(schema.feedItems)
         .where(sql`${schema.feedItems.aiScore} > 0`)
         .orderBy(desc(schema.feedItems.aiScore))
@@ -137,9 +180,13 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
       if (items.length === 0) {
         reply = '📰 暂无新闻'
       } else {
-        reply = '📰 最新资讯：\n' + items.map((item, i) =>
-          `${i + 1}. ${item.titleZh || item.title} (${item.score}分)\n${item.url}`
-        ).join('\n\n')
+        reply =
+          '📰 最新资讯：\n' +
+          items
+            .map(
+              (item, i) => `${i + 1}. ${item.titleZh || item.title} (${item.score}分)\n${item.url}`,
+            )
+            .join('\n\n')
       }
     } else if (text.startsWith('/add ')) {
       const title = text.slice(5).trim()
@@ -150,7 +197,9 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
         const listId = lists[0]?.id
         if (listId) {
           const id = crypto.randomUUID()
-          await db.insert(schema.tasks).values({ id, listId, title, isCompleted: false, sortOrder: 0 })
+          await db
+            .insert(schema.tasks)
+            .values({ id, listId, title, isCompleted: false, sortOrder: 0 })
           reply = `✅ 已添加任务：${title}`
         } else {
           reply = '❌ 没有可用的任务列表'
@@ -158,16 +207,22 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
       }
     } else if (text === '/digest') {
       const today = todayCST()
-      const brief = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, today)).limit(1)
+      const brief = await db
+        .select()
+        .from(schema.dailyDigests)
+        .where(eq(schema.dailyDigests.date, today))
+        .limit(1)
       if (brief.length === 0) {
         reply = '📰 今日简报尚未生成'
       } else {
         const b = brief[0]
         const topItems = JSON.parse(b.topItems || '[]')
-        reply = `📰 ${b.title}\n\n${b.overview || ''}\n\n` +
-          topItems.slice(0, 5).map((item: any, i: number) =>
-            `${i + 1}. ${item.title}\n${item.summary || ''}`
-          ).join('\n\n')
+        reply =
+          `📰 ${b.title}\n\n${b.overview || ''}\n\n` +
+          topItems
+            .slice(0, 5)
+            .map((item: any, i: number) => `${i + 1}. ${item.title}\n${item.summary || ''}`)
+            .join('\n\n')
       }
     } else if (text.startsWith('/')) {
       reply = '🤔 未识别的命令，输入 /help 查看可用命令，或直接打字与 AI 管家对话'
@@ -235,9 +290,12 @@ telegram.post('/set-webhook', async (c) => {
       drop_pending_updates: true,
     }),
   })
-  const result = await res.json() as any
+  const result = (await res.json()) as any
   if (!result?.ok) {
-    return c.json({ ok: false, error: result?.description || 'setWebhook 失败', url: webhookUrl }, 502)
+    return c.json(
+      { ok: false, error: result?.description || 'setWebhook 失败', url: webhookUrl },
+      502,
+    )
   }
 
   // 顺带注册命令菜单（失败不影响主流程）
@@ -264,7 +322,7 @@ telegram.get('/webhook-info', async (c) => {
   if (!botToken) return c.json({ ok: false, error: 'Telegram Bot Token 未配置' }, 400)
   try {
     const res = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`)
-    const data = await res.json() as any
+    const data = (await res.json()) as any
     const info = data?.result || {}
     const expectedBase = (c.env.PUBLIC_API_BASE || '').replace(/\/$/, '')
     return c.json({

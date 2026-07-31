@@ -9,7 +9,6 @@ import { decrypt, encrypt, hashPassword } from '../crypto-utils'
 import { nowBeijing } from '../time'
 import { verifyPassword, getStoredPasswordHash } from '../utils/helpers'
 
-
 const auth = new Hono<{ Bindings: Env }>()
 
 auth.post('/login', async (c) => {
@@ -20,7 +19,7 @@ auth.post('/login', async (c) => {
   const token = await Jwt.sign(
     { exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 },
     c.env.JWT_SECRET,
-    'HS256'
+    'HS256',
   )
   return c.json({ token })
 })
@@ -33,9 +32,13 @@ auth.post('/change-password', async (c) => {
   const newHash = await hashPassword(newPassword)
   const encrypted = await encrypt(c.env.JWT_SECRET, newHash)
   const db = drizzle(c.env.DB, { schema })
-  await db.insert(schema.settings)
+  await db
+    .insert(schema.settings)
     .values({ key: 'password_hash', value: encrypted })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value: encrypted, updatedAt: nowBeijing() } })
+    .onConflictDoUpdate({
+      target: schema.settings.key,
+      set: { value: encrypted, updatedAt: nowBeijing() },
+    })
   return c.json({ ok: true })
 })
 

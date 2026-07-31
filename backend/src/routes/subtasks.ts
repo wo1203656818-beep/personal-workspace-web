@@ -13,7 +13,9 @@ const subtasks = new Hono<{ Bindings: Env }>()
 subtasks.get('/:taskId', async (c) => {
   const { taskId } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const result = await db.select().from(schema.subtasks)
+  const result = await db
+    .select()
+    .from(schema.subtasks)
     .where(eq(schema.subtasks.taskId, taskId))
     .orderBy(schema.subtasks.sortOrder)
   return c.json(result)
@@ -36,25 +38,37 @@ subtasks.post('/:taskId', async (c) => {
     }
     const { title, sortOrder } = parsed.data
     const db = drizzle(c.env.DB, { schema })
-    const parent = await db.select({ id: schema.tasks.id }).from(schema.tasks).where(eq(schema.tasks.id, taskId))
+    const parent = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
     if (parent.length === 0) return c.json({ error: '父任务不存在', taskId }, 404)
     const id = crypto.randomUUID()
     const now = nowBeijing()
     if (sortOrder !== undefined) {
-      await db.update(schema.subtasks)
+      await db
+        .update(schema.subtasks)
         .set({ sortOrder: sql`${schema.subtasks.sortOrder} + 1` })
         .where(and(eq(schema.subtasks.taskId, taskId), gte(schema.subtasks.sortOrder, sortOrder)))
-      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder, createdAt: now })
+      await db
+        .insert(schema.subtasks)
+        .values({ id, taskId, title, isCompleted: false, sortOrder, createdAt: now })
     } else {
-      const existingSubs = await db.select({ sortOrder: schema.subtasks.sortOrder }).from(schema.subtasks)
+      const existingSubs = await db
+        .select({ sortOrder: schema.subtasks.sortOrder })
+        .from(schema.subtasks)
         .where(eq(schema.subtasks.taskId, taskId))
       const maxSort = existingSubs.reduce((m, s) => Math.max(m, s.sortOrder ?? 0), 0)
-      await db.insert(schema.subtasks).values({ id, taskId, title, isCompleted: false, sortOrder: maxSort + 1, createdAt: now })
+      await db
+        .insert(schema.subtasks)
+        .values({ id, taskId, title, isCompleted: false, sortOrder: maxSort + 1, createdAt: now })
     }
     await syncParentCompletion(db, taskId)
     const subtask = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id))
     c.executionCtx.waitUntil(
-      indexTarget(c, 'subtask', id, title).catch((e) => console.error('[embed] subtask create failed:', e?.message))
+      indexTarget(c, 'subtask', id, title).catch((e) =>
+        console.error('[embed] subtask create failed:', e?.message),
+      ),
     )
     return c.json(subtask[0], 201)
   } catch (e: any) {
@@ -65,11 +79,14 @@ subtasks.post('/:taskId', async (c) => {
 
 subtasks.put('/reorder', async (c) => {
   try {
-    const { orders } = await c.req.json() as { orders: { id: string; sortOrder: number }[] }
+    const { orders } = (await c.req.json()) as { orders: { id: string; sortOrder: number }[] }
     if (!orders || !Array.isArray(orders)) return c.json({ error: 'orders required' }, 400)
     const db = drizzle(c.env.DB, { schema })
     for (const o of orders) {
-      await db.update(schema.subtasks).set({ sortOrder: o.sortOrder }).where(eq(schema.subtasks.id, o.id))
+      await db
+        .update(schema.subtasks)
+        .set({ sortOrder: o.sortOrder })
+        .where(eq(schema.subtasks.id, o.id))
     }
     return c.json({ ok: true })
   } catch (e: any) {
@@ -90,9 +107,12 @@ subtasks.put('/:id', async (c) => {
   if (subtask[0] && 'isCompleted' in updateData) {
     await syncParentCompletion(db, subtask[0].taskId)
   }
-  if (subtask[0]) c.executionCtx.waitUntil(
-    indexTarget(c, 'subtask', subtask[0].id, subtask[0].title).catch((e) => console.error('[embed] subtask update failed:', e?.message))
-  )
+  if (subtask[0])
+    c.executionCtx.waitUntil(
+      indexTarget(c, 'subtask', subtask[0].id, subtask[0].title).catch((e) =>
+        console.error('[embed] subtask update failed:', e?.message),
+      ),
+    )
   return c.json(subtask[0])
 })
 
@@ -102,7 +122,10 @@ subtasks.patch('/:id/toggle', async (c) => {
   const existing = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id))
   if (!existing.length) return c.json({ error: '未找到' }, 404)
   const nextCompleted = !existing[0].isCompleted
-  await db.update(schema.subtasks).set({ isCompleted: nextCompleted }).where(eq(schema.subtasks.id, id))
+  await db
+    .update(schema.subtasks)
+    .set({ isCompleted: nextCompleted })
+    .where(eq(schema.subtasks.id, id))
   await syncParentCompletion(db, existing[0].taskId)
   const subtask = await db.select().from(schema.subtasks).where(eq(schema.subtasks.id, id))
   return c.json(subtask[0])
@@ -111,12 +134,19 @@ subtasks.patch('/:id/toggle', async (c) => {
 subtasks.delete('/:id', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
-  const existing = await db.select({ taskId: schema.subtasks.taskId }).from(schema.subtasks).where(eq(schema.subtasks.id, id))
+  const existing = await db
+    .select({ taskId: schema.subtasks.taskId })
+    .from(schema.subtasks)
+    .where(eq(schema.subtasks.id, id))
   await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id))
   if (existing.length > 0) {
     await syncParentCompletion(db, existing[0].taskId)
   }
-  c.executionCtx.waitUntil(indexTarget(c, 'subtask', id, '').catch((e) => console.error('[embed] subtask delete cleanup failed:', e?.message)))
+  c.executionCtx.waitUntil(
+    indexTarget(c, 'subtask', id, '').catch((e) =>
+      console.error('[embed] subtask delete cleanup failed:', e?.message),
+    ),
+  )
   return c.json({ ok: true })
 })
 

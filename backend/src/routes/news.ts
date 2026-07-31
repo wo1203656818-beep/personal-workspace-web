@@ -6,8 +6,11 @@ import type { Env } from '../types'
 import { nowBeijing, todayCST } from '../time'
 import { decrypt } from '../crypto-utils'
 import {
-  fetchSourcesByCategory, fetchSingleSource,
-  processPendingItems, generateDailyDigest, pushDailyBrief,
+  fetchSourcesByCategory,
+  fetchSingleSource,
+  processPendingItems,
+  generateDailyDigest,
+  pushDailyBrief,
 } from '../news-fetcher'
 import { PRESET_FEED_SOURCES } from '../news-sources'
 
@@ -15,14 +18,30 @@ const news = new Hono<{ Bindings: Env }>()
 
 // 获取新闻列表
 news.get('/', async (c) => {
-  const { category, source, search, page = '1', pageSize = '20', sort = 'score', saved } = c.req.query()
+  const {
+    category,
+    source,
+    search,
+    page = '1',
+    pageSize = '20',
+    sort = 'score',
+    saved,
+  } = c.req.query()
   const db = drizzle(c.env.DB, { schema })
   const where: any[] = []
   if (category && category !== '全部') where.push(eq(schema.feedItems.category, category))
   if (source) where.push(eq(schema.feedItems.sourceId, source))
-  if (search) where.push(or(like(schema.feedItems.title, `%${search}%`), like(schema.feedItems.aiSummary, `%${search}%`)))
+  if (search)
+    where.push(
+      or(
+        like(schema.feedItems.title, `%${search}%`),
+        like(schema.feedItems.aiSummary, `%${search}%`),
+      ),
+    )
   if (saved === '1') {
-    where.push(sql`EXISTS (SELECT 1 FROM news_feedback WHERE target_id = feed_items.id AND target_type = 'item' AND feedback = 'save')`)
+    where.push(
+      sql`EXISTS (SELECT 1 FROM news_feedback WHERE target_id = feed_items.id AND target_type = 'item' AND feedback = 'save')`,
+    )
   }
 
   const p = Math.max(1, parseInt(page))
@@ -48,14 +67,15 @@ news.get('/', async (c) => {
 
   // 窗口函数：单次查询同时返回分页数据和总数，避免双扫描
   const totalExpr = sql<number>`COUNT(*) OVER()`
-  const rows = await db.select({ item: schema.feedItems, total: totalExpr })
+  const rows = await db
+    .select({ item: schema.feedItems, total: totalExpr })
     .from(schema.feedItems)
     .where(where.length ? and(...where) : undefined)
     .orderBy(...orderBy)
     .limit(ps)
     .offset(offset)
 
-  const items = rows.map(r => r.item)
+  const items = rows.map((r) => r.item)
   const total = Number(rows[0]?.total ?? 0)
 
   // 按需触发 AI 处理：若列表中存在未处理条目（aiScore<=0），异步处理一批（最多 20 条），不阻塞本次响应
@@ -63,8 +83,8 @@ news.get('/', async (c) => {
   if (items.some((it: any) => it.aiScore <= 0)) {
     c.executionCtx.waitUntil(
       processPendingItems(c.env, 20).catch((e) =>
-        console.error('[news] on-demand AI processing failed:', e)
-      )
+        console.error('[news] on-demand AI processing failed:', e),
+      ),
     )
   }
 
@@ -91,15 +111,24 @@ news.post('/process', async (c) => {
 // 获取订阅源列表
 news.get('/sources', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const sources = await db.select().from(schema.feedSources).orderBy(schema.feedSources.category, schema.feedSources.name)
+  const sources = await db
+    .select()
+    .from(schema.feedSources)
+    .orderBy(schema.feedSources.category, schema.feedSources.name)
   return c.json(sources)
 })
 
 // 资讯分类列表（从 sources 动态聚合）
 news.get('/categories', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const rows = await db.select({ category: schema.feedSources.category }).from(schema.feedSources).groupBy(schema.feedSources.category)
-  const cats = rows.map(r => r.category).filter(Boolean).sort()
+  const rows = await db
+    .select({ category: schema.feedSources.category })
+    .from(schema.feedSources)
+    .groupBy(schema.feedSources.category)
+  const cats = rows
+    .map((r) => r.category)
+    .filter(Boolean)
+    .sort()
   return c.json(cats)
 })
 
@@ -108,7 +137,8 @@ news.put('/sources', async (c) => {
   const body = await c.req.json()
   const db = drizzle(c.env.DB, { schema })
   for (const s of body) {
-    await db.update(schema.feedSources)
+    await db
+      .update(schema.feedSources)
       .set({ enabled: s.enabled, updatedAt: nowBeijing() })
       .where(eq(schema.feedSources.id, s.id))
   }
@@ -138,10 +168,18 @@ news.get('/digests', async (c) => {
   const date = c.req.query('date')
   const db = drizzle(c.env.DB, { schema })
   if (date) {
-    const digest = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, date)).limit(1)
+    const digest = await db
+      .select()
+      .from(schema.dailyDigests)
+      .where(eq(schema.dailyDigests.date, date))
+      .limit(1)
     return c.json(digest[0] || null)
   }
-  const digests = await db.select().from(schema.dailyDigests).orderBy(desc(schema.dailyDigests.date)).limit(30)
+  const digests = await db
+    .select()
+    .from(schema.dailyDigests)
+    .orderBy(desc(schema.dailyDigests.date))
+    .limit(30)
   return c.json(digests)
 })
 
@@ -149,7 +187,11 @@ news.get('/digests', async (c) => {
 news.get('/today', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const today = todayCST()
-  const brief = await db.select().from(schema.dailyDigests).where(eq(schema.dailyDigests.date, today)).limit(1)
+  const brief = await db
+    .select()
+    .from(schema.dailyDigests)
+    .where(eq(schema.dailyDigests.date, today))
+    .limit(1)
   return c.json(brief[0] || null)
 })
 
@@ -174,7 +216,11 @@ interface RefreshStatus {
 async function getRefreshStatus(env: Env): Promise<RefreshStatus | null> {
   const raw = await env.CACHE.get(REFRESH_STATUS_KEY)
   if (!raw) return null
-  try { return JSON.parse(raw) as RefreshStatus } catch { return null }
+  try {
+    return JSON.parse(raw) as RefreshStatus
+  } catch {
+    return null
+  }
 }
 
 async function setRefreshStatus(env: Env, status: RefreshStatus): Promise<void> {
@@ -192,9 +238,22 @@ news.post('/refresh', async (c) => {
     const offset = parseInt(c.req.query('offset') || '0')
     const limit = Math.min(10, parseInt(c.req.query('limit') || '10'))
 
-    const { fetched, errors, sourceCount, hasMore } = await fetchSourcesByCategory(c.env, category, offset, limit)
+    const { fetched, errors, sourceCount, hasMore } = await fetchSourcesByCategory(
+      c.env,
+      category,
+      offset,
+      limit,
+    )
 
-    return c.json({ ok: true, fetched, errors: errors.slice(0, 5), sourceCount, category, hasMore, nextOffset: hasMore ? offset + limit : undefined })
+    return c.json({
+      ok: true,
+      fetched,
+      errors: errors.slice(0, 5),
+      sourceCount,
+      category,
+      hasMore,
+      nextOffset: hasMore ? offset + limit : undefined,
+    })
   } catch (e: any) {
     console.error('[news/refresh] error:', e?.message || e, e?.stack)
     return c.json({ ok: false, error: e?.message || '抓取失败' }, 500)
@@ -215,7 +274,7 @@ news.post('/refresh-reset', async (c) => {
     startedAt: Date.now(),
     totalFetched: 0,
     totalErrors: [],
-    categories: categories.map(name => ({ name, status: 'pending' as const })),
+    categories: categories.map((name) => ({ name, status: 'pending' as const })),
   }
   await setRefreshStatus(c.env, status)
   return c.json({ ok: true })
@@ -241,8 +300,14 @@ news.post('/generate-digest', async (c) => {
 // 测试 Telegram 推送（发送固定测试消息）
 news.post('/test-push', async (c) => {
   const db = drizzle(c.env.DB, { schema })
-  const tokenRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_bot_token'))
-  const chatRow = await db.select().from(schema.settings).where(eq(schema.settings.key, 'telegram_chat_id'))
+  const tokenRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'telegram_bot_token'))
+  const chatRow = await db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, 'telegram_chat_id'))
   const botToken = tokenRow[0]?.value ? await decrypt(c.env.JWT_SECRET, tokenRow[0].value) : null
   const chatId = chatRow[0]?.value || null
   if (!botToken || !chatId) {
@@ -261,11 +326,18 @@ news.post('/test-push', async (c) => {
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
       const status = res.status
-      const hint = status === 401 ? '（Bot Token 无效）'
-        : status === 400 ? '（Chat ID 无效或格式错误）'
-        : status === 403 ? '（bot 被禁用或被目标会话拉黑）'
-        : ''
-      return c.json({ ok: false, error: `Telegram API 返回 ${status} ${hint}`, detail: errText }, 502)
+      const hint =
+        status === 401
+          ? '（Bot Token 无效）'
+          : status === 400
+            ? '（Chat ID 无效或格式错误）'
+            : status === 403
+              ? '（bot 被禁用或被目标会话拉黑）'
+              : ''
+      return c.json(
+        { ok: false, error: `Telegram API 返回 ${status} ${hint}`, detail: errText },
+        502,
+      )
     }
     return c.json({ ok: true, pushed: 1, test: true })
   } catch (e: any) {
@@ -295,11 +367,15 @@ news.post('/feedback', async (c) => {
     return c.json({ ok: false, error: '参数缺失' }, 400)
   }
   // 同一对象同一反馈类型幂等：先删后插
-  await db.delete(schema.newsFeedback).where(and(
-    eq(schema.newsFeedback.targetType, targetType),
-    eq(schema.newsFeedback.targetId, targetId),
-    eq(schema.newsFeedback.feedback, feedback),
-  ))
+  await db
+    .delete(schema.newsFeedback)
+    .where(
+      and(
+        eq(schema.newsFeedback.targetType, targetType),
+        eq(schema.newsFeedback.targetId, targetId),
+        eq(schema.newsFeedback.feedback, feedback),
+      ),
+    )
   await db.insert(schema.newsFeedback).values({
     id: crypto.randomUUID(),
     targetType,
@@ -315,7 +391,8 @@ news.get('/feedback', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   const days = Number(c.req.query('days') || 30)
   const since = new Date(Date.now() - days * 86400000).toISOString()
-  const rows = await db.select()
+  const rows = await db
+    .select()
     .from(schema.newsFeedback)
     .where(sql`${schema.newsFeedback.createdAt} >= ${since}`)
     .orderBy(desc(schema.newsFeedback.createdAt))
@@ -327,22 +404,22 @@ news.get('/feedback', async (c) => {
 news.post('/init-sources', async (c) => {
   const db = drizzle(c.env.DB, { schema })
   // 一次性查询所有现有源，避免 N+1 查询
-  const existingSources = await db.select({ id: schema.feedSources.id, url: schema.feedSources.url }).from(schema.feedSources)
-  const existingUrls = new Set(existingSources.map(s => s.url))
+  const existingSources = await db
+    .select({ id: schema.feedSources.id, url: schema.feedSources.url })
+    .from(schema.feedSources)
+  const existingUrls = new Set(existingSources.map((s) => s.url))
 
   // 批量插入新源（跳过已存在的）
-  const toInsert = PRESET_FEED_SOURCES
-    .filter(s => !existingUrls.has(s.url))
-    .map(s => ({
-      id: crypto.randomUUID(),
-      name: s.name,
-      url: s.url,
-      type: s.type,
-      category: s.category,
-      lang: s.lang || 'zh',
-      enabled: true,
-      weight: s.weight ?? 3,
-    }))
+  const toInsert = PRESET_FEED_SOURCES.filter((s) => !existingUrls.has(s.url)).map((s) => ({
+    id: crypto.randomUUID(),
+    name: s.name,
+    url: s.url,
+    type: s.type,
+    category: s.category,
+    lang: s.lang || 'zh',
+    enabled: true,
+    weight: s.weight ?? 3,
+  }))
 
   let inserted = 0
   // 分批插入（每批 20 条），避免单条 SQL 参数过多
@@ -357,12 +434,13 @@ news.post('/init-sources', async (c) => {
   }
 
   // 更新已存在源的 category 和 weight
-  const toUpdate = PRESET_FEED_SOURCES.filter(s => existingUrls.has(s.url))
+  const toUpdate = PRESET_FEED_SOURCES.filter((s) => existingUrls.has(s.url))
   for (const s of toUpdate) {
-    const existing = existingSources.find(e => e.url === s.url)
+    const existing = existingSources.find((e) => e.url === s.url)
     if (existing) {
       try {
-        await db.update(schema.feedSources)
+        await db
+          .update(schema.feedSources)
           .set({ category: s.category, weight: s.weight ?? 3 })
           .where(eq(schema.feedSources.id, existing.id))
       } catch {}
@@ -381,7 +459,7 @@ news.post('/reset-sources', async (c) => {
   const deleted = await db.delete(schema.feedSources)
 
   // 插入精选源
-  const toInsert = PRESET_FEED_SOURCES.map(s => ({
+  const toInsert = PRESET_FEED_SOURCES.map((s) => ({
     id: crypto.randomUUID(),
     name: s.name,
     url: s.url,

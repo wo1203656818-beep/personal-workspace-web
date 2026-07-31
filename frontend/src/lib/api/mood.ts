@@ -14,7 +14,6 @@ export interface MoodTrends {
 }
 
 export const moodApi = {
-  list: () => api.get('mood').json<MoodLog[]>(),
   today: () => api.get('mood/today').json<MoodLog | null>(),
   create: (data: { weather: string; note?: string }) =>
     api.post('mood', { json: data }).json<{ id: string }>(),

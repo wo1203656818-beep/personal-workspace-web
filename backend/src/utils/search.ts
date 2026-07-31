@@ -16,7 +16,9 @@ export function buildSearchTerms(query: string): string[] {
     }
   }
   terms.add(normalized)
-  return Array.from(terms).sort((a, b) => b.length - a.length).slice(0, 12)
+  return Array.from(terms)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 12)
 }
 
 export function lexicalScore(query: string, title: string, text: string): number {

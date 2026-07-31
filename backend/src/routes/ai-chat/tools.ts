@@ -3,7 +3,8 @@ const CHAT_TOOLS: any[] = [
     type: 'function',
     function: {
       name: 'create_task',
-      description: '创建新任务。可以指定标题、备注、截止日期、是否重要、是否加入我的一天、所属列表名称。',
+      description:
+        '创建新任务。可以指定标题、备注、截止日期、是否重要、是否加入我的一天、所属列表名称。',
       parameters: {
         type: 'object',
         properties: {
@@ -51,7 +52,8 @@ const CHAT_TOOLS: any[] = [
     type: 'function',
     function: {
       name: 'update_task',
-      description: '更新任务信息。可通过 id 或关键词定位任务，然后修改标题、备注、截止日期、提醒、重要性、我的一天等字段。',
+      description:
+        '更新任务信息。可通过 id 或关键词定位任务，然后修改标题、备注、截止日期、提醒、重要性、我的一天等字段。',
       parameters: {
         type: 'object',
         properties: {
@@ -85,7 +87,8 @@ const CHAT_TOOLS: any[] = [
     type: 'function',
     function: {
       name: 'get_overview',
-      description: '获取系统概览，包括未完成任务数、今日已完成数、逾期数、我的一天任务数、即将到期任务、各列表任务分布等。',
+      description:
+        '获取系统概览，包括未完成任务数、今日已完成数、逾期数、我的一天任务数、即将到期任务、各列表任务分布等。',
       parameters: {
         type: 'object',
         properties: {},
@@ -172,7 +175,11 @@ const CHAT_TOOLS: any[] = [
       parameters: {
         type: 'object',
         properties: {
-          value: { type: 'string', enum: ['light', 'dark', 'system'], description: '主题值：light（浅色）、dark（深色）、system（跟随系统）' },
+          value: {
+            type: 'string',
+            enum: ['light', 'dark', 'system'],
+            description: '主题值：light（浅色）、dark（深色）、system（跟随系统）',
+          },
         },
         required: ['value'],
       },
@@ -207,7 +214,8 @@ const CHAT_TOOLS: any[] = [
     type: 'function',
     function: {
       name: 'update_ai_config',
-      description: '创建或更新 AI 配置。可指定名称、类型（openai/cloudflare）、接口地址、API Key、模型名称，并设为默认配置。',
+      description:
+        '创建或更新 AI 配置。可指定名称、类型（openai/cloudflare）、接口地址、API Key、模型名称，并设为默认配置。',
       parameters: {
         type: 'object',
         properties: {
@@ -346,7 +354,8 @@ const CHAT_TOOLS: any[] = [
     type: 'function',
     function: {
       name: 'ask_knowledge',
-      description: '基于知识库文档进行问答。可通过 docId 或关键词定位文档，提出问题由 AI 基于文档内容回答。',
+      description:
+        '基于知识库文档进行问答。可通过 docId 或关键词定位文档，提出问题由 AI 基于文档内容回答。',
       parameters: {
         type: 'object',
         properties: {
@@ -375,17 +384,34 @@ const CHAT_TOOLS: any[] = [
 ]
 
 const TOOL_ACTION_MAP: Record<string, Record<string, string>> = {
-  task: { create: 'create_task', update: 'update_task', complete: 'complete_task', delete: 'delete_task', search: 'search_tasks' },
+  task: {
+    create: 'create_task',
+    update: 'update_task',
+    complete: 'complete_task',
+    delete: 'delete_task',
+    search: 'search_tasks',
+  },
   task_list: { create: 'create_task_list', update: 'update_task_list', delete: 'delete_task_list' },
   subtask: { create: 'create_subtask', toggle: 'toggle_subtask', delete: 'delete_subtask' },
-  note: { create: 'add_note', update: 'update_note', delete: 'delete_note', search: 'search_notes' },
+  note: {
+    create: 'add_note',
+    update: 'update_note',
+    delete: 'delete_note',
+    search: 'search_notes',
+  },
   knowledge: { search: 'search_knowledge', summarize: 'summarize_knowledge', ask: 'ask_knowledge' },
-  workspace: { overview: 'get_overview', navigate: 'navigate', theme: 'set_theme', coin_flip: 'coin_flip' },
+  workspace: {
+    overview: 'get_overview',
+    navigate: 'navigate',
+    theme: 'set_theme',
+    coin_flip: 'coin_flip',
+  },
   ai_config: { get: 'get_ai_config', update: 'update_ai_config' },
 }
 
 const ROLE_PERSONAS: Record<string, string> = {
-  study: '你当前处于「学习模式」：用教练式、循循善诱的方式帮助用户理解概念，多用类比、提问引导思考，鼓励动手实践。',
+  study:
+    '你当前处于「学习模式」：用教练式、循循善诱的方式帮助用户理解概念，多用类比、提问引导思考，鼓励动手实践。',
   work: '你当前处于「工作模式」：高效、结构化、结果导向。优先给出可执行步骤、清单与要点，少废话。',
   chat: '你当前处于「闲聊模式」：轻松、亲切、像朋友一样陪聊，可适当幽默，不必每次都调用工具。',
 }

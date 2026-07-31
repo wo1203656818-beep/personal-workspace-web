@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { KeyRound } from 'lucide-react'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { authApi } from '@/lib/api'
@@ -54,7 +58,7 @@ export function ChangePasswordDialog({
             <input
               type="password"
               value={pwdForm.old}
-              onChange={(e) => setPwdForm(p => ({ ...p, old: e.target.value }))}
+              onChange={(e) => setPwdForm((p) => ({ ...p, old: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
@@ -63,7 +67,7 @@ export function ChangePasswordDialog({
             <input
               type="password"
               value={pwdForm.new}
-              onChange={(e) => setPwdForm(p => ({ ...p, new: e.target.value }))}
+              onChange={(e) => setPwdForm((p) => ({ ...p, new: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
@@ -72,13 +76,15 @@ export function ChangePasswordDialog({
             <input
               type="password"
               value={pwdForm.confirm}
-              onChange={(e) => setPwdForm(p => ({ ...p, confirm: e.target.value }))}
+              onChange={(e) => setPwdForm((p) => ({ ...p, confirm: e.target.value }))}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
           <Button onClick={handleChangePassword} disabled={pwdLoading}>
             {pwdLoading ? '保存中...' : '保存'}
           </Button>

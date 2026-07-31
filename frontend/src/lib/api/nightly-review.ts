@@ -13,5 +13,4 @@ export interface NightlyReviewResponse {
 
 export const nightlyReviewApi = {
   generate: () => api.post('nightly-review').json<NightlyReviewResponse>(),
-  history: () => api.get('nightly-review/history').json<NightlyReviewResponse[]>(),
 }
