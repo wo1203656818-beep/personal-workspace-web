@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 // 任务列表
@@ -31,6 +31,19 @@ export const tasks = sqliteTable('tasks', {
   msTodoListId: text('ms_todo_list_id'),
   lastSyncedAt: text('last_synced_at'),
   msTodoDeletedAt: text('ms_todo_deleted_at'),
+  // 行动承诺系统
+  status: text('status').default('planned'), // planned | committed | in_progress | done
+  why: text('why'), // 为什么要做这个任务
+  firstStep: text('first_step'), // 第一步最小行动
+  startedAt: text('started_at'),
+  abandonedAt: text('abandoned_at'),
+  // 心理学干预
+  commitmentDeadline: text('commitment_deadline'), // 承诺截止时间
+  energyLevel: text('energy_level'), // 任务所需能量: low | medium | high
+  ifThenPlan: text('if_then_plan'), // if-then 计划: "如果X发生，我就做Y"
+  // 两分钟规则
+  isQuick: integer('is_quick', { mode: 'boolean' }).default(false), // 标记为快速任务
+  quickDeadline: text('quick_deadline'), // 快速任务截止时间（2分钟后）
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })
@@ -98,7 +111,7 @@ export const aiConfigs = sqliteTable('ai_configs', {
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })
 
-// 向量嵌入（跨模块语义检索用；个人量级，暴力余弦即可，不引外部向量库）
+// 向量嵌入（历史表，已迁移到 Cloudflare Vectorize；保留供迁移过渡期使用）
 export const embeddings = sqliteTable('embeddings', {
   id: text('id').primaryKey(),
   targetType: text('target_type').notNull(), // 'note' | 'task' | 'subtask' | 'kb'
@@ -173,7 +186,7 @@ export const feedItems = sqliteTable('feed_items', {
   url: text('url').notNull().unique(),
   summary: text('summary'),
   category: text('category').notNull(),
-  // AI 评分状态：0=待评分，正数=已评分（1-10），-1=AI 失败
+  // AI 评分状态：0=待评分，正数=已评分（1-10），-1=AI 失败（不再自动重试）
   aiScore: integer('ai_score').default(0),
   // AI 翻译的中文标题（英文新闻翻译成中文，中文保留原文）
   titleZh: text('title_zh'),
@@ -253,6 +266,44 @@ export const tagRelations = sqliteTable('tag_relations', {
 })
 
 // ============ 自媒体对标监控（Layer A）============
+
+// 决策规则库（帮助减少内耗，提前定好规则）
+export const decisionRules = sqliteTable('decision_rules', {
+  id: text('id').primaryKey(),
+  category: text('category').notNull(), // 出行 | 购物 | 饮食 | 时间安排 | 其他
+  title: text('title').notNull(),
+  condition: text('condition').notNull(), // 条件描述
+  action: text('action').notNull(), // 行动
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+// 决策规则预置模板（一键套用到 decision_rules）
+export const decisionTemplates = sqliteTable('decision_templates', {
+  id: text('id').primaryKey(),
+  category: text('category').notNull(), // 出行 | 购物 | 饮食 | 时间安排 | 社交 | 其他
+  title: text('title').notNull(),
+  condition: text('condition').notNull(), // 条件描述（如"差价低于50元"）
+  action: text('action').notNull(), // 行动（如"直接选省时方案"）
+  description: text('description'), // 使用场景说明
+  sortOrder: integer('sort_order').default(0),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 决策日志（记录每次决策，用于模式识别）
+export const decisionLogs = sqliteTable('decision_logs', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id'), // 关联任务（可选）
+  category: text('category').notNull(), // 出行 | 购物 | 饮食 | 时间安排 | 其他
+  title: text('title').notNull(), // 决策描述
+  options: text('options'), // JSON: 选项列表 ["高铁","普速","拼车"]
+  chosenOption: text('chosen_option'), // 最终选择
+  durationSec: integer('duration_sec'), // 决策耗时（秒）
+  satisfaction: integer('satisfaction'), // 事后满意度 1-5（可空，延后填写）
+  ruleApplied: text('rule_applied'), // 套用的规则 ID（可空）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
 // 监控目标：热榜选题（douyin/weibo/zhihu/bilibili…）与 YouTube 竞品频道对标
 export const monitorTargets = sqliteTable('monitor_targets', {
   id: text('id').primaryKey(),
@@ -287,3 +338,105 @@ export const monitorBriefs = sqliteTable('monitor_briefs', {
   pushedAt: text('pushed_at'), // 已推送 Telegram 的时间
   createdAt: text('created_at').default(sql`(datetime('now'))`),
 })
+
+// ═══════════════════════════════════════
+// 性能索引
+// ═══════════════════════════════════════
+
+export const tasksListIdIdx = index('idx_tasks_list_id').on(tasks.listId)
+export const tasksIsCompletedIdx = index('idx_tasks_is_completed').on(tasks.isCompleted)
+export const tasksDueDateIdx = index('idx_tasks_due_date').on(tasks.dueDate)
+export const tasksMyDayIdx = index('idx_tasks_my_day').on(tasks.isMyDay, tasks.myDayDate)
+export const tasksMsTodoIdIdx = index('idx_tasks_ms_todo_id').on(tasks.msTodoId)
+export const tasksMsTodoDeletedIdx = index('idx_tasks_ms_todo_deleted').on(tasks.msTodoDeletedAt)
+export const tasksStatusIdx = index('idx_tasks_status').on(tasks.status)
+
+export const subtasksTaskIdIdx = index('idx_subtasks_task_id').on(subtasks.taskId)
+
+export const feedItemsSourceIdIdx = index('idx_feed_items_source_id').on(feedItems.sourceId)
+export const feedItemsAiScoreIdx = index('idx_feed_items_ai_score').on(feedItems.aiScore)
+export const feedItemsCategoryIdx = index('idx_feed_items_category').on(feedItems.category)
+
+export const chatMessagesSessionIdIdx = index('idx_chat_messages_session_id').on(chatMessages.sessionId)
+export const chatSessionsUpdatedAtIdx = index('idx_chat_sessions_updated_at').on(chatSessions.updatedAt)
+
+export const tagRelationsTagIdIdx = index('idx_tag_relations_tag_id').on(tagRelations.tagId)
+export const tagRelationsTargetIdx = index('idx_tag_relations_target').on(tagRelations.targetType, tagRelations.targetId)
+
+export const monitorSnapshotsDateIdx = index('idx_monitor_snapshots_date').on(monitorSnapshots.date, monitorSnapshots.type)
+
+export const syncLogsSourceIdx = index('idx_sync_logs_source').on(syncLogs.source)
+
+export const newsFeedbackTargetIdx = index('idx_news_feedback_target').on(newsFeedback.targetType, newsFeedback.targetId)
+
+export const decisionTemplatesCategoryIdx = index('idx_decision_templates_category').on(decisionTemplates.category)
+export const decisionLogsTaskIdIdx = index('idx_decision_logs_task_id').on(decisionLogs.taskId)
+export const decisionLogsCategoryIdx = index('idx_decision_logs_category').on(decisionLogs.category)
+
+// ============ 情绪气象站 ============
+
+// 情绪日志（天气隐喻打卡）
+export const moodLogs = sqliteTable('mood_logs', {
+  id: text('id').primaryKey(),
+  weather: text('weather').notNull(), // sunny | cloudy | rainy | stormy | snowy
+  note: text('note'), // 一句话原因（可选）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const moodLogsCreatedAtIdx = index('idx_mood_logs_created_at').on(moodLogs.createdAt)
+
+// ============ 娱乐功能 ============
+
+// 赛博运势
+export const cyberFortunes = sqliteTable('cyber_fortunes', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull().unique(),
+  content: text('content').notNull(),
+  moodScore: integer('mood_score'),
+  luckyColor: text('lucky_color'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 今日人设
+export const dailyPersonas = sqliteTable('daily_personas', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  luckyColor: text('lucky_color'),
+  bgmStyle: text('bgm_style'),
+  suitableFor: text('suitable_for'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 灵感卡片（用户收藏）
+export const savedInspirations = sqliteTable('saved_inspirations', {
+  id: text('id').primaryKey(),
+  content: text('content').notNull(),
+  category: text('category').notNull(),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// 随机挑战打卡
+export const challengeCompletions = sqliteTable('challenge_completions', {
+  id: text('id').primaryKey(),
+  date: text('date').notNull(),
+  challenge: text('challenge').notNull(),
+  category: text('category').notNull(),
+  completedAt: text('completed_at').default(sql`(datetime('now'))`),
+})
+
+// 塔罗牌占卜记录
+export const tarotReadings = sqliteTable('tarot_readings', {
+  id: text('id').primaryKey(),
+  question: text('question').notNull(),
+  spread: text('spread').notNull(),
+  cards: text('cards').notNull(), // JSON
+  interpretation: text('interpretation').notNull(),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const cyberFortunesDateIdx = index('idx_cyber_fortunes_date').on(cyberFortunes.date)
+export const dailyPersonasDateIdx = index('idx_daily_personas_date').on(dailyPersonas.date)
+export const challengeCompletionsDateIdx = index('idx_challenge_completions_date').on(challengeCompletions.date)
+export const tarotReadingsCreatedAtIdx = index('idx_tarot_readings_created_at').on(tarotReadings.createdAt)

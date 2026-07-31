@@ -120,6 +120,41 @@
       "when": 1785320000000,
       "tag": "0018_add_title_zh",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1785330000000,
+      "tag": "0019_add_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1785340000000,
+      "tag": "0020_add_monitor",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785350000000,
+      "tag": "0021_add_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1785360000000,
+      "tag": "0022_add_commitment_system",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785370000000,
+      "tag": "0023_add_psychology_fields",
+      "breakpoints": true
     }
   ]
 }

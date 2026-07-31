@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { BarChart3, FileText, Loader2, Sparkles, TrendingUp,
-  CheckCircle2, ListTodo, Star, BookOpen, Quote, ChevronDown, ChevronUp,
+  CheckCircle2, ListTodo, Star, BookOpen, Quote,
 } from 'lucide-react'
 import { EmptyState } from '@/components/EmptyState'
 import {
@@ -62,7 +62,6 @@ export function AnalysisPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [currentReport, setCurrentReport] = useState<{ report: string; week: string } | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const effectiveRange = range === 'custom' && customStart && customEnd ? `custom:${customStart}:${customEnd}` : range
 
@@ -72,17 +71,11 @@ export function AnalysisPage() {
     enabled,
   })
 
-  const { data: weeklyReports = [], refetch: refetchReports } = useQuery({
-    queryKey: ['weeklyReports'],
-    queryFn: aiApi.weeklyReports,
-  })
-
   const weeklyMutation = useMutation({
     mutationFn: aiApi.weeklyReport,
     onSuccess: (res) => {
       setCurrentReport(res)
       toast.success(`本周报告已生成（${res.week}）`)
-      refetchReports()
     },
     onError: (err: Error) => toast.error(`生成失败: ${err.message}`),
   })
@@ -161,6 +154,23 @@ export function AnalysisPage() {
           <Button size="sm" onClick={() => setEnabled(true)} disabled={isFetching} className="rounded-lg gap-1">
             <Sparkles className="size-4" />
             {isFetching ? 'AI 分析中...' : '生成分析'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => weeklyMutation.mutate()}
+            disabled={weeklyMutation.isPending}
+            className="rounded-lg gap-1"
+          >
+            {weeklyMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> 周报生成中...
+              </>
+            ) : (
+              <>
+                <FileText className="size-4" /> 生成周报
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -389,37 +399,18 @@ export function AnalysisPage() {
             </Card>
           )}
 
-          {/* AI 周报 */}
-          <Card className="overflow-hidden">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center justify-between text-base">
-                <span className="flex items-center gap-2">
+          {/* 本周周报（内联） */}
+          {currentReport && (
+            <Card className="overflow-hidden">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
                   <div className="icon-badge size-8 bg-gradient-to-br from-indigo-500 to-blue-500">
                     <FileText className="size-4" />
                   </div>
                   AI 周报
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => weeklyMutation.mutate()}
-                  disabled={weeklyMutation.isPending}
-                  className="rounded-lg gap-1"
-                >
-                  {weeklyMutation.isPending ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> 生成中...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="size-4" /> 生成本周报告
-                    </>
-                  )}
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {currentReport && (
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card to-muted/30 p-5 shadow-sm">
                   <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500" />
                   <div className="mb-3 flex items-center gap-2">
@@ -428,48 +419,9 @@ export function AnalysisPage() {
                   </div>
                   <p className="text-sm leading-7 whitespace-pre-wrap text-foreground/90">{currentReport.report}</p>
                 </div>
-              )}
-
-              {weeklyReports.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">历史周报</p>
-                  {weeklyReports.map((item: { id?: string | number; week?: string; report: string }) => {
-                    const id = String(item.id ?? item.week)
-                    const isOpen = expandedId === id
-                    return (
-                      <div
-                        key={id}
-                        className="overflow-hidden rounded-xl border bg-card shadow-sm transition-all duration-200 hover:shadow-md"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isOpen ? null : id)}
-                          className="flex w-full items-center justify-between px-4 py-3.5 text-left hover:bg-accent/40"
-                        >
-                          <span className="text-sm font-medium">{item.week ?? '未知周'}</span>
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            {isOpen ? '收起' : '展开'}
-                            {isOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-                          </span>
-                        </button>
-                        {isOpen && (
-                          <p className="border-t px-4 py-3.5 text-sm leading-6 whitespace-pre-wrap text-foreground/85">
-                            {item.report}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                !currentReport && (
-                  <p className="text-xs text-muted-foreground">
-                    暂无周报，点击右上角生成本周报告。
-                  </p>
-                )
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
           {!data && !isFetching && (
             <EmptyState

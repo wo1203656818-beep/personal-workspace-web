@@ -2,15 +2,14 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ListTodo, FileText, BookOpen, CheckCircle2, Clock, Star,
+  ListTodo, FileText, CheckCircle2, Clock,
   Plus, ArrowRight, Calendar, Newspaper,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { api, tasksApi, notesApi, kbApi, taskListsApi, settingsApi, imaApi, type NoteSummary, type KbSummary } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { tasksApi, notesApi, type NoteSummary } from '@/lib/api'
 import { formatCST, parseStoredTime } from '@/lib/datetime'
+import { PageSkeleton } from '@/components/PageSkeleton'
 
 interface NewsTopItem {
   title: string
@@ -30,70 +29,46 @@ interface TodayNews {
 }
 
 export function DashboardPage() {
-  const { data: lists = [] } = useQuery({
-    queryKey: ['taskLists'],
-    queryFn: taskListsApi.list,
+  const { data: taskStats, isLoading: statsLoading } = useQuery({
+    queryKey: ['tasks', 'stats'],
+    queryFn: tasksApi.stats,
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: allTasks = [] } = useQuery({
+  const { data: allTasks = [], isLoading: recentTasksLoading } = useQuery({
     queryKey: ['tasks'],
     queryFn: tasksApi.list,
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: notes = [] } = useQuery<NoteSummary[]>({
+  const { data: notes = [], isLoading: notesLoading } = useQuery<NoteSummary[]>({
     queryKey: ['notes'],
     queryFn: notesApi.listSummary,
     staleTime: 2 * 60 * 1000,
   })
 
-  const { data: kbDocs = [] } = useQuery<KbSummary[]>({
-    queryKey: ['kbDocs'],
-    queryFn: kbApi.listSummary,
-    staleTime: 2 * 60 * 1000,
-  })
-
-  // Sync status
-  const { data: msTodoStatus } = useQuery({
-    queryKey: ['msTodoStatus'],
-    queryFn: settingsApi.msTodoStatus,
-    refetchInterval: 60000,
-    staleTime: 60 * 1000,
-  })
-
-  const { data: imaStatus } = useQuery({
-    queryKey: ['imaStatus'],
-    queryFn: imaApi.status,
-    refetchInterval: 60000,
-    staleTime: 60 * 1000,
-  })
-
-  const { data: todayNews } = useQuery<TodayNews | null>({
+  const { data: todayNews, isLoading: newsLoading } = useQuery<TodayNews | null>({
     queryKey: ['news', 'today'],
-    queryFn: () => api.get('news/today').json<TodayNews | null>(),
+    queryFn: () => fetch('/api/news/today', { headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` } }).then(r => r.ok ? r.json() : null),
     staleTime: 10 * 60 * 1000,
   })
 
   const parsedTopItems = useMemo<NewsTopItem[]>(() => {
     if (!todayNews?.topItems) return []
-    try {
-      return JSON.parse(todayNews.topItems)
-    } catch {
-      return []
-    }
+    try { return JSON.parse(todayNews.topItems) } catch { return [] }
   }, [todayNews])
 
-  // Stats
   const stats = useMemo(() => {
-    const totalTasks = allTasks.length
-    const completedTasks = allTasks.filter((t) => t.isCompleted).length
-    const pendingTasks = totalTasks - completedTasks
-    const importantTasks = allTasks.filter((t) => t.isImportant && !t.isCompleted).length
-    return { totalTasks, completedTasks, pendingTasks, importantTasks }
-  }, [allTasks])
+    if (taskStats) {
+      return {
+        pendingTasks: taskStats.total - taskStats.completed,
+        todayCompleted: taskStats.todayCompleted,
+        overdue: taskStats.overdue,
+      }
+    }
+    return { pendingTasks: 0, todayCompleted: 0, overdue: 0 }
+  }, [taskStats])
 
-  // Recent tasks (top 5 pending)
   const recentTasks = useMemo(() => {
     return allTasks
       .filter((t) => !t.isCompleted)
@@ -101,12 +76,14 @@ export function DashboardPage() {
       .slice(0, 5)
   }, [allTasks])
 
-  // Recent notes (top 5)
   const recentNotes = useMemo(() => {
     return [...notes]
       .sort((a, b) => (parseStoredTime(b.updatedAt)?.getTime() ?? 0) - (parseStoredTime(a.updatedAt)?.getTime() ?? 0))
       .slice(0, 5)
   }, [notes])
+
+  const isLoading = statsLoading || recentTasksLoading || notesLoading || newsLoading
+  if (isLoading) return <PageSkeleton />
 
   const todayFormatter = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
   const today = todayFormatter.format(new Date())
@@ -122,7 +99,7 @@ export function DashboardPage() {
       {/* Quick actions */}
       <div className="mb-6 flex flex-wrap gap-2">
         <Button asChild size="sm">
-          <Link to="/tasks/myday">
+          <Link to="/tasks/today">
             <Plus className="mr-1.5 size-4" />
             新建任务
           </Link>
@@ -141,8 +118,8 @@ export function DashboardPage() {
         </Button>
       </div>
 
-      {/* Stats cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Stats cards - 精简为2个核心指标 */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">待办任务</CardTitle>
@@ -151,69 +128,22 @@ export function DashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingTasks}</div>
             <p className="text-xs text-muted-foreground">
-              共 {stats.totalTasks} 个任务
+              今日完成 {stats.todayCompleted} 个
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">今日完成</CardTitle>
-            <CheckCircle2 className="size-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">逾期任务</CardTitle>
+            <Clock className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.completedTasks}</div>
+            <div className="text-2xl font-bold">{stats.overdue}</div>
             <p className="text-xs text-muted-foreground">
-              完成率 {stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%
+              {stats.overdue === 0 ? '全部按时' : '需要关注'}
             </p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">笔记总数</CardTitle>
-            <FileText className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{notes.length}</div>
-            <p className="text-xs text-muted-foreground">
-              最近更新 {recentNotes.length > 0 ? formatCST(recentNotes[0].updatedAt, 'compactDate') : '-'}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">知识库文件</CardTitle>
-            <BookOpen className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{kbDocs.length}</div>
-            <p className="text-xs text-muted-foreground">
-              支持多种格式
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sync status bar */}
-      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border bg-card/50 px-4 py-2.5 text-sm backdrop-blur-sm">
-        <span className="text-xs font-medium text-muted-foreground">同步状态</span>
-        <div className="flex items-center gap-1.5">
-          <div className={cn('size-2 rounded-full', msTodoStatus?.authorized ? 'bg-emerald-500' : 'bg-muted-foreground/30')} />
-          <span className="text-xs">MS Todo</span>
-          {msTodoStatus?.lastSync && (
-            <span className="text-xs text-muted-foreground">
-              {formatCST(msTodoStatus.lastSync, 'compact')}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className={cn('size-2 rounded-full', imaStatus?.authorized ? 'bg-emerald-500' : 'bg-muted-foreground/30')} />
-          <span className="text-xs">IMA</span>
-          {imaStatus?.lastSync && (
-            <span className="text-xs text-muted-foreground">
-              {formatCST(imaStatus.lastSync, 'compact')}
-            </span>
-          )}
-        </div>
       </div>
 
       {/* Content grid */}
@@ -223,7 +153,7 @@ export function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base font-semibold">待办任务</CardTitle>
             <Button asChild variant="ghost" size="sm" className="h-8">
-              <Link to="/tasks">
+              <Link to="/tasks/today">
                 查看全部
                 <ArrowRight className="ml-1 size-4" />
               </Link>
@@ -255,9 +185,6 @@ export function DashboardPage() {
                         </p>
                       )}
                     </div>
-                    {task.isImportant && (
-                      <Star className="size-4 shrink-0 fill-yellow-500 text-yellow-500" />
-                    )}
                   </Link>
                 ))}
               </div>
@@ -309,93 +236,43 @@ export function DashboardPage() {
       </div>
 
       {/* Today's news digest */}
-      <Card className="mt-4">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <Newspaper className="size-5" />
-            今日简报
-          </CardTitle>
-          <Button asChild variant="ghost" size="sm" className="h-8">
-            <Link to="/news">
-              查看全部
-              <ArrowRight className="ml-1 size-4" />
-            </Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {!todayNews ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <Newspaper className="mb-2 size-8 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">今日简报尚未生成</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">{todayNews.overview}</p>
-              {parsedTopItems.length > 0 && (
-                <div className="space-y-2">
-                  {parsedTopItems.slice(0, 3).map((item, idx) => (
-                    <a
-                      key={idx}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50"
-                    >
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
-                        <Newspaper className="size-4 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="line-clamp-1 text-sm font-medium">{item.title}</p>
-                        <p className="line-clamp-1 text-xs text-muted-foreground">{item.summary}</p>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Task lists overview */}
-      {lists.length > 0 && (
+      {todayNews && (
         <Card className="mt-4">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-base font-semibold">任务列表</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Newspaper className="size-5" />
+              今日简报
+            </CardTitle>
             <Button asChild variant="ghost" size="sm" className="h-8">
-              <Link to="/tasks">
-                管理列表
+              <Link to="/news">
+                查看全部
                 <ArrowRight className="ml-1 size-4" />
               </Link>
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {lists.map((list) => {
-                const listTasks = allTasks.filter((t) => t.listId === list.id)
-                const pendingCount = listTasks.filter((t) => !t.isCompleted).length
-                return (
-                  <Link
-                    key={list.id}
-                    to={`/tasks/list/${list.id}`}
+            <p className="text-sm text-muted-foreground">{todayNews.overview}</p>
+            {parsedTopItems.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {parsedTopItems.slice(0, 3).map((item, idx) => (
+                  <a
+                    key={idx}
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50"
                   >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <ListTodo className="size-4" />
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                      <Newspaper className="size-4 text-muted-foreground" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="line-clamp-1 text-sm font-medium">{list.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {pendingCount} 个待办
-                      </p>
+                      <p className="line-clamp-1 text-sm font-medium">{item.title}</p>
+                      <p className="line-clamp-1 text-xs text-muted-foreground">{item.summary}</p>
                     </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {pendingCount}
-                    </Badge>
-                  </Link>
-                )
-              })}
-            </div>
+                  </a>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

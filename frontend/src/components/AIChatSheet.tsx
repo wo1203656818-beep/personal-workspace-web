@@ -1,8 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import type React from 'react'
-import { createPortal } from 'react-dom'
-import { useQueryClient } from '@tanstack/react-query'
-import { Send, Sparkles, Plus, History, Trash2, Square, X, Brain, Pin, Tag, Mic, Paperclip, SlidersHorizontal } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Sparkles, Plus, History, X, SlidersHorizontal, Copy, RefreshCw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -10,101 +7,40 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { aiApi, type ChatSessionPreview } from '@/lib/api'
 import { copyChatAsMarkdown, downloadChatMarkdown, exportChatPdf } from '@/lib/chat-export'
 import { cn } from '@/lib/utils'
 
-type Msg = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  reasoning?: string
-  pending?: boolean
-}
-
-// 跨开/关持久化（Sheet 关闭会卸载内容，用模块级变量保留当前会话）
-const sessionStore: { sessionId: string | null; messages: Msg[]; deepThink: boolean } = {
-  sessionId: null,
-  messages: [],
-  deepThink: false,
-}
-
-// 把模型以 <think>...</think> 内联输出的思考过程抽出来（兼容 Qwen 等把思考写进正文的模型）
-function splitThink(raw: string): { think: string; rest: string } {
-  const start = raw.indexOf('<think>')
-  const end = raw.indexOf('</think>')
-  if (start === -1 || end === -1 || end < start) return { think: '', rest: raw }
-  const think = raw.slice(start + '<think>'.length, end).trim()
-  const rest = (raw.slice(0, start) + raw.slice(end + '</think>'.length)).trim()
-  return { think, rest }
-}
-
-function genId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36)
-}
-
-// 代码块：在右上角加一键复制按钮（hover 显示）
-function CodeBlock({ children }: { children?: React.ReactNode }) {
-  const ref = useRef<HTMLPreElement>(null)
-  const [copied, setCopied] = useState(false)
-  const copy = async () => {
-    const text = ref.current?.innerText || ''
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {}
-  }
-  return (
-    <div className="not-prose group relative">
-      <button
-        type="button"
-        onClick={copy}
-        className="absolute right-2 top-2 z-10 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-      >
-        {copied ? '已复制' : '复制'}
-      </button>
-      <pre ref={ref}>{children}</pre>
-    </div>
-  )
-}
+import type { Msg } from './chat/types'
+import { sessionStore, splitThink } from './chat/types'
+import { useChatStream } from './chat/useChatStream'
+import { useChatSessions } from './chat/useChatSessions'
+import { useVoiceInput } from './chat/useVoiceInput'
+import { CodeBlock } from './chat/CodeBlock'
+import { ThinkingBlock } from './chat/ThinkingBlock'
+import { ChatHistorySidebar } from './chat/ChatHistorySidebar'
+import { ChatInputArea } from './chat/ChatInputArea'
+import { ChatSettingsModal } from './chat/ChatSettingsModal'
 
 function BuiltinAIChat() {
-  const queryClient = useQueryClient()
-
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Msg[]>(sessionStore.messages)
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [sessions, setSessions] = useState<ChatSessionPreview[]>([])
   const [sessionId, setSessionId] = useState<string | null>(sessionStore.sessionId)
   const [deepThink, setDeepThink] = useState<boolean>(sessionStore.deepThink)
   const [exportOpen, setExportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [customPrompt, setCustomPrompt] = useState<string>(() => localStorage.getItem('chat_sysprompt') || '')
+  const [images, setImages] = useState<{ id: string; dataUrl: string; name: string }[]>([])
+
   const customPromptRef = useRef<string>(customPrompt)
   customPromptRef.current = customPrompt
   useEffect(() => { localStorage.setItem('chat_sysprompt', customPrompt) }, [customPrompt])
-  const [images, setImages] = useState<{ id: string; dataUrl: string; name: string }[]>([])
-  const imagesRef = useRef<{ id: string; dataUrl: string; name: string }[]>(images)
+
+  const imagesRef = useRef(images)
   imagesRef.current = images
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [listening, setListening] = useState(false)
-  const recognitionRef = useRef<any>(null)
-  const [tagPopoverOpen, setTagPopoverOpen] = useState(false)
-  const [editingTagSession, setEditingTagSession] = useState<ChatSessionPreview | null>(null)
-  const [tagInput, setTagInput] = useState('')
-  const [speechSupported] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false
-    return !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition
-  })
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
   const sessionIdRef = useRef<string | null>(sessionId)
   const deepThinkRef = useRef<boolean>(deepThink)
   sessionIdRef.current = sessionId
@@ -117,170 +53,33 @@ function BuiltinAIChat() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages])
 
-  const loadSessions = useCallback(async () => {
-    try {
-      const list = await aiApi.listChatSessions()
-      setSessions(list)
-    } catch {}
-  }, [])
+  const { loading, send, stop, regenerate, abortRef } = useChatStream({
+    sessionIdRef,
+    deepThinkRef,
+    customPromptRef,
+    imagesRef,
+    setMessages,
+    setSessionId,
+  })
 
-  useEffect(() => {
-    if (open && historyOpen) loadSessions()
-  }, [open, historyOpen, loadSessions])
+  const {
+    sessions,
+    newChat,
+    openSession,
+    removeSession,
+    togglePin,
+    saveTags,
+  } = useChatSessions({
+    open,
+    historyOpen,
+    setHistoryOpen,
+    setMessages,
+    setSessionId,
+  })
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files || !files.length) return
-    const remain = 4 - imagesRef.current.length
-    if (remain <= 0) return
-    Array.from(files).slice(0, remain).forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = reader.result as string
-        setImages((prev) => [...prev, { id: genId(), dataUrl, name: file.name }])
-      }
-      reader.readAsDataURL(file)
-    })
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
-  const send = useCallback((text: string) => {
-    const t = text.trim()
-    if (!t || loading) return
-    const imgs = imagesRef.current.map((i) => i.dataUrl)
-    setInput('')
-    setImages([])
-    const userMsg: Msg = { id: genId(), role: 'user', content: t }
-    const aiMsg: Msg = { id: genId(), role: 'assistant', content: '', pending: true }
-    setMessages((m) => [...m, userMsg, aiMsg])
-    setLoading(true)
-
-    const ctrl = aiApi.chatStream(t, sessionIdRef.current, {
-      deepThink: deepThinkRef.current,
-      systemPrompt: customPromptRef.current,
-      images: imgs,
-      onDelta: (chunk) => {
-        setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, content: msg.content + chunk } : msg))
-      },
-      onReasoning: (chunk) => {
-        setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg))
-      },
-      onDone: (ev) => {
-        setMessages((m) => m.map((msg) => msg.id === aiMsg.id ? { ...msg, pending: false } : msg))
-        if (ev.sessionId) setSessionId(ev.sessionId)
-        if (ev.refresh) queryClient.invalidateQueries()
-        setLoading(false)
-      },
-      onError: (msg) => {
-        setMessages((m) => m.map((msg2) => msg2.id === aiMsg.id
-          ? { ...msg2, content: msg2.content || `⚠️ ${msg}`, pending: false }
-          : msg2))
-        setLoading(false)
-      },
-    })
-    abortRef.current = ctrl
-  }, [loading, queryClient])
-
-  const newChat = () => {
-    abortRef.current?.abort()
-    setSessionId(null)
-    setMessages([])
-    setHistoryOpen(false)
-  }
-
-  const openSession = async (id: string) => {
-    try {
-      const { messages: rows } = await aiApi.getChatSession(id)
-      const restored: Msg[] = rows.map((r) => ({
-        id: genId(),
-        role: r.role === 'assistant' ? 'assistant' : 'user',
-        content: r.content || '',
-        reasoning: undefined,
-        pending: false,
-      }))
-      setSessionId(id)
-      setMessages(restored)
-      setHistoryOpen(false)
-    } catch {}
-  }
-
-  const removeSession = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      await aiApi.deleteChatSession(id)
-      setSessions((s) => s.filter((x) => x.id !== id))
-      if (id === sessionId) newChat()
-    } catch {}
-  }
-
-  const togglePin = async (s: ChatSessionPreview) => {
-    const next = s.pinned ? 0 : 1
-    try {
-      await aiApi.updateChatSession(s.id, { pinned: !!next })
-      setSessions((list) => [...list.map((x) => x.id === s.id ? { ...x, pinned: next } : x)]
-        .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)))
-    } catch {}
-  }
-
-  const openTagPopover = (s: ChatSessionPreview) => {
-    setEditingTagSession(s)
-    setTagInput('')
-    setTagPopoverOpen(true)
-  }
-
-  const addTagFromInput = () => {
-    if (!editingTagSession) return
-    const t = tagInput.trim()
-    if (!t) return
-    const current = editingTagSession.tags || []
-    if (current.length >= 10 || current.includes(t)) { setTagInput(''); return }
-    const next = [...current, t]
-    saveTags(next)
-    setTagInput('')
-  }
-
-  const removeTagAt = (idx: number) => {
-    if (!editingTagSession) return
-    const next = (editingTagSession.tags || []).filter((_, i) => i !== idx)
-    saveTags(next)
-  }
-
-  const saveTags = async (tags: string[]) => {
-    if (!editingTagSession) return
-    try {
-      await aiApi.updateChatSession(editingTagSession.id, { tags })
-      setSessions((list) => list.map((x) => x.id === editingTagSession.id ? { ...x, tags } : x))
-      setEditingTagSession((s) => s ? { ...s, tags } : s)
-    } catch {}
-  }
-
-  const stop = () => {
-    abortRef.current?.abort()
-    setLoading(false)
-    setMessages((m) => m.map((msg) => ({ ...msg, pending: false })))
-  }
-
-  // 语音输入：浏览器原生 Web Speech API（零后端）
-  const toggleVoice = () => {
-    if (listening) {
-      recognitionRef.current?.stop()
-      return
-    }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) return
-    const rec = new SR()
-    rec.lang = 'zh-CN'
-    rec.interimResults = false
-    rec.onresult = (e: any) => {
-      const text = e.results?.[0]?.[0]?.transcript || ''
-      if (text) setInput((v) => (v ? v + ' ' : '') + text)
-    }
-    rec.onend = () => setListening(false)
-    rec.onerror = () => setListening(false)
-    recognitionRef.current = rec
-    try { rec.start(); setListening(true) } catch {}
-  }
+  const { listening, speechSupported, toggleVoice } = useVoiceInput({ setInput })
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -291,7 +90,6 @@ function BuiltinAIChat() {
         </Button>
       </SheetTrigger>
       <SheetContent className="flex w-[420px] max-w-[100vw] flex-col gap-0 bg-[#0a0a0a] p-0 sm:w-[520px]" showCloseButton={false}>
-        {/* ── 极简顶栏 ── */}
         <SheetHeader className="flex flex-row items-center justify-between border-b border-white/5 px-4 py-3">
           <SheetTitle className="flex items-center gap-2 text-sm font-medium text-white/90">
             <Sparkles className="size-4 text-primary" />
@@ -315,7 +113,7 @@ function BuiltinAIChat() {
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white" onClick={() => { downloadChatMarkdown(messages, '会话记录'); setExportOpen(false); }}>导出 .md</button>
                   <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white" onClick={() => { exportChatPdf(messages, '会话记录'); setExportOpen(false); }}>导出 PDF</button>
                   <div className="my-1 h-px bg-white/5" />
-                  <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white" onClick={() => { newChat(); setExportOpen(false); }}>
+                  <button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white" onClick={() => { newChat(abortRef); setExportOpen(false); }}>
                     <Plus className="size-3.5" /> 新对话
                   </button>
                 </div>
@@ -327,11 +125,9 @@ function BuiltinAIChat() {
           </div>
         </SheetHeader>
 
-        {/* ── 消息区（沉浸式暗色）── */}
         <div className="relative flex-1 overflow-hidden">
           <div ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden">
             {messages.length === 0 ? (
-              /* ── 空状态：DeepSeek 风格居中布局 ── */
               <div className="flex h-full flex-col items-center justify-center px-6 py-12 text-center">
                 <div className="mb-6 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 text-primary">
                   <Sparkles className="size-7" />
@@ -340,32 +136,29 @@ function BuiltinAIChat() {
                 <p className="mt-1.5 max-w-[280px] text-[13px] leading-relaxed text-white/40">
                   问答、写作、翻译、代码、闲聊，随时找我
                 </p>
-                {/* 模式提示 */}
                 <div className="mt-6 flex items-center gap-3 text-[11px] text-white/25">
-                  <span className="flex items-center gap-1"><Brain className="size-3" /> 深度思考</span>
+                  <span className="flex items-center gap-1">深度思考</span>
                 </div>
               </div>
             ) : (
-              /* ── 消息流（无气泡，padding 分隔）── */
               <div className="space-y-6 px-4 py-6">
-                {messages.map((m) => {
+                {messages.map((m, idx) => {
                   const isUser = m.role === 'user'
                   const { think, rest } = isUser ? { think: '', rest: m.content } : splitThink(m.content)
                   const reasoningText = [m.reasoning, think].filter(Boolean).join('\n\n')
+                  const isLastAi = !isUser && idx === messages.length - 1
                   return (
                     <div key={m.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
                       <div className={cn(
                         'max-w-[88%] space-y-2',
                         isUser && 'max-w-[80%]'
                       )}>
-                        {/* 用户消息：右侧对齐，淡色底 */}
                         {isUser ? (
                           <div className="rounded-2xl rounded-br-md bg-white/10 px-4 py-2.5 text-[14px] leading-relaxed text-white/90">
                             <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{m.content}</span>
                           </div>
                         ) : (
-                          /* AI 消息：左侧，无背景，直接渲染 */
-                          <div className="space-y-3">
+                          <div className="group relative space-y-3">
                             {reasoningText && <ThinkingBlock text={reasoningText} />}
                             {rest ? (
                               <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-white/90 prose-headings:font-semibold prose-p:text-white/75 prose-li:text-white/75 prose-strong:text-white/90 prose-code:text-white/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-white/60 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px]">
@@ -380,6 +173,22 @@ function BuiltinAIChat() {
                                 <span className="inline-block size-1.5 animate-pulse rounded-full bg-white/50" style={{ animationDelay: '0.4s' }} />
                               </span>
                             ) : null}
+                            <button
+                              onClick={() => navigator.clipboard.writeText(rest || m.content)}
+                              className="absolute -right-8 top-0 opacity-0 group-hover:opacity-100 transition-opacity text-white/40 hover:text-white"
+                              title="复制"
+                            >
+                              <Copy className="size-3.5" />
+                            </button>
+                            {isLastAi && !m.pending && rest && (
+                              <button
+                                onClick={() => regenerate()}
+                                disabled={loading}
+                                className="flex items-center gap-1.5 text-[12px] text-white/40 hover:text-white/70 transition-colors disabled:opacity-50"
+                              >
+                                <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} /> 重新生成
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -390,278 +199,44 @@ function BuiltinAIChat() {
             )}
           </div>
 
-          {/* 历史侧栏 */}
           {historyOpen && (
-            <div className="absolute inset-0 z-10 flex flex-col bg-[#0a0a0a]">
-              <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-                <span className="text-sm font-medium text-white/90">聊天历史</span>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-white/60 hover:text-white" onClick={() => setHistoryOpen(false)}>
-                  <Square className="size-3.5" />
-                </Button>
-              </div>
-              <div className="flex-1 space-y-1 overflow-y-auto p-2">
-                {sessions.length === 0 && (
-                  <p className="px-2 py-6 text-center text-[13px] text-white/30">还没有历史会话</p>
-                )}
-                {sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/5"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => togglePin(s)}
-                      className="shrink-0"
-                      title={s.pinned ? '取消固定' : '固定到顶部'}
-                    >
-                      <Pin className={cn('size-3.5', s.pinned ? 'fill-primary text-primary' : 'text-white/30')} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openSession(s.id)}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <div className="truncate text-[13px] font-medium text-white/80">{s.title}</div>
-                      {s.tags && s.tags.length > 0 && (
-                        <div className="mt-0.5 flex flex-wrap gap-1">
-                          {s.tags.map((t) => (
-                            <Badge key={t} variant="secondary" className="rounded-full bg-primary/10 px-1.5 py-0 text-[10px] text-primary/70">{t}</Badge>
-                          ))}
-                        </div>
-                      )}
-                      <div className="truncate text-[11px] text-white/30">{s.preview || '（空）'}</div>
-                    </button>
-                    <Popover
-                      open={tagPopoverOpen && editingTagSession?.id === s.id}
-                      onOpenChange={(v) => { if (!v) setTagPopoverOpen(false) }}
-                    >
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); openTagPopover(s) }}
-                          className="shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
-                          title="编辑标签"
-                        >
-                          <Tag className="size-3.5" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="end"
-                        side="right"
-                        className="w-64 border-white/10 bg-[#1a1a1a] p-3"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <p className="mb-2 text-xs font-medium text-white/70">编辑标签</p>
-                        <div className="mb-2 flex flex-wrap gap-1.5">
-                          {(editingTagSession?.tags || []).length === 0 && (
-                            <span className="text-[11px] text-white/30">暂无标签</span>
-                          )}
-                          {(editingTagSession?.tags || []).map((t, idx) => (
-                            <Badge
-                              key={idx}
-                              variant="secondary"
-                              className="flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary"
-                            >
-                              {t}
-                              <button
-                                type="button"
-                                onClick={() => removeTagAt(idx)}
-                                className="ml-0.5 text-primary/60 hover:text-primary"
-                              >
-                                <X className="size-2.5" />
-                              </button>
-                            </Badge>
-                          ))}
-                        </div>
-                        <div className="mb-2 flex gap-1.5">
-                          <Input
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTagFromInput() } }}
-                            placeholder="输入标签，回车添加"
-                            className="h-7 rounded-lg border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 shrink-0 rounded-lg px-2 text-xs"
-                            onClick={addTagFromInput}
-                            disabled={!tagInput.trim()}
-                          >
-                            添加
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {['工作', '学习', '闲聊', '重要'].map((p) => (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => {
-                                const cur = editingTagSession?.tags || []
-                                if (cur.length < 10 && !cur.includes(p)) saveTags([...cur, p])
-                              }}
-                              className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40 hover:border-white/20 hover:text-white/60"
-                            >
-                              + {p}
-                            </button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    <Trash2
-                      className="size-3.5 shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
-                      onClick={(e) => removeSession(s.id, e)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── 输入区：DeepSeek 风格全宽圆角输入栏 ── */}
-        <div className="border-t border-white/5 px-3 py-3">
-          {/* 图片预览 */}
-          {images.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {images.map((img) => (
-                <div key={img.id} className="relative">
-                  <img src={img.dataUrl} alt={img.name} className="h-14 w-14 rounded-lg border border-white/10 object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setImages((p) => p.filter((x) => x.id !== img.id))}
-                    className="absolute -right-1 -top-1 rounded-full bg-white/10 p-0.5 text-white/60 shadow-sm hover:text-white"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-
-          {/* 全宽输入栏容器：DeepSeek 式 — 输入在上，开关与操作在下 */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 pb-2 pt-2 transition-colors focus-within:border-white/20 focus-within:bg-white/[0.07]">
-            {/* 上：textarea 全宽 */}
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  send(input)
-                }
-              }}
-              rows={1}
-              placeholder="有问题，尽管问"
-              className="max-h-32 min-h-[36px] w-full resize-none bg-transparent py-1 text-[14px] leading-relaxed text-white placeholder:text-white/30 focus-visible:outline-none"
+            <ChatHistorySidebar
+              sessions={sessions}
+              onClose={() => setHistoryOpen(false)}
+              onOpen={openSession}
+              onRemove={(id, e) => removeSession(id, sessionId, e)}
+              onTogglePin={togglePin}
+              onSaveTags={saveTags}
             />
-
-            {/* 下：左侧模式开关 pill + 右侧操作图标 */}
-            <div className="mt-1 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setDeepThink((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors',
-                    deepThink
-                      ? 'border-primary/60 bg-primary/15 text-primary'
-                      : 'border-white/10 text-white/45 hover:border-white/20 hover:text-white/70'
-                  )}
-                  title="开启后 AI 会先一步步推理再回答，适合复杂问题（更慢）"
-                >
-                  <Brain className="size-3.5" /> 深度思考
-                </button>
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0">
-                {speechSupported && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn('size-8 text-white/40 hover:text-white', listening && 'text-primary')}
-                    title={listening ? '停止语音输入' : '语音输入'}
-                    onClick={toggleVoice}
-                  >
-                    <Mic className="size-4" />
-                  </Button>
-                )}
-                <Button type="button" variant="ghost" size="icon" className="size-8 text-white/40 hover:text-white" title="上传图片" onClick={() => fileRef.current?.click()}>
-                  <Paperclip className="size-4" />
-                </Button>
-                {loading ? (
-                  <Button size="icon" className="size-8 shrink-0 rounded-xl" onClick={stop} title="停止">
-                    <Square className="size-3.5" />
-                  </Button>
-                ) : (
-                  <Button size="icon" className="size-8 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none" disabled={!input.trim()} onClick={() => send(input)}>
-                    <Send className="size-3.5" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* 底部极简提示 */}
-          <p className="mt-1.5 px-1 text-center text-[10px] leading-relaxed text-white/20">
-            Enter 发送 · Shift+Enter 换行 · 支持图片 / 语音
-          </p>
+          )}
         </div>
+
+        <ChatInputArea
+          input={input}
+          setInput={setInput}
+          loading={loading}
+          deepThink={deepThink}
+          setDeepThink={setDeepThink}
+          images={images}
+          setImages={setImages}
+          speechSupported={speechSupported}
+          listening={listening}
+          onToggleVoice={toggleVoice}
+          onSend={send}
+          onStop={stop}
+        />
       </SheetContent>
 
-      {/* 回复偏好弹窗 — 用 Portal 渲染到 body，避免被 Sheet 动画的 transform 破坏 fixed 定位 */}
-      {settingsOpen && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setSettingsOpen(false)}>
-          <div className="relative w-80 rounded-2xl border border-white/10 bg-[#1a1a1a] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(false)}
-              title="关闭"
-              className="absolute right-3 top-3 flex size-6 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/10 hover:text-white/80"
-            >
-              <X className="size-4" />
-            </button>
-            <div className="mb-1 pr-6 text-[14px] font-medium text-white/90">回复偏好</div>
-            <p className="mb-3 text-[12px] leading-relaxed text-white/40">
-              告诉 AI 你希望它怎么回答你，之后每次对话都会自动生效。不填就用默认方式回答。
-            </p>
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {['回答尽量简短', '多用列表和表格', '解释得通俗一点', '像朋友一样聊天'].map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setCustomPrompt((v) => v.includes(s) ? v : (v ? v + '；' : '') + s)}
-                  className="rounded-full border border-white/10 px-2.5 py-1 text-[12px] text-white/50 transition-colors hover:border-white/20 hover:text-white/70"
-                >
-                  + {s}
-                </button>
-              ))}
-            </div>
-            <textarea
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              rows={3}
-              placeholder="例如：回答尽量简短；专业术语要解释…"
-              className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white placeholder:text-white/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-            />
-            <div className="mt-3 flex gap-2">
-              {customPrompt && (
-                <button type="button" onClick={() => setCustomPrompt('')} className="rounded-xl border border-white/10 px-3 py-2 text-[12px] text-white/50 hover:border-white/20 hover:text-white/70">清空</button>
-              )}
-              <button type="button" onClick={() => setSettingsOpen(false)} className="flex-1 rounded-xl bg-primary py-2 text-[12px] font-medium text-primary-foreground hover:bg-primary/90">完成</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <ChatSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        customPrompt={customPrompt}
+        setCustomPrompt={setCustomPrompt}
+      />
     </Sheet>
   )
 }
 
-// LobeChat 嵌入模式：把成熟的 LobeChat 聊天界面用 iframe 嵌进我们的 AI 助手面板
 function LobeChatFrame({ url }: { url: string }) {
   const [open, setOpen] = useState(false)
   return (
@@ -695,31 +270,7 @@ function LobeChatFrame({ url }: { url: string }) {
 
 const LOBECHAT_URL = (import.meta.env.VITE_LOBECHAT_URL as string | undefined)?.trim() || ''
 
-// 入口：配置了 LobeChat 地址就嵌入它（专业 UI + 接我们 MCP），否则回退到内置手搓聊天
 export function AIChatSheet() {
   if (LOBECHAT_URL) return <LobeChatFrame url={LOBECHAT_URL} />
   return <BuiltinAIChat />
-}
-
-// 思考过程折叠块（DeepSeek 风格：暗色沉浸）
-function ThinkingBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 text-[12px] font-medium text-white/50 transition-colors hover:text-white/70"
-      >
-        <Brain className="size-3.5" />
-        <span>思考过程</span>
-        <span className="ml-auto text-white/30">{open ? '收起 ▾' : '展开 ▸'}</span>
-      </button>
-      {open && (
-        <div className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[12px] leading-relaxed text-white/35">
-          {text}
-        </div>
-      )}
-    </div>
-  )
 }

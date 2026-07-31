@@ -55,8 +55,8 @@ function ErrorFallback({ error }: { error?: Error }) {
           </button>
           {expanded && (
             <pre className="mt-2 max-h-60 overflow-auto rounded-md bg-muted p-3 text-left text-xs text-muted-foreground">
-              {error.message}
-              {error.stack ? `\n\n${error.stack}` : ''}
+              {error.message || '未知错误'}
+              {import.meta.env.DEV && error.stack ? `\n\n${error.stack}` : ''}
             </pre>
           )}
         </div>

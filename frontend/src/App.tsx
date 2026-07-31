@@ -11,13 +11,9 @@ const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ 
 const TasksPage = lazy(() => import('@/pages/TasksPage').then((m) => ({ default: m.TasksPage })))
 const NotesPage = lazy(() => import('@/pages/NotesPage').then((m) => ({ default: m.NotesPage })))
 const KnowledgePage = lazy(() => import('@/pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })))
-const AnalysisPage = lazy(() => import('@/pages/AnalysisPage').then((m) => ({ default: m.AnalysisPage })))
-const ToolsPage = lazy(() => import('@/pages/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
-const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })))
 const MsTodoCallback = lazy(() => import('@/pages/MsTodoCallback').then((m) => ({ default: m.MsTodoCallback })))
 const NewsPage = lazy(() => import('@/pages/NewsPage'))
-const MonitorPage = lazy(() => import('@/pages/MonitorPage').then((m) => ({ default: m.MonitorPage })))
 
 function ProtectedRoutes() {
   const { isAuthenticated } = useAuth()
@@ -32,19 +28,15 @@ function ProtectedRoutes() {
         }
       >
         <Route path="/" element={<RouteBoundary><DashboardPage /></RouteBoundary>} />
-        <Route path="/tasks" element={<Navigate to="/tasks/all" replace />} />
+        <Route path="/tasks" element={<Navigate to="/tasks/today" replace />} />
         <Route path="/tasks/:view" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
         <Route path="/tasks/list/:listId" element={<RouteBoundary><TasksPage /></RouteBoundary>} />
         <Route path="/notes" element={<RouteBoundary><NotesPage /></RouteBoundary>} />
         <Route path="/notes/:id" element={<RouteBoundary><NotesPage /></RouteBoundary>} />
         <Route path="/knowledge" element={<RouteBoundary><KnowledgePage /></RouteBoundary>} />
         <Route path="/knowledge/:id" element={<RouteBoundary><KnowledgePage /></RouteBoundary>} />
-        <Route path="/analysis" element={<RouteBoundary><AnalysisPage /></RouteBoundary>} />
-        <Route path="/search" element={<RouteBoundary><SearchPage /></RouteBoundary>} />
-        <Route path="/tools" element={<RouteBoundary><ToolsPage /></RouteBoundary>} />
         <Route path="/settings" element={<RouteBoundary><SettingsPage /></RouteBoundary>} />
         <Route path="/news/*" element={<RouteBoundary><NewsPage /></RouteBoundary>} />
-        <Route path="/monitor" element={<RouteBoundary><MonitorPage /></RouteBoundary>} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

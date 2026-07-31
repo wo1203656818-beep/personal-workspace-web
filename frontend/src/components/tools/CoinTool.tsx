@@ -30,7 +30,7 @@ function longestStreak(history: FlipItem[], target: string): number {
   return max
 }
 
-export function CoinTool() {
+export function CoinTool({ onUseTimer }: { onUseTimer?: () => void }) {
   const [flipping, setFlipping] = useState(false)
   const [result, setResult] = useState<{ result: string; interpretation: string; source: string } | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -137,6 +137,16 @@ export function CoinTool() {
             <Sparkles className="size-4" />
             {flipping ? '抛掷中...' : '抛掷硬币'}
           </Button>
+
+          {onUseTimer && (
+            <Button
+              variant="outline"
+              className="mt-4 gap-2"
+              onClick={onUseTimer}
+            >
+              启动 5 分钟决策倒计时
+            </Button>
+          )}
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { eq, notInArray, inArray, like } from 'drizzle-orm'
 import { decrypt } from './crypto-utils'
 import type { Env } from './types'
 import { nowBeijing } from './time'
+import { getSetting, setSetting } from './utils/settings'
 import { marked } from 'marked'
 
 /**
@@ -49,24 +50,8 @@ async function getCredentials(env: Env): Promise<ImaCredentials | null> {
   return { clientId: clientIdRow[0].value, apiKey }
 }
 
-/**
- * 设置工具：读取/写入 settings 表（增量同步时间戳等）
- */
-async function getSetting(env: Env, key: string): Promise<string | null> {
-  const db = drizzle(env.DB, { schema })
-  const result = await db.select().from(schema.settings).where(eq(schema.settings.key, key))
-  return result.length > 0 ? result[0].value : null
-}
-
-async function setSetting(env: Env, key: string, value: string): Promise<void> {
-  const db = drizzle(env.DB, { schema })
-  await db.insert(schema.settings)
-    .values({ key, value })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value, updatedAt: nowBeijing() } })
-}
-
-// 通用 IMA API 调用（无重试 — 防止 cron 同步期间子请求数超过 1000 上限）
-async function imaPost(apiPath: string, body: any, creds: ImaCredentials): Promise<any> {
+// 通用 IMA API 调用（原始版本，不含重试）
+async function imaPostRaw(apiPath: string, body: any, creds: ImaCredentials): Promise<any> {
   const res = await fetch(`${IMA_BASE_URL}/${apiPath}`, {
     method: 'POST',
     headers: {
@@ -87,6 +72,21 @@ async function imaPost(apiPath: string, body: any, creds: ImaCredentials): Promi
     throw new Error(`IMA API 错误 [${data.code}]: ${data.msg || '未知错误'}`)
   }
   return data.data
+}
+
+// 通用 IMA API 调用（含指数退避重试，处理瞬态故障）
+async function imaPost(apiPath: string, body: any, creds: ImaCredentials, maxRetries = 3): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await imaPostRaw(apiPath, body, creds)
+    } catch (e: any) {
+      const isRetryable = /timeout|network|fetch failed|5\d{2}|429/i.test(e?.message || '')
+      if (!isRetryable || attempt === maxRetries) throw e
+      const delay = Math.min(1000 * 2 ** attempt, 8000)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  throw new Error('unreachable')
 }
 
 // ========== 笔记同步 ==========
@@ -822,14 +822,27 @@ export async function syncKnowledgeBase(env: Env): Promise<{ synced: number }> {
         }
       }
       await db.delete(schema.kbDocuments).where(inArray(schema.kbDocuments.id, toDeleteIds))
+      // 清理 Vectorize 中的向量嵌入（批量删除，失败不阻塞主流程）
+      try {
+        const vectorIds = toDeleteIds.map((id) => `kb:${id}`)
+        for (let i = 0; i < vectorIds.length; i += 50) {
+          await env.VECTORIZE.deleteByIds(vectorIds.slice(i, i + 50)).catch((e) =>
+            console.error('[ima] KB vector cleanup batch failed:', e?.message)
+          )
+        }
+      } catch (e) {
+        console.error('[ima] KB vector cleanup failed:', e)
+      }
       syncedCount -= toDeleteIds.length
     }
   } else if (!allBasesFetchedOk) {
     console.warn('[ima] syncKnowledgeBase: 部分知识库拉取失败，跳过清理以保护数据')
   }
 
-  // 更新同步时间戳
-  await setSetting(env, 'ima_kb_synced_at', nowBeijing())
+  // 仅当全部知识库拉取成功时才更新同步时间戳，避免部分失败导致数据丢失
+  if (allBasesFetchedOk) {
+    await setSetting(env, 'ima_kb_synced_at', nowBeijing())
+  }
   return { synced: syncedCount }
 }
 

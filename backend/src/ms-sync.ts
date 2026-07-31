@@ -3,9 +3,10 @@ import { drizzle } from 'drizzle-orm/d1'
 import type { DrizzleD1Database } from 'drizzle-orm/d1'
 import * as schema from './schema'
 import { eq, or, and, isNull, isNotNull } from 'drizzle-orm'
-import { encrypt, decrypt } from './crypto-utils'
+import { decrypt } from './crypto-utils'
 import type { Env } from './types'
 import { nowBeijing } from './time'
+import { getSetting, setSetting } from './utils/settings'
 
 type DB = DrizzleD1Database<typeof schema>
 
@@ -461,7 +462,9 @@ export async function fullSync(env: Env): Promise<{ synced: number; failed: numb
   for (const localTask of msLinkedTasks) {
     if (!localTask.msTodoId || !localTask.msTodoListId) continue
     if (!localTask.updatedAt || !localTask.lastSyncedAt) continue
-    if (new Date(localTask.updatedAt) <= new Date(localTask.lastSyncedAt)) continue
+    const updatedAt = new Date(localTask.updatedAt).getTime()
+    const lastSyncedAt = new Date(localTask.lastSyncedAt).getTime()
+    if (updatedAt < lastSyncedAt - 1000) continue // 1s tolerance for clock skew
 
     try {
       // 检测任务是否移动到了不同列表：本地 listId 对应的 msTodoListId 与任务记录的 msTodoListId 不一致
@@ -792,36 +795,6 @@ export async function exchangeCodeForToken(env: Env, code: string, redirectUri: 
     await setSetting(env, 'ms_refresh_token', result.refresh_token)
   }
   return true
-}
-
-// 设置工具函数（refresh_token 走加密，其他 setting 直接读写）
-async function getSetting(env: Env, key: string): Promise<string | null> {
-  const db = drizzle(env.DB, { schema })
-  const result = await db.select().from(schema.settings).where(eq(schema.settings.key, key))
-  if (result.length === 0) return null
-  const raw = result[0].value
-  // refresh_token 走解密；其他值原样返回
-  if (key === 'ms_refresh_token') {
-    try {
-      return await decrypt(env.JWT_SECRET, raw)
-    } catch (e) {
-      console.error('[ms-todo] decrypt refresh_token failed:', e)
-      return raw
-    }
-  }
-  return raw
-}
-
-async function setSetting(env: Env, key: string, value: string): Promise<void> {
-  const db = drizzle(env.DB, { schema })
-  let stored = value
-  // refresh_token 走加密
-  if (key === 'ms_refresh_token') {
-    stored = await encrypt(env.JWT_SECRET, value)
-  }
-  await db.insert(schema.settings)
-    .values({ key, value: stored })
-    .onConflictDoUpdate({ target: schema.settings.key, set: { value: stored, updatedAt: nowBeijing() } })
 }
 
 // 获取同步状态

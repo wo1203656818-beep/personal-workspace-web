@@ -3,9 +3,9 @@ import { drizzle } from 'drizzle-orm/d1'
 import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm'
 import * as schema from './schema'
 import { nowBeijing, todayCST } from './time'
-import { CF_MODELS } from './ai-configs'
+import { callAI } from './utils/ai-client'
 import { PRESET_FEED_SOURCES, TITLE_BLACKLIST_PATTERNS, TITLE_HIGHLIGHT_PATTERNS, RSSHUB_INSTANCES } from './news-sources'
-import { decrypt } from './crypto-utils'
+import { getSetting } from './utils/settings'
 
 export interface RawFeedItem {
   title: string
@@ -29,47 +29,7 @@ async function mapBatch<T, R>(items: T[], concurrency: number, fn: (item: T) => 
   return results
 }
 
-// 带超时的 AI 调用：避免大模型 cold start 卡死整个请求
-async function callAIWithTimeout(env: Env, model: string, payload: any, timeoutMs: number): Promise<any> {
-  return Promise.race([
-    env.AI.run(model as any, payload),
-    new Promise<any>((_, reject) =>
-      setTimeout(() => reject(new Error('AI_TIMEOUT')), timeoutMs)
-    ),
-  ])
-}
-
-async function callAIInternal(env: Env, messages: { role: string; content: string }[], opts: { maxTokens?: number; timeoutMs?: number } = {}): Promise<string> {
-  const maxTokens = opts.maxTokens ?? 512
-  const timeoutMs = opts.timeoutMs ?? 25000
-  const extractText = (response: any): string => {
-    if (typeof response === 'string') return response
-    const r = response as any
-    // 新版 Workers AI 返回 OpenAI 兼容格式：choices[0].message.content
-    if (r.choices?.[0]?.message?.content) return String(r.choices[0].message.content)
-    // 旧格式兼容：response 是字符串的情况
-    if (typeof r.response === 'string') return r.response
-    // response 是已解析对象/数组时，序列化回字符串
-    if (r.response !== undefined) return JSON.stringify(r.response)
-    if (r.result?.response) return String(r.result.response)
-    if (r.output) return typeof r.output === 'string' ? r.output : JSON.stringify(r.output)
-    return JSON.stringify(response)
-  }
-  try {
-    const response = await callAIWithTimeout(env, CF_MODELS.DEFAULT, { messages, max_tokens: maxTokens }, timeoutMs)
-    return extractText(response)
-  } catch (e: any) {
-    const detail = (e?.message || '').toLowerCase()
-    const unavailable = /model not found|not available|does not exist|unknown model|invalid model|not supported|503|504|ai_timeout/.test(detail)
-    if (unavailable && CF_MODELS.DEFAULT !== CF_MODELS.FALLBACK) {
-      try {
-        const response = await callAIWithTimeout(env, CF_MODELS.FALLBACK, { messages, max_tokens: maxTokens }, timeoutMs)
-        return extractText(response)
-      } catch {}
-    }
-    throw new Error(detail.includes('ai_timeout') ? 'AI 调用超时' : 'AI 调用失败，请检查 AI 配置或稍后重试')
-  }
-}
+// ---------- AI 调用（复用统一客户端）----------
 
 async function fetchRSS(url: string): Promise<RawFeedItem[]> {
   try {
@@ -137,23 +97,24 @@ export function parseRSS(xmlText: string): RawFeedItem[] {
 }
 
 async function fetchRSSHub(path: string): Promise<RawFeedItem[]> {
-  // RSSHub 默认返回 RSS XML，也支持 .json 后缀
-  // 只尝试第 1 个实例，避免 subrequest 超限（Workers 免费版限制 50 个/请求）
-  const base = RSSHUB_INSTANCES[0]
-  if (!base) return []
-  try {
-    const url = `${base}${path}`
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
-      cf: { cacheTtl: 300 },
-    })
-    if (!response.ok) return []
-    const text = await response.text()
-    return parseRSS(text)
-  } catch (e) {
-    console.error('[fetchRSSHub] instance failed:', base, e)
-    return []
+  // 多实例容错：按序尝试所有实例，首个成功即返回
+  for (const base of RSSHUB_INSTANCES) {
+    if (!base) continue
+    try {
+      const url = `${base}${path}`
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
+        cf: { cacheTtl: 300 },
+      })
+      if (!response.ok) continue
+      const text = await response.text()
+      const items = parseRSS(text)
+      if (items.length > 0) return items
+    } catch (e) {
+      console.error('[fetchRSSHub] instance failed:', base, e)
+    }
   }
+  return []
 }
 
 async function fetchAPI(url: string): Promise<RawFeedItem[]> {
@@ -327,47 +288,28 @@ export async function fetchSourcesByCategory(
   return { fetched: totalFetched, errors, sourceCount: allSources.length, category, hasMore }
 }
 
-// 抓取所有启用的源（分批同步执行，适用于 cron 等无超时限制场景）
+// 抓取所有启用的源（复用 fetchSourcesByCategory，适用于 cron 等无超时限制场景）
 export async function fetchAllSources(env: Env): Promise<{ fetched: number; errors: string[] }> {
   const db = drizzle(env.DB, { schema })
   const sources = await db.select().from(schema.feedSources).where(eq(schema.feedSources.enabled, true))
+  const categories = [...new Set(sources.map(s => s.category))]
 
   let totalFetched = 0
-  const errors: string[] = []
+  const allErrors: string[] = []
 
-  const batchResults = await mapBatch(sources, 8, async (source) => {
-    try {
-      const items = await Promise.race([
-        fetchSourceRaw(source),
-        new Promise<RawFeedItem[]>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 8000)
-        )
-      ])
-      if (items.length === 0) return { sourceId: source.id, inserted: 0, name: source.name }
-      const weight = (source as any).weight ?? 3
-      const inserted = await insertItemsBatch(db, source.id, source.category, weight, items)
-      return { sourceId: source.id, inserted, name: source.name }
-    } catch (e) {
-      return {
-        sourceId: source.id,
-        inserted: 0,
-        name: source.name,
-        error: `${source.name}: ${e instanceof Error ? e.message : String(e)}`,
-      }
+  for (const category of categories) {
+    let offset = 0
+    let hasMore = true
+    while (hasMore) {
+      const result = await fetchSourcesByCategory(env, category, offset, 100)
+      totalFetched += result.fetched
+      allErrors.push(...result.errors)
+      hasMore = result.hasMore
+      offset += 100
     }
-  })
-
-  for (const r of batchResults) {
-    totalFetched += r.inserted
-    if (r.error) errors.push(r.error)
-    try {
-      await db.update(schema.feedSources)
-        .set({ lastFetchedAt: nowBeijing() })
-        .where(eq(schema.feedSources.id, r.sourceId))
-    } catch {}
   }
 
-  return { fetched: totalFetched, errors }
+  return { fetched: totalFetched, errors: allErrors }
 }
 
 // 单源抓取：复用 fetchAllSources 内部的抓取与入库逻辑，供 /api/news/refresh/:id 使用
@@ -415,7 +357,7 @@ ${newsList}
 
 只输出 JSON 数组，不要额外文字。`
 
-    const result = await callAIInternal(env, [
+    const result = await callAI(env, [
       { role: 'system', content: '你是资深新闻主编，擅长批量判断新闻重要性并写摘要。输出必须是合法 JSON 数组。所有输出必须是中文。' },
       { role: 'user', content: prompt },
     ], { maxTokens: 1000, timeoutMs: 20000 })
@@ -444,19 +386,20 @@ ${newsList}
 // 处理待 AI 分析的新闻条目（第三级漏斗：AI 批量评分）。
 export async function processPendingItems(env: Env, limit = 100): Promise<{ processed: number; failed: number }> {
   const db = drizzle(env.DB, { schema })
-  const effectiveLimit = limit > 0 ? Math.min(limit, 10) : 10
-  // aiScore: 负数=待处理（含优先级），0=未处理，正数=已评分，-1=AI失败
+  const effectiveLimit = limit > 0 ? Math.min(limit, 30) : 30
+  // aiScore: 0=未处理（待评分），正数=已评分（1-10），-1=AI失败
+  // 只处理 aiScore=0 的新条目，-1（失败）的不再自动重试，避免无限循环浪费配额
   const pending = await db.select()
     .from(schema.feedItems)
-    .where(sql`${schema.feedItems.aiScore} <= 0`)
-    .orderBy(asc(schema.feedItems.aiScore), desc(schema.feedItems.fetchedAt))
+    .where(sql`${schema.feedItems.aiScore} = 0`)
+    .orderBy(desc(schema.feedItems.fetchedAt))
     .limit(effectiveLimit)
 
   if (pending.length === 0) return { processed: 0, failed: 0 }
 
   let processed = 0
   let failed = 0
-  const BATCH_SIZE = 3
+  const BATCH_SIZE = 5
   for (let i = 0; i < pending.length; i += BATCH_SIZE) {
     const batch = pending.slice(i, i + BATCH_SIZE)
     // processBatchWithAI 内部已有 try/catch，不会抛错
@@ -518,7 +461,7 @@ export async function generateDailyDigest(env: Env, targetDate?: string): Promis
     const overviewPrompt = `请根据以下 ${topN.length} 条今日最重要新闻，写一段 100 字以内的"今日要点"总览，指出核心看点和趋势：
 ${topN.map((i, idx) => `${idx + 1}. ${i.title}${i.aiSummary ? ` - ${i.aiSummary}` : ''}`).join('\n')}
 只输出总览文字，不要标题。`
-    overview = await callAIInternal(env, [
+    overview = await callAI(env, [
       { role: 'system', content: '你是资深新闻主编，擅长写每日新闻总览。' },
       { role: 'user', content: overviewPrompt },
     ], { maxTokens: 300 })
@@ -617,21 +560,4 @@ export async function pushDailyBrief(env: Env): Promise<{ ok: boolean; pushed: n
     console.error('[pushDailyBrief] network failed:', e)
     return { ok: false, pushed: 0, error: e.message }
   }
-}
-
-async function getSetting(env: Env, key: string): Promise<string | null> {
-  const db = drizzle(env.DB, { schema })
-  const row = await db.select().from(schema.settings).where(eq(schema.settings.key, key)).limit(1)
-  const raw = row[0]?.value
-  if (!raw) return null
-  // 敏感键加密存储（enc$ 前缀），读取时解密
-  if (raw.startsWith('enc$')) {
-    try {
-      return await decrypt(env.JWT_SECRET, raw)
-    } catch (e) {
-      console.error('[news] decrypt setting failed:', key, e)
-      return null
-    }
-  }
-  return raw
 }

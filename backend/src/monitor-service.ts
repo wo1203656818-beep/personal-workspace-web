@@ -7,9 +7,10 @@ import { drizzle } from 'drizzle-orm/d1'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import * as schema from './schema'
 import type { Env } from './types'
-import { CF_MODELS } from './ai-configs'
+import { callAI } from './utils/ai-client'
 import { decrypt } from './crypto-utils'
 import { nowBeijing, todayBeijing, nowCST, todayCST } from './time'
+import { getSetting } from './utils/settings'
 
 // 热榜多源聚合：Worker 出口在 Cloudflare 网段，部分源（如 60s.viki.moe，其自身架在 Cloudflare 上并开启 Bot Fight）
 // 会对 CF→CF 请求返回 403 挑战页，故采用多源容错，按序尝试，首个返回有效数据的源胜出。
@@ -29,44 +30,6 @@ async function ensureMonitorTables(env: Env) {
     try { await env.DB.prepare(s).run() } catch (e: any) { /* 已存在则忽略 */ }
   }
   tablesReady = true
-}
-
-// ---------- 通用读取 ----------
-async function getSetting(env: Env, key: string): Promise<string | null> {
-  const db = drizzle(env.DB, { schema })
-  const row = await db.select().from(schema.settings).where(eq(schema.settings.key, key)).limit(1)
-  return row[0]?.value ?? null
-}
-
-// ---------- AI 调用（带降级，兼容 llama-4-scout 与旧格式）----------
-async function callMonitorAI(env: Env, messages: { role: string; content: string }[], opts: { maxTokens?: number; timeoutMs?: number } = {}): Promise<string> {
-  const maxTokens = opts.maxTokens ?? 1200
-  const timeoutMs = opts.timeoutMs ?? 30000
-  const models = [CF_MODELS.DEFAULT, '@cf/meta/llama-4-scout-17b-16e-instruct'].filter((m, i, a) => a.indexOf(m) === i)
-  const extractText = (r: any): string => {
-    if (typeof r === 'string') return r
-    if (r?.choices?.[0]?.message?.content) return String(r.choices[0].message.content)
-    if (typeof r?.response === 'string') return r.response
-    if (r?.response !== undefined) return JSON.stringify(r.response)
-    if (r?.result?.response) return String(r.result.response)
-    if (r?.output) return typeof r.output === 'string' ? r.output : JSON.stringify(r.output)
-    return JSON.stringify(r)
-  }
-  let lastErr = ''
-  for (const model of models) {
-    try {
-      const res = await Promise.race([
-        env.AI.run(model as any, { messages, max_tokens: maxTokens }),
-        new Promise<any>((_, rej) => setTimeout(() => rej(new Error('AI_TIMEOUT')), timeoutMs)),
-      ])
-      return extractText(res)
-    } catch (e: any) {
-      lastErr = e?.message || 'unknown'
-      const unavailable = /model not found|not available|does not exist|unknown model|invalid model|not supported|503|504|ai_timeout|5028/i.test(lastErr)
-      if (!unavailable) break // 非模型问题（如配置错）不重试
-    }
-  }
-  throw new Error(lastErr.includes('ai_timeout') ? 'AI 调用超时' : 'AI 调用失败')
 }
 
 // ---------- 热榜抓取（多源容错）----------
@@ -122,7 +85,7 @@ async function fetchHotList(platform: string): Promise<{ items: HotItem[]; sourc
         attempted.push(`${p.name}:HTTP${res.status}::${body}`)
         continue
       }
-      const j = await res.json().catch(async () => { const t = await res.text().catch(() => ''); return { __raw: t } })
+      const j: any = await res.json().catch(async () => { const t = await res.text().catch(() => ''); return { __raw: t } })
       if (!j || j.__raw !== undefined) {
         attempted.push(`${p.name}:JSON_FAIL::${String(j?.__raw ?? '').slice(0, 100)}`)
         continue
@@ -209,7 +172,16 @@ export async function getSnapshots(env: Env, date?: string, type?: string): Prom
   const d = date || todayBeijing()
   const conds = [eq(schema.monitorSnapshots.date, d)]
   if (type) conds.push(eq(schema.monitorSnapshots.type, type))
-  return db.select().from(schema.monitorSnapshots).where(and(...conds)).orderBy(desc(schema.monitorSnapshots.fetchedAt))
+  const rows = await db.select().from(schema.monitorSnapshots).where(and(...conds)).orderBy(desc(schema.monitorSnapshots.fetchedAt))
+  // items 在 D1 中以 JSON 字符串存储，返回前端前解析为数组；
+  // 否则前端 MonitorPage 对字符串调用 .slice().map 会抛 "G.slice(...).map is not a function"
+  return rows.map((r) => {
+    let parsed: any[] = []
+    try {
+      parsed = typeof r.items === 'string' ? JSON.parse(r.items || '[]') : (Array.isArray(r.items) ? r.items : [])
+    } catch { parsed = [] }
+    return { ...r, items: parsed }
+  })
 }
 
 // ---------- 简报读取 ----------
@@ -240,8 +212,9 @@ export async function runMonitor(env: Env): Promise<MonitorRunResult> {
   for (const t of hotTargets) {
     try {
       const { items, source } = await fetchHotList(t.platform)
-      const filtered = t.keyword
-        ? items.filter((it) => (it.title + (it.desc || '')).toLowerCase().includes(t.keyword.toLowerCase()))
+      const kw = t.keyword?.toLowerCase()
+      const filtered = kw
+        ? items.filter((it) => (it.title + (it.desc || '')).toLowerCase().includes(kw))
         : items
       await db.insert(schema.monitorSnapshots).values({
         id: crypto.randomUUID(), date, type: 'hotlist', platform: t.platform,
@@ -303,6 +276,23 @@ export async function runMonitor(env: Env): Promise<MonitorRunResult> {
   }
 }
 
+// ---------- 单平台刷新（前端手动触发）----------
+export interface MonitorPlatformResult { ok: boolean; fetched: number; platform: string; error?: string }
+
+export async function runMonitorPlatform(env: Env, platform: string): Promise<MonitorPlatformResult> {
+  const db = drizzle(env.DB, { schema })
+  await ensureMonitorTables(env)
+  const date = todayBeijing()
+
+  // 热榜平台
+  const { items, source } = await fetchHotList(platform)
+  await db.insert(schema.monitorSnapshots).values({
+    id: crypto.randomUUID(), date, type: 'hotlist', platform,
+    items: JSON.stringify(items),
+  })
+  return { ok: true, fetched: items.length, platform }
+}
+
 async function getLastYtSnapshotMap(db: any): Promise<Record<string, boolean>> {
   const d = todayBeijing()
   // 取昨日之前的最后一个 youtube 快照做"新视频"判定
@@ -348,7 +338,7 @@ ${pool}${ytSection}
 只输出简报正文，不要加开场白。`,
     },
   ]
-  return await callMonitorAI(env, messages, { maxTokens: 1500, timeoutMs: 35000 })
+  return await callAI(env, messages, { maxTokens: 1500, timeoutMs: 35000 })
 }
 
 // ---------- 推送简报到 Telegram（复用解密逻辑）----------
