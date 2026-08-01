@@ -12,6 +12,8 @@ export type SyncSource =
   | 'news_push'
   | 'monitor'
   | 'monitor_push'
+  | 'daily_suggestion'
+  | 'weekly_report'
 export type SyncStatus = 'success' | 'partial' | 'error'
 
 export interface SyncLogInput {

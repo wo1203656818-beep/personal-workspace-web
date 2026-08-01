@@ -3,6 +3,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  Settings,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -15,6 +16,7 @@ export function TasksHeader({
   syncMsTodoMutation,
   syncFeedback,
   onOpenNl,
+  onManageLists,
   showCompleted,
   onShowCompletedChange,
 }: {
@@ -24,6 +26,7 @@ export function TasksHeader({
   syncMsTodoMutation: { mutate: () => void; isPending: boolean }
   syncFeedback: { type: 'success' | 'error'; message: string } | null
   onOpenNl: () => void
+  onManageLists: () => void
   showCompleted: boolean
   onShowCompletedChange: (show: boolean) => void
 }) {
@@ -46,6 +49,15 @@ export function TasksHeader({
           >
             <RefreshCw className={`size-4 ${syncMsTodoMutation.isPending ? 'animate-spin' : ''}`} />
             同步
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onManageLists}
+            className="gap-2 rounded-lg"
+          >
+            <Settings className="size-4" />
+            管理列表
           </Button>
           {syncFeedback && (
             <div

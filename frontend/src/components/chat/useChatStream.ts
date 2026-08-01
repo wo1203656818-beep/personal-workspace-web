@@ -18,6 +18,7 @@ function invalidateChatRefresh(client: QueryClient) {
 export function useChatStream({
   sessionIdRef,
   deepThinkRef,
+  webSearchRef,
   customPromptRef,
   imagesRef,
   setMessages,
@@ -25,6 +26,7 @@ export function useChatStream({
 }: {
   sessionIdRef: React.MutableRefObject<string | null>
   deepThinkRef: React.MutableRefObject<boolean>
+  webSearchRef: React.MutableRefObject<boolean>
   customPromptRef: React.MutableRefObject<string>
   imagesRef: React.MutableRefObject<{ id: string; dataUrl: string; name: string }[]>
   setMessages: Dispatch<SetStateAction<Msg[]>>
@@ -58,6 +60,7 @@ export function useChatStream({
 
       const ctrl = aiApi.chatStream(t, sessionIdRef.current, {
         deepThink: deepThinkRef.current,
+        webSearch: webSearchRef.current,
         systemPrompt: customPromptRef.current,
         images: imgs,
         onDelta: (chunk) => {
@@ -69,6 +72,22 @@ export function useChatStream({
           setMessages((m) =>
             m.map((msg) =>
               msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg,
+            ),
+          )
+        },
+        onTool: (ev) => {
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === aiMsg.id
+                ? { ...msg, tools: [...(msg.tools || []), { name: ev.name, observation: ev.observation }] }
+                : msg,
+            ),
+          )
+        },
+        onSources: (sources) => {
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === aiMsg.id ? { ...msg, sources } : msg,
             ),
           )
         },
@@ -154,6 +173,22 @@ export function useChatStream({
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === aiMsg.id ? { ...msg, reasoning: (msg.reasoning || '') + chunk } : msg,
+            ),
+          )
+        },
+        onTool: (ev) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsg.id
+                ? { ...msg, tools: [...(msg.tools || []), { name: ev.name, observation: ev.observation }] }
+                : msg,
+            ),
+          )
+        },
+        onSources: (sources) => {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === aiMsg.id ? { ...msg, sources } : msg,
             ),
           )
         },

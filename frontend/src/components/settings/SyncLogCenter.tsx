@@ -26,6 +26,8 @@ const SOURCE_LABELS: Record<SyncLog['source'], string> = {
   news_push: '新闻推送',
   monitor: '监控',
   monitor_push: '监控推送',
+  daily_suggestion: '每日建议',
+  weekly_report: '周报',
 }
 
 const STATUS_VARIANTS: Record<SyncLog['status'], { label: string; className: string }> = {
@@ -87,6 +89,8 @@ export function SyncLogCenter() {
               <SelectItem value="news_push">新闻推送</SelectItem>
               <SelectItem value="monitor">监控</SelectItem>
               <SelectItem value="monitor_push">监控推送</SelectItem>
+              <SelectItem value="daily_suggestion">每日建议</SelectItem>
+              <SelectItem value="weekly_report">周报</SelectItem>
             </SelectContent>
           </Select>
 

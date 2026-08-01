@@ -6,6 +6,7 @@ import * as schema from '../schema'
 import type { Env } from '../types'
 import { decrypt } from '../crypto-utils'
 import { todayCST } from '../time'
+import { fetchWithTimeout } from '../utils/fetch-timeout'
 import {
   buildChatCtx,
   buildChatSystem,
@@ -64,11 +65,15 @@ async function sendTelegramMessage(
   let allOk = true
   for (const chunk of chunks) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
-      })
+      const res = await fetchWithTimeout(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
+        },
+        10000,
+      )
       if (!res.ok) {
         allOk = false
         console.error(
@@ -227,12 +232,32 @@ async function handleTelegramUpdate(c: Context<{ Bindings: Env }>, body: any): P
     } else if (text.startsWith('/')) {
       reply = '🤔 未识别的命令，输入 /help 查看可用命令，或直接打字与 AI 管家对话'
     } else {
-      // 非命令：交给 AI 管家（先发 typing 状态，AI 处理可能要几秒）
-      fetch(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
+      // 检测是否包含链接 → 发链接即收藏（稍后读）
+      const urlRegex = /https?:\/\/[^\s]+/g
+      const urls = text.match(urlRegex)
+      if (urls && urls.length > 0) {
+        const url = urls[0]
+        const otherText = text.replace(urlRegex, '').trim()
+        const id = crypto.randomUUID()
+        await db.insert(schema.bookmarks).values({
+          id,
+          url,
+          title: otherText || null,
+          summary: null,
+          tags: null,
+          readStatus: 'unread',
+        })
+        reply = `🔖 已收藏链接\n${url}${otherText ? `\n\n📝 ${otherText}` : ''}\n\n查看全部收藏：打开工作台 → 收藏`
+        await sendTelegramMessage(botToken, chatId, reply)
+        return
+      }
+
+      // 非命令（无链接）：交给 AI 管家（先发 typing 状态，AI 处理可能要几秒）
+      fetchWithTimeout(`https://api.telegram.org/bot${botToken}/sendChatAction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
-      }).catch(() => {})
+      }, 8000).catch(() => {})
       try {
         reply = await telegramAIReply(c, text)
       } catch (e: any) {
@@ -280,16 +305,20 @@ telegram.post('/set-webhook', async (c) => {
   const webhookUrl = `${baseUrl}/api/telegram/webhook`
   const secret = await telegramWebhookSecret(c.env)
 
-  const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: webhookUrl,
-      secret_token: secret,
-      allowed_updates: ['message'],
-      drop_pending_updates: true,
-    }),
-  })
+  const res = await fetchWithTimeout(
+    `https://api.telegram.org/bot${botToken}/setWebhook`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: webhookUrl,
+        secret_token: secret,
+        allowed_updates: ['message'],
+        drop_pending_updates: true,
+      }),
+    },
+    12000,
+  )
   const result = (await res.json()) as any
   if (!result?.ok) {
     return c.json(
@@ -299,19 +328,23 @@ telegram.post('/set-webhook', async (c) => {
   }
 
   // 顺带注册命令菜单（失败不影响主流程）
-  await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      commands: [
-        { command: 'tasks', description: '查看待办任务' },
-        { command: 'add', description: '快速添加任务：/add 标题' },
-        { command: 'news', description: '最新资讯' },
-        { command: 'digest', description: '今日简报' },
-        { command: 'help', description: '帮助' },
-      ],
-    }),
-  }).catch(() => {})
+  fetchWithTimeout(
+    `https://api.telegram.org/bot${botToken}/setMyCommands`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commands: [
+          { command: 'tasks', description: '查看待办任务' },
+          { command: 'add', description: '快速添加任务：/add 标题' },
+          { command: 'news', description: '最新资讯' },
+          { command: 'digest', description: '今日简报' },
+          { command: 'help', description: '帮助' },
+        ],
+      }),
+    },
+    12000,
+  ).catch(() => {})
 
   return c.json({ ok: true, url: webhookUrl })
 })
@@ -321,7 +354,11 @@ telegram.get('/webhook-info', async (c) => {
   const { botToken, chatId } = await getTelegramConfig(c.env)
   if (!botToken) return c.json({ ok: false, error: 'Telegram Bot Token 未配置' }, 400)
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`)
+    const res = await fetchWithTimeout(
+      `https://api.telegram.org/bot${botToken}/getWebhookInfo`,
+      {},
+      12000,
+    )
     const data = (await res.json()) as any
     const info = data?.result || {}
     const expectedBase = (c.env.PUBLIC_API_BASE || '').replace(/\/$/, '')

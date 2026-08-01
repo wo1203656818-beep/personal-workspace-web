@@ -7,6 +7,7 @@ import { decrypt } from './crypto-utils'
 import type { Env } from './types'
 import { nowBeijing } from './time'
 import { getSetting, setSetting } from './utils/settings'
+import { fetchWithTimeout } from './utils/fetch-timeout'
 
 type DB = DrizzleD1Database<typeof schema>
 
@@ -94,7 +95,7 @@ async function getMsCredentials(env: Env) {
   // client_secret 可能经过加密存储（enc$ 前缀），decrypt 内部会自动判断是否需要解密
   if (clientSecret) {
     try {
-      clientSecret = await decrypt(env.JWT_SECRET, clientSecret)
+      clientSecret = await decrypt(env.ENCRYPTION_KEY ?? env.JWT_SECRET, clientSecret)
     } catch {
       // 解密失败时保留原值，兼容明文
     }
@@ -118,7 +119,7 @@ export async function exchangeCode(
   redirectUri: string,
 ): Promise<TokenResponse> {
   const cfg = await getMsCredentials(env)
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://login.microsoftonline.com/${cfg.accountType}/oauth2/v2.0/token`,
     {
       method: 'POST',
@@ -132,6 +133,7 @@ export async function exchangeCode(
         scope: GRAPH_SCOPE,
       }),
     },
+    15000,
   )
   if (!res.ok) {
     const errText = await res.text()
@@ -149,7 +151,7 @@ export async function exchangeCode(
  */
 export async function refreshToken(env: Env, rt: string): Promise<TokenResponse> {
   const cfg = await getMsCredentials(env)
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://login.microsoftonline.com/${cfg.accountType}/oauth2/v2.0/token`,
     {
       method: 'POST',
@@ -162,6 +164,7 @@ export async function refreshToken(env: Env, rt: string): Promise<TokenResponse>
         scope: GRAPH_SCOPE,
       }),
     },
+    15000,
   )
   if (!res.ok) {
     const errText = await res.text()
@@ -787,16 +790,6 @@ async function syncSubtasksReverse(db: DB, client: Client): Promise<void> {
         for (const sub of localSubtasks) {
           if (!finalTitles.has(sub.title)) {
             await db.delete(schema.subtasks).where(eq(schema.subtasks.id, sub.id))
-            // 同步清理子任务嵌入向量，避免孤儿数据
-            await db
-              .delete(schema.embeddings)
-              .where(
-                and(
-                  eq(schema.embeddings.targetType, 'subtask'),
-                  eq(schema.embeddings.targetId, sub.id),
-                ),
-              )
-              .catch(() => {})
           }
         }
       } catch (e) {

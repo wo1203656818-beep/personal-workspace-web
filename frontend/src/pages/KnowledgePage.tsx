@@ -1,4 +1,4 @@
-import { useMemo, useState, lazy, Suspense } from 'react'
+import { useMemo, useState, Suspense, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
@@ -24,6 +24,10 @@ import {
   StickyNote,
   MessagesSquare,
   Globe,
+  Copy,
+  MessageCircle,
+  CheckSquare,
+  Square,
   type LucideIcon,
 } from 'lucide-react'
 import { kbApi, type KbDocument, type KbSummary } from '@/lib/api'
@@ -54,8 +58,11 @@ import {
 import { PageSkeleton, DetailSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { cn } from '@/lib/utils'
+import { lazyImport } from '@/lib/lazy'
+import { usePageTitle } from '@/hooks/use-page-title'
+import { AIQaPanel } from '@/components/ai/AIQaPanel'
 
-const DocViewer = lazy(() =>
+const DocViewer = lazyImport(() =>
   import('@/components/DocViewer').then((m) => ({ default: m.DocViewer })),
 )
 
@@ -95,6 +102,29 @@ const fileTypeColor: Record<string, string> = {
   unknown: 'bg-gradient-to-br from-slate-400 to-slate-300',
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const RECENTLY_VIEWED_KEY = 'kb-recently-viewed'
+const MAX_RECENT = 5
+
+function getRecentlyViewedIds(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENTLY_VIEWED_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+function addRecentlyViewedId(id: string) {
+  const ids = getRecentlyViewedIds().filter((i) => i !== id)
+  ids.unshift(id)
+  localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(ids.slice(0, MAX_RECENT)))
+}
+
 const ACCEPTED_TYPES: Record<string, string[]> = {
   'text/markdown': ['.md', '.markdown'],
   'application/pdf': ['.pdf'],
@@ -116,6 +146,7 @@ const TYPE_FILTERS = [
 ] as const
 
 export function KnowledgePage() {
+  usePageTitle('知识库')
   const { id } = useParams()
   const navigate = useNavigate()
 
@@ -144,11 +175,17 @@ export function KnowledgePage() {
 function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNavigate> }) {
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set())
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [cardSummaryDoc, setCardSummaryDoc] = useState<KbDocument | null>(null)
   const [cardSummaryText, setCardSummaryText] = useState<string | null>(null)
+  const [summaryCloseConfirmOpen, setSummaryCloseConfirmOpen] = useState(false)
+  const summaryMountedRef = useRef(true)
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(getRecentlyViewedIds)
 
   const [globalAskOpen, setGlobalAskOpen] = useState(false)
   const [globalQuestion, setGlobalQuestion] = useState('')
@@ -156,6 +193,9 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
   const [globalSources, setGlobalSources] = useState<
     { title: string; snippet: string; score: number }[]
   >([])
+  const [qaOpen, setQaOpen] = useState(false)
+  const [docPage, setDocPage] = useState(1)
+  const DOC_PAGE_SIZE = 20
 
   const globalAskMutation = useMutation({
     mutationFn: (q: string) => kbApi.globalAsk(q),
@@ -168,11 +208,44 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
 
   const cardSummaryMutation = useMutation({
     mutationFn: (docId: string) => kbApi.summary(docId),
-    onSuccess: (data) => setCardSummaryText(data.summary),
-    onError: (err: Error) => toast.error(`总结失败: ${err.message}`),
+    onSuccess: (data) => {
+      if (!summaryMountedRef.current) return
+      setCardSummaryText(data.summary)
+    },
+    onError: (err: Error) => {
+      if (!summaryMountedRef.current) return
+      toast.error(`总结失败: ${err.message}`)
+    },
   })
 
+  // 重置 mounted 标志：dialog 打开时允许回调，关闭时阻止
+  useEffect(() => {
+    if (cardSummaryDoc) {
+      summaryMountedRef.current = true
+    }
+  }, [cardSummaryDoc])
+
   const trimmedQuery = searchQuery.trim()
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const handleNavigate = useCallback(
+    (docId: string) => {
+      addRecentlyViewedId(docId)
+      setRecentlyViewedIds(getRecentlyViewedIds())
+      onNavigate(`/knowledge/${docId}`)
+    },
+    [onNavigate],
+  )
 
   const { data: docs = [], isLoading: docsLoading } = useQuery<KbSummary[]>({
     queryKey: ['kb'],
@@ -210,6 +283,21 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   })
 
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await kbApi.delete(id)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kb'] })
+      toast.success('批量删除完成')
+      setSelectedDocIds(new Set())
+      setBatchDeleteOpen(false)
+    },
+    onError: (err: Error) => toast.error(`批量删除失败: ${err.message}`),
+  })
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: ACCEPTED_TYPES,
     onDrop: (files) => files.forEach((f) => uploadMutation.mutate(f)),
@@ -225,12 +313,21 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
     return doc.fileType === typeFilter
   })
 
+  const visibleDocs = filteredDocs.slice(0, docPage * DOC_PAGE_SIZE)
+  const hasMoreDocs = visibleDocs.length < filteredDocs.length
+
+  // Reset page when search/filter changes
+  useEffect(() => {
+    setDocPage(1)
+  }, [trimmedQuery, typeFilter])
+
   return (
     <>
       <div className="border-b px-4 py-3 md:px-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchInputRef}
             placeholder="搜索知识库..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -238,6 +335,13 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           />
         </div>
         <div className="mt-3 flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground shrink-0">
+              {filteredDocs.length > 0
+                ? `${filteredDocs.length} 个文档`
+                : ''}
+            </span>
+          </div>
           <Tabs value={typeFilter} onValueChange={setTypeFilter} className="flex-1">
             <TabsList className="flex w-full justify-start overflow-x-auto rounded-xl sm:w-auto">
               {TYPE_FILTERS.map((t) => (
@@ -304,6 +408,11 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           <PageSkeleton />
         ) : (
           <div className="grid gap-3 p-2 md:grid-cols-2 md:p-4">
+            {recentlyViewedIds.length > 0 && filteredDocs.length > 0 && (
+              <div className="col-span-full mb-1">
+                <p className="text-xs font-medium text-muted-foreground px-1">最近浏览</p>
+              </div>
+            )}
             {filteredDocs.length === 0 ? (
               <EmptyState
                 icon={BookOpen}
@@ -316,31 +425,76 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                 className="col-span-full"
               />
             ) : (
-              filteredDocs.map((doc: KbDocument) => {
+              <>
+                {/* 批量操作栏 */}
+                {selectedDocIds.size > 0 && (
+                  <div className="col-span-full flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
+                    <span className="text-xs text-muted-foreground">已选 {selectedDocIds.size} 项</span>
+                    <Button size="sm" variant="destructive" className="ml-auto gap-1.5 rounded-lg" onClick={() => setBatchDeleteOpen(true)}>
+                      <Trash2 className="size-3.5" />删除选中
+                    </Button>
+                    <Button size="sm" variant="ghost" className="gap-1.5 rounded-lg" onClick={() => setSelectedDocIds(new Set())}>
+                      取消选择
+                    </Button>
+                  </div>
+                )}
+                {visibleDocs.map((doc: KbDocument) => {
                 const Icon = fileTypeIcon[doc.fileType || ''] || File
                 const colorClass = fileTypeColor[doc.fileType || ''] || fileTypeColor.unknown
+                const isRecent = recentlyViewedIds.includes(doc.id)
+                const isSelected = selectedDocIds.has(doc.id)
                 return (
                   <div
                     key={doc.id}
-                    className="group surface-card flex cursor-pointer items-center gap-3 transition-colors hover:bg-accent/50"
-                    onClick={() => onNavigate(`/knowledge/${doc.id}`)}
+                    className={cn(
+                      'group surface-card flex items-center gap-3 transition-colors hover:bg-accent/50',
+                      isRecent && 'ring-1 ring-primary/20',
+                      isSelected && 'ring-1 ring-primary/50 bg-primary/5',
+                    )}
                   >
-                    <div className={cn('icon-badge size-10', colorClass)}>
-                      <Icon className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{doc.title}</p>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wide">
-                          {doc.fileType}
-                        </span>
-                        {doc.fileSize ? <span>{(doc.fileSize / 1024).toFixed(1)} KB</span> : null}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const next = new Set(selectedDocIds)
+                        if (isSelected) next.delete(doc.id)
+                        else next.add(doc.id)
+                        setSelectedDocIds(next)
+                      }}
+                      className="shrink-0 pl-3 text-muted-foreground hover:text-foreground"
+                    >
+                      {isSelected ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4" />}
+                    </button>
+                    <div className="flex flex-1 cursor-pointer items-center gap-3 py-3 pr-3" onClick={() => handleNavigate(doc.id)}>
+                      <div className={cn('icon-badge size-10 shrink-0', colorClass)}>
+                        <Icon className="size-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{doc.title}</p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="rounded-full bg-muted px-2 py-0.5 font-medium uppercase tracking-wide">
+                            {doc.fileType}
+                          </span>
+                          {doc.fileSize != null ? <span>{formatFileSize(doc.fileSize)}</span> : null}
+                        </div>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
+                      title="复制链接"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigator.clipboard.writeText(`${window.location.origin}/knowledge/${doc.id}`)
+                        toast.success('链接已复制')
+                      }}
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                       title="AI 总结"
                       onClick={(e) => {
                         e.stopPropagation()
@@ -359,7 +513,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                       onClick={(e) => {
                         e.stopPropagation()
                         setDeleteConfirmId(doc.id)
@@ -369,7 +523,20 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                     </Button>
                   </div>
                 )
-              })
+              })}
+                {hasMoreDocs && (
+                  <div className="col-span-full flex justify-center pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDocPage((p) => p + 1)}
+                      className="gap-1.5 rounded-lg"
+                    >
+                      加载更多
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -398,12 +565,32 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* 批量删除确认 */}
+      <AlertDialog open={batchDeleteOpen} onOpenChange={(o) => !o && setBatchDeleteOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>批量删除文档</AlertDialogTitle>
+            <AlertDialogDescription>确定要删除选中的 {selectedDocIds.size} 个文档吗？此操作不可恢复。</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleteMutation.isPending}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => batchDeleteMutation.mutate([...selectedDocIds])} disabled={batchDeleteMutation.isPending}>
+              {batchDeleteMutation.isPending ? '删除中...' : `删除 ${selectedDocIds.size} 个文档`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog
         open={!!cardSummaryDoc}
         onOpenChange={(v) => {
           if (!v) {
-            setCardSummaryDoc(null)
-            setCardSummaryText(null)
+            if (cardSummaryMutation.isPending) {
+              setSummaryCloseConfirmOpen(true)
+            } else {
+              setCardSummaryDoc(null)
+              setCardSummaryText(null)
+            }
           }
         }}
       >
@@ -426,6 +613,31 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={summaryCloseConfirmOpen}
+        onOpenChange={(open) => !open && setSummaryCloseConfirmOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>总结尚未完成</AlertDialogTitle>
+            <AlertDialogDescription>AI 总结仍在生成中，关闭将丢失当前结果。确定要关闭吗？</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                summaryMountedRef.current = false
+                setSummaryCloseConfirmOpen(false)
+                setCardSummaryDoc(null)
+                setCardSummaryText(null)
+              }}
+            >
+              关闭
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={globalAskOpen}
@@ -512,6 +724,14 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
           )}
         </DialogContent>
       </Dialog>
+
+      <Button
+        className="fixed bottom-6 right-6 z-50 size-12 rounded-full shadow-lg"
+        onClick={() => setQaOpen(true)}
+      >
+        <MessageCircle className="size-5" />
+      </Button>
+      <AIQaPanel open={qaOpen} onOpenChange={setQaOpen} />
     </>
   )
 }
@@ -521,7 +741,7 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
 
-  const { data: selectedDoc, isLoading: selectedDocLoading } = useQuery({
+  const { data: selectedDoc, isLoading: selectedDocLoading, isFetching: selectedDocFetching } = useQuery({
     queryKey: ['kbDoc', id],
     queryFn: () => kbApi.get(id),
     staleTime: STALE_TIME,
@@ -585,6 +805,9 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">
           {selectedDoc.title}
         </h1>
+        {selectedDocFetching && !selectedDocLoading && (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        )}
         <Badge variant="secondary" className="rounded-lg uppercase">
           {selectedDoc.fileType}
         </Badge>

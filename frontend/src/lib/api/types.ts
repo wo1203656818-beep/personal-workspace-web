@@ -106,6 +106,8 @@ export interface SyncLog {
     | 'news_push'
     | 'monitor'
     | 'monitor_push'
+    | 'daily_suggestion'
+    | 'weekly_report'
   status: 'success' | 'partial' | 'error'
   synced: number
   failed: number

@@ -49,16 +49,18 @@ export async function encrypt(secret: string, plaintext: string): Promise<string
 
 /**
  * 解密 `enc$<salt_hex>$<iv_hex>$<ct_hex>` 格式的字符串
- * 若 stored 不以 `enc$` 开头，则视为明文直接返回（向后兼容）
+ * 若 stored 不以 `enc$` 开头，则视为明文直接返回（向后兼容历史明文）
+ * 若以 `enc$` 开头但格式非法，抛错而非静默返回密文，避免密钥轮换后下游拿到乱码
  */
 export async function decrypt(secret: string, stored: string): Promise<string> {
   if (!stored.startsWith('enc$')) return stored
   const parts = stored.split('$')
-  if (parts.length !== 4) return stored
+  const err = new Error(`解密失败：enc$ 数据格式非法 (parts=${parts.length})，请检查加密密钥或重新保存对应配置`)
+  if (parts.length !== 4) throw err
   const saltHex = parts[1]
   const ivHex = parts[2]
   const ctHex = parts[3]
-  if (!saltHex || !ivHex || !ctHex) return stored
+  if (!saltHex || !ivHex || !ctHex) throw err
 
   const enc = new TextEncoder()
   const salt = fromHex(saltHex)

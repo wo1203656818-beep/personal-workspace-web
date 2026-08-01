@@ -1,9 +1,21 @@
+export type ToolCall = {
+  name: string
+  observation: string
+}
+
+export type Source = {
+  title: string
+  url: string
+}
+
 export type Msg = {
   id: string
   role: 'user' | 'assistant'
   content: string
   reasoning?: string
   pending?: boolean
+  tools?: ToolCall[]
+  sources?: Source[]
 }
 
 // 把模型以 <think>...</think> 内联输出的思考过程抽出来（兼容 Qwen 等把思考写进正文的模型）
@@ -21,8 +33,14 @@ export function genId() {
 }
 
 // 跨开/关持久化（Sheet 关闭会卸载内容，用模块级变量保留当前会话）
-export const sessionStore: { sessionId: string | null; messages: Msg[]; deepThink: boolean } = {
+export const sessionStore: {
+  sessionId: string | null
+  messages: Msg[]
+  deepThink: boolean
+  webSearch: boolean
+} = {
   sessionId: null,
   messages: [],
   deepThink: false,
+  webSearch: false,
 }

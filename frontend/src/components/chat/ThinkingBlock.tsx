@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Brain } from 'lucide-react'
 
 export function ThinkingBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   return (
     <div className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-2.5">
       <button

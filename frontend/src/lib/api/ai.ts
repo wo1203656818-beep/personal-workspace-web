@@ -1,6 +1,24 @@
 import { api, API_BASE } from './client'
 import type { AiAnalysisStats, ChatSessionPreview, ChatMessageRow } from './types'
 
+export interface ReportData {
+  generatedAt: string
+  fromCache: boolean
+  type: 'weekly' | 'monthly'
+  report: {
+    summary: string
+    improvement: string
+    suggestion: string
+    stats: {
+      completedTasks: number
+      totalFocusMinutes: number
+      habitRate: number
+      journalCount: number
+      totalSpent: number
+    }
+  }
+}
+
 export const aiApi = {
   breakdown: (taskTitle: string, taskId?: string) =>
     api
@@ -10,7 +28,11 @@ export const aiApi = {
     api
       .post(`ai/analysis${range ? `?range=${range}` : ''}`)
       .json<{ analysis: string; stats: AiAnalysisStats }>(),
+  analysisStats: (range?: string) =>
+    api.get(`ai/analysis-stats${range ? `?range=${range}` : ''}`).json<AiAnalysisStats>(),
   weeklyReport: () => api.post('ai/weekly-report').json<{ report: string; week: string }>(),
+  getReport: (type: 'weekly' | 'monthly') => api.get(`ai/report?type=${type}`).json<ReportData>(),
+  getReports: () => api.get('ai/reports').json<{ key: string; value: string; updatedAt: string | null }[]>(),
   noteSummary: (noteId: string, action: 'summary' | 'points' | 'to-task') =>
     api.post('ai/note-summary', { json: { noteId, action } }).json<{ result: string }>(),
   semanticSearch: (query: string, topK = 5) =>
@@ -37,6 +59,7 @@ export const aiApi = {
     api
       .post('ai/suggest-list', { json: { title } })
       .json<{ listId: string | null; listName: string | null }>(),
+  qa: (question: string) => api.post('ai/qa', { json: { question } }).json<{ answer: string; sources: { type: string; title: string }[]; fromCache?: boolean }>(),
   copywriting: (data: {
     platform: string
     topic: string
@@ -64,7 +87,7 @@ export const aiApi = {
       onError?: (msg: string) => void
     },
   ) => {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     const ctrl = new AbortController()
     ;(async () => {
       try {

@@ -222,3 +222,42 @@ body {
     overscroll-behavior: contain;
   }
 }
+
+/* Page transition animation */
+@utility page-enter {
+  animation: page-enter 250ms ease-out;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Card hover effect */
+@utility card-hover {
+  @apply transition-all hover:shadow-sm hover:border-border;
+}
+
+/* Consistent card spacing */
+@utility page-container {
+  @apply mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6;
+}
+
+/* Mobile tap highlight */
+@utility tap-highlight {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Improved mobile touch targets */
+@media (max-width: 640px) {
+  .min-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

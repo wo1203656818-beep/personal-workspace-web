@@ -127,28 +127,52 @@ ai.post('/breakdown', async (c) => {
   }
 })
 
-// AI 数据分析（带 1 小时 KV 缓存，减少重复 AI 调用）
-ai.post('/analysis', async (c) => {
-  const range = c.req.query('range') || 'all'
-  const cacheKey = `ai:analysis:${range}`
-  const cacheTTL = 60 * 60 * 1000 // 1 小时
-  const db = drizzle(c.env.DB, { schema })
+// 计算分析统计（不消耗 AI 神经元，供图表自动加载）
+async function computeAnalysisStats(
+  env: Env,
+  range: string,
+): Promise<{
+  totalTasks: number
+  completedTasks: number
+  importantTasks: number
+  notesCount: number
+  dailyCompleted: { date: string; count: number }[]
+}> {
+  const db = drizzle(env.DB, { schema })
 
-  const cached = await kvCacheGet<{ analysis: string; stats: object }>(c.env, cacheKey)
-  if (cached) return c.json({ ...cached, cached: true })
-
-  // 时间范围过滤条件
+  // 解析时间范围：'all' | 数字天数 | 'custom:start:end'
   let dateFilter: string | undefined = undefined
-  if (range !== 'all') {
+  let endBound: string | undefined = undefined
+  let days = 30
+  if (range.startsWith('custom:')) {
+    const parts = range.split(':')
+    const startStr = parts[1]
+    const endStr = parts[2]
+    if (startStr) dateFilter = `${startStr}T00:00:00.000Z`
+    if (endStr) {
+      // 截止日期含当天，取次日 00:00 作为上界
+      const endDate = new Date(endStr + 'T00:00:00Z')
+      endDate.setUTCDate(endDate.getUTCDate() + 1)
+      endBound = endDate.toISOString()
+    }
+    // 趋势天数：起止日期差值
+    if (startStr && endStr) {
+      const s = new Date(startStr + 'T00:00:00Z')
+      const e = new Date(endStr + 'T00:00:00Z')
+      days = Math.max(1, Math.min(366, Math.round((e.getTime() - s.getTime()) / 86400000) + 1))
+    }
+  } else if (range !== 'all') {
+    days = parseInt(range) || 30
     const since = new Date()
-    since.setDate(since.getDate() - parseInt(range))
+    since.setDate(since.getDate() - days)
     dateFilter = since.toISOString()
   }
 
-  // 在数据库层聚合统计，避免把全部任务/笔记加载到内存
-  const taskWhere = dateFilter
-    ? and(gte(schema.tasks.createdAt, dateFilter), isNull(schema.tasks.msTodoDeletedAt))
-    : isNull(schema.tasks.msTodoDeletedAt)
+  const taskWhere = and(
+    isNull(schema.tasks.msTodoDeletedAt),
+    ...(dateFilter ? [gte(schema.tasks.createdAt, dateFilter)] : []),
+    ...(endBound ? [lt(schema.tasks.createdAt, endBound)] : []),
+  )
 
   const [totalTasksRow, completedTasksRow, importantTasksRow, notesCountRow] = await Promise.all([
     db
@@ -166,13 +190,22 @@ ai.post('/analysis', async (c) => {
     db.select({ count: sql<number>`COUNT(*)` }).from(schema.imaNotes),
   ])
 
-  // 按日完成趋势
+  // 按日完成趋势（自定义范围从起始日期开始，其余从今天往前推）
   const dailyMap: Record<string, number> = {}
-  const days = range === 'all' ? 30 : parseInt(range)
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    dailyMap[d.toISOString().split('T')[0]] = 0
+  const trendDays = range === 'all' ? 30 : days
+  if (range.startsWith('custom:') && dateFilter) {
+    const start = new Date(dateFilter)
+    for (let i = 0; i < trendDays; i++) {
+      const d = new Date(start)
+      d.setDate(d.getDate() + i)
+      dailyMap[d.toISOString().split('T')[0]] = 0
+    }
+  } else {
+    for (let i = trendDays - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      dailyMap[d.toISOString().split('T')[0]] = 0
+    }
   }
   // 仅需 completed + updatedAt 在范围内的任务，用索引覆盖列减少 IO
   const completedTasks = await db
@@ -186,13 +219,37 @@ ai.post('/analysis', async (c) => {
   }
   const dailyCompleted = Object.entries(dailyMap).map(([date, count]) => ({ date, count }))
 
-  const stats = {
+  return {
     totalTasks: totalTasksRow[0]?.count ?? 0,
     completedTasks: completedTasksRow[0]?.count ?? 0,
     importantTasks: importantTasksRow[0]?.count ?? 0,
     notesCount: notesCountRow[0]?.count ?? 0,
     dailyCompleted,
   }
+}
+
+// 数据分析统计（仅统计，不消耗 AI，供图表页自动加载）
+ai.get('/analysis-stats', async (c) => {
+  const range = c.req.query('range') || 'all'
+  try {
+    const stats = await computeAnalysisStats(c.env, range)
+    return c.json(stats)
+  } catch (e) {
+    console.error('[ai/analysis-stats] error:', e)
+    return c.json({ error: '统计失败' }, 500)
+  }
+})
+
+// AI 数据分析（带 1 小时 KV 缓存，减少重复 AI 调用）
+ai.post('/analysis', async (c) => {
+  const range = c.req.query('range') || 'all'
+  const cacheKey = `ai:analysis:${range}`
+  const cacheTTL = 60 * 60 * 1000 // 1 小时
+
+  const cached = await kvCacheGet<{ analysis: string; stats: object }>(c.env, cacheKey)
+  if (cached) return c.json({ ...cached, cached: true })
+
+  const stats = await computeAnalysisStats(c.env, range)
 
   try {
     const analysis = await callAI(c.env, [
@@ -1068,6 +1125,283 @@ ${p.guide}
       },
       500,
     )
+  }
+})
+
+// ═══════════════════════════════════════
+// 周报/月报自动生成
+// ═══════════════════════════════════════
+
+// 聚合统计数据（不消耗 AI）
+async function computeReportStats(
+  env: Env,
+  since: string,
+): Promise<{
+  completedTasks: number
+  totalFocusMinutes: number
+  habitRate: number
+  journalCount: number
+  totalSpent: number
+}> {
+  const db = drizzle(env.DB, { schema })
+
+  const [
+    completedTasksRow,
+    focusRow,
+    habitCheckinRow,
+    habitCountRow,
+    journalRow,
+    expenseRow,
+  ] = await Promise.all([
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.isCompleted, true),
+          gte(schema.tasks.createdAt, since),
+          isNull(schema.tasks.msTodoDeletedAt),
+        ),
+      ),
+    db
+      .select({ minutes: sql<number>`COALESCE(SUM(${schema.focusSessions.minutes}), 0)` })
+      .from(schema.focusSessions)
+      .where(and(eq(schema.focusSessions.completed, true), gte(schema.focusSessions.startedAt, since))),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.habitCheckins)
+      .where(gte(schema.habitCheckins.date, since.slice(0, 10))),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.habits),
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.journalEntries)
+      .where(gte(schema.journalEntries.date, since.slice(0, 10))),
+    db
+      .select({ amount: sql<number>`COALESCE(SUM(${schema.expenses.amount}), 0)` })
+      .from(schema.expenses)
+      .where(gte(schema.expenses.date, since.slice(0, 10))),
+  ])
+
+  const completedTasks = completedTasksRow[0]?.count ?? 0
+  const totalFocusMinutes = focusRow[0]?.minutes ?? 0
+  const habitCheckinCount = habitCheckinRow[0]?.count ?? 0
+  const habitCount = habitCountRow[0]?.count ?? 0
+  const journalCount = journalRow[0]?.count ?? 0
+  const totalSpent = expenseRow[0]?.amount ?? 0
+
+  // 习惯打卡率：总打卡次数 / (习惯数 × 天数)
+  const days = Math.max(1, Math.ceil((Date.now() - new Date(since).getTime()) / 86400000))
+  const habitRate = habitCount > 0 ? Math.min(1, habitCheckinCount / (habitCount * days)) : 0
+
+  return { completedTasks, totalFocusMinutes, habitRate, journalCount, totalSpent }
+}
+
+// GET /report?type=weekly|monthly — 生成周报/月报
+ai.get('/report', async (c) => {
+  try {
+    const type = c.req.query('type') || 'weekly'
+    if (type !== 'weekly' && type !== 'monthly') {
+      return c.json({ error: 'type 参数必须为 weekly 或 monthly' }, 400)
+    }
+
+    const days = type === 'weekly' ? 7 : 30
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    const sinceStr = since.toISOString()
+
+    const cacheKey = `ai:report:${type}:${sinceStr.slice(0, 10)}`
+    const cacheTTL = 60 * 60 * 1000 // 1 小时
+
+    const cached = await kvCacheGet<{
+      generatedAt: string
+      type: string
+      report: { summary: string; improvement: string; suggestion: string; stats: object }
+    }>(c.env, cacheKey)
+    if (cached) return c.json({ ...cached, fromCache: true })
+
+    const stats = await computeReportStats(c.env, sinceStr)
+
+    const typeLabel = type === 'weekly' ? '本周' : '本月'
+    const prompt = `你是个人数据分析师。根据用户最近 ${days} 天的数据，生成一份简洁的中文${typeLabel}报告。
+数据：
+- 完成任务：${stats.completedTasks} 个
+- 专注总时长：${stats.totalFocusMinutes} 分钟
+- 习惯打卡率：${(stats.habitRate * 100).toFixed(1)}%
+- 日记篇数：${stats.journalCount} 篇
+- 支出总计：${stats.totalSpent.toFixed(2)} 元
+
+请用 JSON 格式输出（不要 markdown 代码块、不要额外说明）：
+{
+  "summary": "成就总结，2-3 句话概括",
+  "improvement": "待改进之处，2-3 句话",
+  "suggestion": "下${type === 'weekly' ? '周' : '月'}建议，2-3 句话"
+}`
+
+    const raw = await callAI(c.env, [
+      { role: 'system', content: '你是个人数据分析师，擅长从数据中提炼洞察，输出简洁有用的中文建议。' },
+      { role: 'user', content: prompt },
+    ])
+
+    // 解析 AI 返回的 JSON
+    let report: { summary: string; improvement: string; suggestion: string } = {
+      summary: '',
+      improvement: '',
+      suggestion: '',
+    }
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        report = {
+          summary: parsed.summary || '',
+          improvement: parsed.improvement || '',
+          suggestion: parsed.suggestion || '',
+        }
+      }
+    } catch {
+      // 解析失败时，整段作为 summary
+      report.summary = raw.trim()
+    }
+
+    const generatedAt = nowBeijing()
+    const response = {
+      generatedAt,
+      type,
+      report: { ...report, stats },
+    }
+
+    // KV 缓存
+    await kvCacheSet(c.env, cacheKey, response, cacheTTL)
+
+    // 存入 settings 表（历史记录）
+    const db = drizzle(c.env.DB, { schema })
+    const periodKey =
+      type === 'weekly'
+        ? (() => {
+            const { year, week } = getISOWeek(new Date())
+            return `weekly_report_${year}W${week.toString().padStart(2, '0')}`
+          })()
+        : `monthly_report_${sinceStr.slice(0, 7)}`
+    await db
+      .insert(schema.settings)
+      .values({ key: periodKey, value: JSON.stringify(response) })
+      .onConflictDoUpdate({
+        target: schema.settings.key,
+        set: { value: JSON.stringify(response), updatedAt: nowBeijing() },
+      })
+
+    // 保留最近 52 条周报 + 12 条月报
+    const allReports = await db
+      .select({ key: schema.settings.key })
+      .from(schema.settings)
+      .where(
+        or(
+          like(schema.settings.key, 'weekly_report_%'),
+          like(schema.settings.key, 'monthly_report_%'),
+        ),
+      )
+      .orderBy(desc(schema.settings.key))
+    const maxKeep = type === 'weekly' ? 52 : 12
+    const oldReports = allReports.slice(maxKeep)
+    if (oldReports.length > 0) {
+      await db.delete(schema.settings).where(
+        inArray(
+          schema.settings.key,
+          oldReports.map((r) => r.key),
+        ),
+      )
+    }
+
+    return c.json({ ...response, fromCache: false })
+  } catch (e: any) {
+    console.error('[ai/report] error:', e?.message || e)
+    return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)
+  }
+})
+
+// GET /reports — 获取历史报告列表
+ai.get('/reports', async (c) => {
+  try {
+    const db = drizzle(c.env.DB, { schema })
+    const reports = await db
+      .select()
+      .from(schema.settings)
+      .where(
+        or(
+          like(schema.settings.key, 'weekly_report_%'),
+          like(schema.settings.key, 'monthly_report_%'),
+        ),
+      )
+      .orderBy(desc(schema.settings.key))
+    return c.json(
+      reports.map((s) => ({
+        key: s.key,
+        value: s.value,
+        updatedAt: s.updatedAt,
+      })),
+    )
+  } catch (e: any) {
+    console.error('[ai/reports] error:', e)
+    return c.json({ error: e.message || String(e) }, 500)
+  }
+})
+
+// AI 问答：基于笔记和知识库内容进行语义搜索和问答
+ai.post('/qa', async (c) => {
+  try {
+    const { question } = await c.req.json<{ question: string }>()
+    if (!question?.trim()) return c.json({ error: '问题不能为空' }, 400)
+
+    // KV 缓存
+    const encoder = new TextEncoder()
+    const cacheKey = `ai:qa:${Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(question.trim().toLowerCase())))).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16)}`
+    const cached = await c.env.CACHE.get(cacheKey)
+    if (cached) return c.json({ ...JSON.parse(cached), fromCache: true })
+
+    // Vectorize 语义搜索
+    const qVec = await embedText(c, question)
+    const queryResult = await c.env.VECTORIZE.query(qVec, { topK: 5, returnMetadata: 'all' })
+    const matches = queryResult.matches || []
+
+    const db = drizzle(c.env.DB, { schema })
+    const sources: { type: string; title: string; content: string }[] = []
+
+    for (const m of matches) {
+      const meta = m.metadata as { type: string; targetId: string } | null
+      if (!meta?.type || !meta.targetId) continue
+
+      if (meta.type === 'note') {
+        const note = await db.select({ title: schema.imaNotes.title, content: schema.imaNotes.content })
+          .from(schema.imaNotes).where(eq(schema.imaNotes.id, meta.targetId)).get()
+        if (note) sources.push({ type: '笔记', title: note.title, content: (note.content || '').slice(0, 2000) })
+      } else if (meta.type === 'kb') {
+        const doc = await db.select({ title: schema.kbDocuments.title, content: schema.kbDocuments.content })
+          .from(schema.kbDocuments).where(eq(schema.kbDocuments.id, meta.targetId)).get()
+        if (doc) sources.push({ type: '知识库', title: doc.title, content: (doc.content || '').slice(0, 2000) })
+      }
+    }
+
+    const context = sources.map(s => `[${s.type}] ${s.title}\n${s.content}`).join('\n\n---\n\n')
+    const prompt = `你是一个知识助手，基于以下笔记和文档内容回答用户问题。如果信息不足以回答，请如实说明。
+
+相关上下文：
+${context || '（未找到相关笔记或文档）'}
+
+用户问题：${question}`
+
+    const answer = await callAI(c.env, [
+      { role: 'system', content: '你是一个知识助手，基于提供的上下文回答问题。用中文输出。' },
+      { role: 'user', content: prompt },
+    ], { maxTokens: 1024 })
+
+    const result = { answer: answer.trim(), sources: sources.map(s => ({ type: s.type, title: s.title })), fromCache: false }
+    await c.env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 })
+    return c.json(result)
+  } catch (err) {
+    console.error('[ai/qa] error:', err)
+    return c.json({ error: 'AI 问答失败' }, 500)
   }
 })
 

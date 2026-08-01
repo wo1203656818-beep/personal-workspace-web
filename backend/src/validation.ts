@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 // 认证
 export const loginSchema = z.object({
-  password: z.string().min(1, '密码不能为空'),
+  password: z.string().min(6, '密码至少 6 位'),
 })
 
 export const changePasswordSchema = z.object({

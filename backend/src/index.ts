@@ -20,10 +20,20 @@ import monitor from './routes/monitor'
 import tools from './routes/tools'
 import tags from './routes/tags'
 import decisionRules from './routes/decision-rules'
+import decisionLogs from './routes/decision-logs'
 import mood from './routes/mood'
 import nightlyReview from './routes/nightly-review'
+import eveningReview from './routes/evening-review'
 import entertainment from './routes/entertainment'
 import habits from './routes/habits'
+import focus from './routes/focus'
+import goals from './routes/goals'
+import collections from './routes/collections'
+import records from './routes/records'
+import journal from './routes/journal'
+import backup from './routes/backup'
+import files from './routes/files'
+import calendar from './routes/calendar'
 import {
   listAiConfigs,
   createAiConfig,
@@ -46,12 +56,44 @@ const app = new Hono<{ Bindings: Env }>()
 app.use(
   '*',
   cors({
-    origin: (_origin, c) => c.env.ALLOWED_ORIGIN ?? '*',
+    origin: (_origin, c) => {
+      const allowed = c.env.ALLOWED_ORIGIN
+      if (!allowed) return null
+      // 支持逗号分隔多域名白名单；ALLOWED_ORIGIN='*' 时显式开放
+      if (allowed === '*') return '*'
+      const origins = allowed
+        .split(',')
+        .map((o: string) => o.trim())
+        .filter(Boolean)
+      const reqOrigin = c.req.header('Origin')
+      if (reqOrigin && origins.includes(reqOrigin)) return reqOrigin
+      return null
+    },
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     maxAge: 86400,
   }),
 )
+
+// 速率限制 — 基于 IP，每 IP 每分钟最多 60 次请求
+app.use('/api/*', async (c, next) => {
+  const ip =
+    c.req.header('CF-Connecting-IP') ??
+    c.req.header('X-Forwarded-For') ??
+    'unknown'
+  const minute = Math.floor(Date.now() / 60000)
+  const key = `ratelimit:${ip}:${minute}`
+
+  const raw = await c.env.CACHE.get(key)
+  const count = raw ? parseInt(raw, 10) : 0
+
+  if (count >= 60) {
+    return c.json({ error: '请求过于频繁，请稍后再试' }, 429)
+  }
+
+  await c.env.CACHE.put(key, String(count + 1), { expirationTtl: 120 })
+  await next()
+})
 
 // JWT 认证 — 白名单路径免鉴权
 const PUBLIC_PATHS = new Set([
@@ -172,11 +214,21 @@ app.route('/api/monitor', monitor)
 app.route('/api', tools) // coin/* + tools/* + sync-logs
 app.route('/api/tags', tags)
 app.route('/api/decision-rules', decisionRules)
+app.route('/api/decision-logs', decisionLogs)
 app.route('/api/mood', mood)
 app.route('/api/nightly-review', nightlyReview)
+app.route('/api/evening-review', eveningReview)
 app.route('/api', entertainment)
 app.route('/api/habits', habits)
+app.route('/api/focus', focus)
+app.route('/api/goals', goals)
+app.route('/api/collections', collections)
+app.route('/api/records', records)
 app.route('/api/ai-configs', aiConfigRoutes)
+app.route('/api/journal', journal)
+app.route('/api/backup', backup)
+app.route('/api/files', files)
+app.route('/api/calendar', calendar)
 
 // 根路径
 app.get('/', (c) => c.json({ name: 'personal-workspace-api', version: '2.0.0' }))

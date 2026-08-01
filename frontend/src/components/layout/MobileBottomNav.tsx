@@ -1,13 +1,14 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, ListTodo, FileText, BookOpen, MoreHorizontal } from 'lucide-react'
+import { Home, ListTodo, FileText, BookHeart, BookOpen, FolderOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const tabs = [
   { href: '/', icon: Home, label: '首页' },
   { href: '/tasks', icon: ListTodo, label: '任务' },
   { href: '/notes', icon: FileText, label: '笔记' },
-  { href: '/knowledge', icon: BookOpen, label: '知识' },
-  { href: '/news', icon: MoreHorizontal, label: '更多' },
+  { href: '/knowledge', icon: BookOpen, label: '知识库' },
+  { href: '/journal', icon: BookHeart, label: '日记' },
+  { href: '/files', icon: FolderOpen, label: '文件' },
 ]
 
 export function MobileBottomNav() {

@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
-import { Newspaper, Lightbulb, RefreshCw, Loader2, Rss } from 'lucide-react'
+import { Newspaper, Lightbulb, RefreshCw, Loader2, Rss, ArrowUp, List, MoreHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   newsApi,
   type NewsFeedItem,
@@ -17,19 +23,34 @@ import { NewsFilterBar } from '@/components/news/NewsFilterBar'
 import { NewsItemList } from '@/components/news/NewsItemList'
 import { SourcesSheet } from '@/components/news/SourcesSheet'
 import { DigestDialog } from '@/components/news/DigestDialog'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 function NewsPage() {
+  usePageTitle('资讯')
   const [category, setCategory] = useState<string>('全部')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<string>('score')
   const [showSaved, setShowSaved] = useState(false)
   const [refreshStatus, setRefreshStatus] = useState<NewsRefreshStatus | null>(null)
   const queryClient = useQueryClient()
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const [showScrollTop, setShowScrollTop] = useState(false)
 
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [digestDialogOpen, setDigestDialogOpen] = useState(false)
   const [expandedDigestId, setExpandedDigestId] = useState<string | null>(null)
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null)
+  const [compactView, setCompactView] = useState(() => localStorage.getItem('news-compact-view') === 'true')
+
+  const READ_KEY = 'news-read-items'
+  const getReadItems = (): Set<string> => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(READ_KEY) || '[]'))
+    } catch {
+      return new Set()
+    }
+  }
+  const [readItems, setReadItems] = useState<Set<string>>(getReadItems)
 
   const loadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -67,6 +88,13 @@ function NewsPage() {
   const items = infiniteData?.pages.flatMap((p) => p.items) || []
   const total = infiniteData?.pages[0]?.pagination.total || 0
 
+  const todayCount = items.filter((item) => {
+    if (!item.publishedAt) return false
+    const d = new Date(item.publishedAt)
+    const now = new Date()
+    return d.toDateString() === now.toDateString()
+  }).length
+
   useEffect(() => {
     const el = loadMoreRef.current
     if (!el) return
@@ -81,6 +109,43 @@ function NewsPage() {
     observer.observe(el)
     return () => observer.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  const scrollSentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = scrollSentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowScrollTop(!entry.isIntersecting),
+      { threshold: 0 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+        e.preventDefault()
+        if (!refreshMutation.isPending && !isRefreshing) {
+          refreshMutation.mutate()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  const scrollToTop = () => {
+    scrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]')?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const markAllAsRead = () => {
+    const ids = items.map((i) => i.id)
+    const newRead = new Set([...getReadItems(), ...ids])
+    localStorage.setItem(READ_KEY, JSON.stringify([...newRead]))
+    setReadItems(newRead)
+    toast.success(`已标记 ${ids.length} 条为已读`)
+  }
 
   const { data: feedbackList } = useQuery({
     queryKey: ['news', 'feedback'],
@@ -315,47 +380,129 @@ function NewsPage() {
             <Newspaper className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">资讯</h1>
+            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
+              资讯
+              {todayCount > 0 && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 align-middle">
+                  今日 {todayCount}
+                </span>
+              )}
+            </h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               全网爬虫实时抓取 · AI 自动评分筛选 · {total} 条
             </p>
           </div>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending || isRefreshing}
-          >
-            {isRefreshing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
+          {/* 桌⾯端显示全部按钮 */}
+          <div className="hidden md:flex md:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCompactView((v) => {
+                const next = !v
+                localStorage.setItem('news-compact-view', String(next))
+                return next
+              })}
+              className="gap-2"
+            >
+              <List className="w-4 h-4" />
+              {compactView ? '详细' : '紧凑'}
+            </Button>
+            {items.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={markAllAsRead}
+                className="gap-2"
+              >
+                全部已读
+              </Button>
             )}
-            {isRefreshing ? '抓取中...' : '抓取'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => processMutation.mutate()}
-            disabled={processMutation.isPending}
-          >
-            {processMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Lightbulb className="w-4 h-4" />
-            )}
-            AI 分析
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setSourcesOpen(true)}>
-            <Rss className="w-4 h-4" /> 订阅源
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending || isRefreshing}
+            >
+              {isRefreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              {isRefreshing ? '抓取中...' : '抓取'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => processMutation.mutate()}
+              disabled={processMutation.isPending}
+            >
+              {processMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Lightbulb className="w-4 h-4" />
+              )}
+              AI 分析
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setSourcesOpen(true)}>
+              <Rss className="w-4 h-4" /> 订阅源
+            </Button>
+          </div>
+          {/* 移动端：只保留核心操作，其余折叠到更多菜单 */}
+          <div className="flex md:hidden gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending || isRefreshing}
+              className="gap-1"
+            >
+              {isRefreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="px-2">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={() => {
+                  setCompactView((v) => {
+                    const next = !v
+                    localStorage.setItem('news-compact-view', String(next))
+                    return next
+                  })
+                }}>
+                  <List className="w-4 h-4" />
+                  {compactView ? '详细视图' : '紧凑视图'}
+                </DropdownMenuItem>
+                {items.length > 0 && (
+                  <DropdownMenuItem onClick={markAllAsRead}>
+                    全部已读
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => processMutation.mutate()} disabled={processMutation.isPending}>
+                  <Lightbulb className="w-4 h-4" />
+                  AI 分析
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSourcesOpen(true)}>
+                  <Rss className="w-4 h-4" />
+                  订阅源
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea ref={scrollAreaRef} className="flex-1">
         <div className="space-y-4 p-4 md:p-6">
+          <div ref={scrollSentinelRef} />
           {refreshStatus && <RefreshProgressCard refreshStatus={refreshStatus} />}
 
           {todayBrief && (
@@ -390,9 +537,21 @@ function NewsPage() {
             feedbackMap={feedbackMap}
             onFeedback={handleFeedback}
             onSave={handleSave}
+            compactView={compactView}
+            readItems={readItems}
           />
         </div>
       </ScrollArea>
+
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 z-50 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+          title="返回顶部"
+        >
+          <ArrowUp className="size-5" />
+        </button>
+      )}
 
       <SourcesSheet
         open={sourcesOpen}

@@ -1,7 +1,7 @@
 -- 重建 tasks 表，将 list_id 外键改 ON DELETE CASCADE
 -- SQLite 不支持 ALTER TABLE 改外键，需重建表
 -- 列顺序与 0000+0002 后的实际顺序一致（ms_todo_deleted_at 在末尾）
--- 注意：D1 远程不支持 SQL BEGIN TRANSACTION，故省略显式事务
+-- 注意：D1 远程不支持 SQL 显式事务，故省略
 
 PRAGMA foreign_keys=off;
 

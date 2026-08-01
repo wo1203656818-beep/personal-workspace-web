@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Send, Square, Brain, Mic, Paperclip, X } from 'lucide-react'
+import { Send, Square, Brain, Mic, Paperclip, X, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { genId } from './types'
@@ -10,6 +10,8 @@ export function ChatInputArea({
   loading,
   deepThink,
   setDeepThink,
+  webSearch,
+  setWebSearch,
   images,
   setImages,
   speechSupported,
@@ -23,6 +25,8 @@ export function ChatInputArea({
   loading: boolean
   deepThink: boolean
   setDeepThink: (v: boolean | ((v: boolean) => boolean)) => void
+  webSearch: boolean
+  setWebSearch: (v: boolean | ((v: boolean) => boolean)) => void
   images: { id: string; dataUrl: string; name: string }[]
   setImages: (
     fn: (
@@ -91,6 +95,7 @@ export function ChatInputArea({
 
       <div className="rounded-2xl border border-white/10 bg-white/5 px-3 pb-2 pt-2 transition-colors focus-within:border-white/20 focus-within:bg-white/[0.07]">
         <textarea
+          data-chat-input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -118,6 +123,19 @@ export function ChatInputArea({
               title="开启后 AI 会先一步步推理再回答，适合复杂问题（更慢）"
             >
               <Brain className="size-3.5" /> 深度思考
+            </button>
+            <button
+              type="button"
+              onClick={() => setWebSearch((v) => !v)}
+              className={cn(
+                'flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] transition-colors',
+                webSearch
+                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-400'
+                  : 'border-white/10 text-white/45 hover:border-white/20 hover:text-white/70',
+              )}
+              title="开启后 AI 会联网搜索最新信息再回答"
+            >
+              <Globe className="size-3.5" /> 联网搜索
             </button>
           </div>
 

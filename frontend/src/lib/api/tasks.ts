@@ -12,6 +12,8 @@ export const taskListsApi = {
 }
 
 export const tasksApi = {
+  suggestTags: (title: string, note?: string) =>
+    api.post('tasks/suggest-tags', { json: { title, note } }).json<{ tags: string[] }>(),
   stats: () =>
     api.get('tasks/stats').json<{
       total: number
@@ -44,6 +46,8 @@ export const tasksApi = {
     api.post(`tasks/${id}/mark-quick`).json<{ ok: boolean; deadline: string }>(),
   unmarkQuick: (id: string) => api.post(`tasks/${id}/unmark-quick`).json(),
   quickPool: () => api.get('tasks/quick-pool').json<Task[]>(),
+  estimateTime: (title: string, note?: string) =>
+    api.post('tasks/estimate-time', { json: { title, note } }).json<{ estimatedDays: number | null; reason: string }>(),
 }
 
 export const subtasksApi = {

@@ -10,11 +10,13 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 interface FeedItem {
   id: string
@@ -47,6 +49,8 @@ export function NewsItemList({
   feedbackMap,
   onFeedback,
   onSave,
+  compactView = false,
+  readItems,
 }: {
   items: FeedItem[]
   isLoading: boolean
@@ -61,14 +65,17 @@ export function NewsItemList({
   feedbackMap: Map<string, string>
   onFeedback: (item: FeedItem, type: 'up' | 'down', reason?: string) => void
   onSave: (item: FeedItem) => void
+  compactView?: boolean
+  readItems?: Set<string>
 }) {
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
+        {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="border rounded-lg p-4 animate-pulse">
             <div className="h-4 bg-muted rounded w-3/4 mb-2" />
-            <div className="h-3 bg-muted rounded w-1/2" />
+            <div className="h-3 bg-muted rounded w-1/2 mb-2" />
+            <div className="h-3 bg-muted rounded w-1/4" />
           </div>
         ))}
       </div>
@@ -79,7 +86,16 @@ export function NewsItemList({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Newspaper className="w-8 h-8 text-destructive mb-2" />
-        <p className="text-muted-foreground">加载失败，请重试</p>
+        <p className="text-muted-foreground mb-4">加载失败，请重试</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.location.reload()}
+          className="gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          重试
+        </Button>
       </div>
     )
   }
@@ -97,6 +113,7 @@ export function NewsItemList({
     <div className="space-y-2">
       {items.map((item) => {
         const isExpanded = expandedItemId === item.id
+        const isRead = readItems?.has(item.id)
         const parsedTags = (() => {
           try {
             return JSON.parse(item.aiTags || '[]')
@@ -105,24 +122,33 @@ export function NewsItemList({
           }
         })()
         return (
-          <div key={item.id} className="border rounded-lg hover:bg-muted/20 transition-colors">
-            <div className="p-3 sm:p-4">
+          <div
+            key={item.id}
+            className={cn(
+              'border rounded-lg hover:bg-muted/20 transition-colors',
+              isRead && 'opacity-60',
+            )}
+          >
+            <div className={cn('p-3 sm:p-4', compactView && 'py-2')}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <a
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium hover:underline text-sm block"
+                    className={cn(
+                      'font-medium hover:underline block',
+                      compactView ? 'text-sm' : 'text-sm',
+                    )}
                   >
                     {item.titleZh || item.title}
                   </a>
-                  {item.summary && (
+                  {!compactView && item.summary && (
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {item.summary}
                     </p>
                   )}
-                  {isExpanded && (item.aiSummary || item.aiReason) && (
+                  {!compactView && isExpanded && (item.aiSummary || item.aiReason) && (
                     <div className="mt-2 p-2 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 text-xs space-y-1">
                       {item.aiSummary && (
                         <p className="text-foreground">
@@ -135,32 +161,34 @@ export function NewsItemList({
                       )}
                     </div>
                   )}
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-muted-foreground">
-                    <span className="px-1.5 py-0.5 rounded bg-muted">{item.category}</span>
-                    {item.aiScore > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <Lightbulb className="w-3 h-3 text-yellow-500" />
-                        {item.aiScore}
-                      </span>
-                    )}
-                    {parsedTags.length > 0 &&
-                      parsedTags.slice(0, 2).map((t: string, i: number) => (
-                        <Badge key={i} variant="secondary" className="text-[10px] px-1 py-0">
-                          {t}
-                        </Badge>
-                      ))}
-                    {item.publishedAt && (
-                      <span>
-                        {formatDistanceToNow(new Date(item.publishedAt), {
-                          addSuffix: true,
-                          locale: zhCN,
-                        })}
-                      </span>
-                    )}
-                  </div>
+                  {!compactView && (
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-muted-foreground">
+                      <span className="px-1.5 py-0.5 rounded bg-muted">{item.category}</span>
+                      {item.aiScore > 0 && (
+                        <span className="flex items-center gap-0.5">
+                          <Lightbulb className="w-3 h-3 text-yellow-500" />
+                          {item.aiScore}
+                        </span>
+                      )}
+                      {parsedTags.length > 0 &&
+                        parsedTags.slice(0, 2).map((t: string, i: number) => (
+                          <Badge key={i} variant="secondary" className="text-[10px] px-1 py-0">
+                            {t}
+                          </Badge>
+                        ))}
+                      {item.publishedAt && (
+                        <span>
+                          {formatDistanceToNow(new Date(item.publishedAt), {
+                            addSuffix: true,
+                            locale: zhCN,
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
-                  {(item.aiSummary || item.aiReason) && (
+                  {!compactView && (item.aiSummary || item.aiReason) && (
                     <button
                       onClick={() => onExpandItem(isExpanded ? null : item.id)}
                       className="p-1.5 rounded hover:bg-muted text-muted-foreground"

@@ -135,7 +135,7 @@ export function TaskSubtasks({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-6 opacity-0 group-hover:opacity-100 shrink-0"
+                className="size-6 md:opacity-0 md:group-hover:opacity-100 shrink-0"
                 onClick={() => deleteSubtaskMutation.mutate(st.id)}
               >
                 <X className="size-3" />

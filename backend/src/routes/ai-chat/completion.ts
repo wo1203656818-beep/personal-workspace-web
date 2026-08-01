@@ -2,6 +2,7 @@ import type { Context } from 'hono'
 import type { Env } from '../../types'
 import { getActiveConfig, CF_MODELS } from '../../ai-configs'
 import { TOOL_ACTION_MAP } from './tools'
+import { fetchWithTimeout } from '../../utils/fetch-timeout'
 
 interface ChatResult {
   content: string | null
@@ -298,11 +299,15 @@ async function webSearch(query: string, env: any): Promise<WebSearchResult> {
     const key = env?.TAVILY_API_KEY
     if (key && typeof key === 'string' && key.length > 0) {
       try {
-        const r = await fetch('https://api.tavily.com/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: key, query: q, max_results: 5, search_depth: 'basic' }),
-        })
+        const r = await fetchWithTimeout(
+          'https://api.tavily.com/search',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: key, query: q, max_results: 5, search_depth: 'basic' }),
+          },
+          8000,
+        )
         if (r.ok) {
           const j: any = await r.json().catch(() => null)
           items = (j?.results || []).map((x: any) => ({
@@ -314,15 +319,19 @@ async function webSearch(query: string, env: any): Promise<WebSearchResult> {
       } catch {}
     }
     if (!items.length) {
-      const r = await fetch('https://html.duckduckgo.com/html/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      const r = await fetchWithTimeout(
+        'https://html.duckduckgo.com/html/',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+          },
+          body: `q=${encodeURIComponent(q)}`,
         },
-        body: `q=${encodeURIComponent(q)}`,
-      })
+        8000,
+      )
       if (r.ok) {
         const html = await r.text()
         const matches = [

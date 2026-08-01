@@ -30,7 +30,7 @@ settings.get('/', async (c) => {
 settings.put('/', async (c) => {
   const body = settingsSchema.parse(await c.req.json())
   // 敏感键加密后再存储（向后兼容：读取时 decrypt 自动识别 enc$ 前缀）
-  const encrypted = await encryptSettings(c.env.JWT_SECRET, body)
+  const encrypted = await encryptSettings(c.env.ENCRYPTION_KEY ?? c.env.JWT_SECRET, body)
   const db = drizzle(c.env.DB, { schema })
   const now = nowBeijing()
   const stmts = Object.entries(encrypted).map(([key, value]) =>
@@ -56,7 +56,7 @@ settings.post('/reset/confirm', async (c) => {
   if (!row.length) return c.json({ error: '未设置密码' }, 400)
 
   const { decrypt } = await import('../crypto-utils')
-  const stored = await decrypt(c.env.JWT_SECRET, row[0].value)
+  const stored = await decrypt(c.env.ENCRYPTION_KEY ?? c.env.JWT_SECRET, row[0].value)
   if (password !== stored) return c.json({ error: '密码错误' }, 403)
 
   // 生成一次性确认令牌，5 分钟有效
@@ -81,6 +81,9 @@ settings.delete('/reset', async (c) => {
     }
 
     // 2. 事务清空 D1 表（保留 settings、ai_configs）
+    // 使用 D1 exec('BEGIN') + exec('COMMIT') 包装，保证原子性
+    // 注意：db.batch() 不是原子事务，部分失败可能导致数据不一致
+    await c.env.DB.exec('BEGIN TRANSACTION')
     await db.batch([
       db.delete(schema.subtasks),
       db.delete(schema.tasks),
@@ -93,10 +96,20 @@ settings.delete('/reset', async (c) => {
       db.delete(schema.dailyDigests),
       db.delete(schema.monitorSnapshots),
       db.delete(schema.monitorBriefs),
+      db.delete(schema.habits),
+      db.delete(schema.habitCheckins),
+      db.delete(schema.focusSessions),
+      db.delete(schema.goals),
+      db.delete(schema.countdowns),
+      db.delete(schema.mediaItems),
+      db.delete(schema.bookmarks),
+      db.delete(schema.expenses),
+      db.delete(schema.healthMetrics),
       // 注意：Vectorize 中的孤儿向量不删除（无 clearAll API），
       // D1 记录已清空，semantic-search 查 D1 会全部 miss，孤儿向量无害。
       // 用户可手动调 /api/ai/reindex 重建。
     ])
+    await c.env.DB.exec('COMMIT')
 
     // 3. 清空 KV 中的 AI 缓存（best effort）
     await Promise.all([kvCacheDeletePrefix(c.env, 'ai:'), kvCacheDeletePrefix(c.env, 'search:')])

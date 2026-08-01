@@ -3,8 +3,8 @@ import { useUndo } from '@/lib/use-undo'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { FileText, Plus, Trash2, ArrowLeft, Search, Save, Sparkles, Columns2 } from 'lucide-react'
-import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type NoteSummary } from '@/lib/api'
+import { FileText, Plus, Trash2, ArrowLeft, Search, Save, Sparkles, Columns2, Copy, Pin, PinOff, Grid3X3, LayoutList, Loader2, MessageCircle } from 'lucide-react'
+import { notesApi, imaApi, tasksApi, taskListsApi, aiApi, type NoteSummary, type Note } from '@/lib/api'
 import { STALE_TIME } from '@/lib/query'
 import { cn } from '@/lib/utils'
 import { formatCST } from '@/lib/datetime'
@@ -37,6 +37,10 @@ import { ImportNoteForm } from '@/components/notes/ImportNoteForm'
 import { MarkdownToolbar } from '@/components/notes/MarkdownToolbar'
 import { NotePageContent } from '@/components/notes/NotePageContent'
 import { TocSidebar, MobileTocDropdown } from '@/components/notes/TocSidebar'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { usePageTitle } from '@/hooks/use-page-title'
+import { AIQaPanel } from '@/components/ai/AIQaPanel'
 
 function slugify(text: string): string {
   return text
@@ -64,6 +68,7 @@ function extractToc(content: string): { level: number; text: string; slug: strin
 }
 
 export function NotesPage() {
+  usePageTitle('笔记')
   const { id } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -79,9 +84,44 @@ export function NotesPage() {
   const [showMobileToc, setShowMobileToc] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [activeSlug, setActiveSlug] = useState<string>('')
+  const [qaOpen, setQaOpen] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pendingDeleteNoteRef = useRef<import('@/lib/api').Note | null>(null)
+
+  // Recently viewed notes
+  const [recentlyViewed, setRecentlyViewed] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('notes_recently_viewed') || '[]') } catch { return [] }
+  })
+  const trackView = useCallback((noteId: string) => {
+    setRecentlyViewed(prev => {
+      const next = [noteId, ...prev.filter(id => id !== noteId)].slice(0, 5)
+      localStorage.setItem('notes_recently_viewed', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  // Pinned notes
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('notes_pinned') || '[]') } catch { return [] }
+  })
+  const togglePin = useCallback((noteId: string) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(noteId) ? prev.filter(id => id !== noteId) : [noteId, ...prev]
+      localStorage.setItem('notes_pinned', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  // View mode: grid | list
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    return (localStorage.getItem('notes_view_mode') as 'grid' | 'list') || 'grid'
+  })
+  useEffect(() => { localStorage.setItem('notes_view_mode', viewMode) }, [viewMode])
+
+  // Batch selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
 
   const [aiOpen, setAiOpen] = useState(false)
   const [aiAction, setAiAction] = useState<'summary' | 'points' | 'to-task'>('summary')
@@ -140,7 +180,7 @@ export function NotesPage() {
     staleTime: STALE_TIME,
   })
 
-  const { data: searchResults = [] } = useQuery({
+  const { data: searchResults = [] } = useQuery<Note[]>({
     queryKey: ['notes', 'search', trimmedQuery],
     queryFn: () => notesApi.search(trimmedQuery),
     enabled: trimmedQuery.length > 0,
@@ -157,8 +197,14 @@ export function NotesPage() {
       updatedAt: n.updatedAt,
       snippet:
         'snippet' in n ? n.snippet : (n.content || '').replace(/[#*`>[\]-]/g, '').slice(0, 100),
-    }))
-  }, [trimmedQuery, searchResults, notes])
+    })).sort((a, b) => {
+      const aPinned = pinnedIds.includes(a.id)
+      const bPinned = pinnedIds.includes(b.id)
+      if (aPinned && !bPinned) return -1
+      if (!aPinned && bPinned) return 1
+      return 0
+    })
+  }, [trimmedQuery, searchResults, notes, pinnedIds])
 
   const { data: selectedNote, isLoading: noteLoading } = useQuery({
     queryKey: ['note', id],
@@ -173,8 +219,9 @@ export function NotesPage() {
       setAppendContent('')
       setEditableTitle(selectedNote.title ?? '')
       setActiveTab(selectedNote.sourceFile === 'ima_openapi' ? 'preview' : 'edit')
+      trackView(selectedNote.id)
     }
-  }, [selectedNote])
+  }, [selectedNote, trackView])
 
   const tocItems = useMemo(() => extractToc(editableContent), [editableContent])
 
@@ -220,6 +267,20 @@ export function NotesPage() {
       }
     },
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
+  })
+
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const noteId of ids) {
+        await notesApi.delete(noteId)
+      }
+    },
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] })
+      setSelectedIds(new Set())
+      toast.success(`已删除 ${ids.length} 条笔记`)
+    },
+    onError: (err: Error) => toast.error(`批量删除失败: ${err.message}`),
   })
 
   const updateNoteMutation = useMutation({
@@ -432,16 +493,24 @@ export function NotesPage() {
                 appendImaMutation.isPending ||
                 (selectedNote?.sourceFile === 'ima_openapi' && !appendContent.trim())
               }
-              className="gap-2 rounded-lg"
+              className={cn(
+                "gap-2 rounded-lg transition-all",
+                (updateNoteMutation.isPending || appendImaMutation.isPending) && "animate-pulse bg-primary/80"
+              )}
             >
-              <Save className="size-4" />
-              {selectedNote?.sourceFile === 'ima_openapi'
-                ? appendContent.trim()
-                  ? '追加*'
-                  : '追加'
-                : isDirty
-                  ? '保存*'
-                  : '保存'}
+              {updateNoteMutation.isPending || appendImaMutation.isPending ? (
+                <><Loader2 className="size-4 animate-spin" /> 保存中...</>
+              ) : (
+                <><Save className="size-4" />
+                {selectedNote?.sourceFile === 'ima_openapi'
+                  ? appendContent.trim()
+                    ? '追加*'
+                    : '追加'
+                  : isDirty
+                    ? '保存*'
+                    : '保存'}
+                </>
+              )}
             </Button>
             <div className="flex items-center gap-1">
               <Button
@@ -582,6 +651,16 @@ export function NotesPage() {
                     </div>
                   )}
                 </Tabs>
+                {/* Word count */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                  <span>
+                    {editableContent.length} 字
+                    {editableContent.trim() && <span className="ml-2">· {editableContent.trim().split(/\s+/).filter(Boolean).length} 词</span>}
+                  </span>
+                  <span className="text-[10px]">
+                    {selectedNote?.sourceFile !== 'ima_openapi' && (isDirty ? '未保存' : '已保存')}
+                  </span>
+                </div>
               </div>
             </ScrollArea>
             <TocSidebar items={tocItems} activeSlug={activeSlug} onTocClick={handleTocClick} />
@@ -680,6 +759,60 @@ export function NotesPage() {
 
       <ScrollArea className="flex-1">
         <div className="space-y-1 p-2 md:p-4">
+          {/* Toolbar: view toggle and select all */}
+          {!trimmedQuery && displayedNotes.length > 0 && (
+            <div className="flex items-center justify-between px-1 py-1">
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => {
+                  if (selectedIds.size === displayedNotes.length) setSelectedIds(new Set())
+                  else setSelectedIds(new Set(displayedNotes.map(n => n.id)))
+                }}>
+                  <Checkbox
+                    checked={selectedIds.size === displayedNotes.length && displayedNotes.length > 0}
+                    className="mr-1"
+                  />
+                  {selectedIds.size > 0 ? `已选 ${selectedIds.size}` : '全选'}
+                </Button>
+                {selectedIds.size > 0 && (
+                  <Button variant="destructive" size="sm" className="h-7 text-xs gap-1" onClick={() => setBatchDeleteConfirm(true)}>
+                    <Trash2 className="size-3" /> 删除 ({selectedIds.size})
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant={viewMode === 'grid' ? 'secondary' : 'ghost'} size="sm" className="size-7 p-0" onClick={() => setViewMode('grid')}>
+                  <Grid3X3 className="size-3.5" />
+                </Button>
+                <Button variant={viewMode === 'list' ? 'secondary' : 'ghost'} size="sm" className="size-7 p-0" onClick={() => setViewMode('list')}>
+                  <LayoutList className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Recently viewed */}
+          {!trimmedQuery && recentlyViewed.length > 0 && (
+            <div className="px-1 pb-2">
+              <p className="text-[10px] font-medium text-muted-foreground mb-2">最近查看</p>
+              <div className="flex flex-wrap gap-2">
+                {recentlyViewed.map(id => {
+                  const note = notes.find(n => n.id === id)
+                  if (!note) return null
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => navigate(`/notes/${id}`)}
+                      className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-accent transition-colors"
+                    >
+                      <FileText className="size-3" />
+                      {note.title}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {!displayedNotes || displayedNotes.length === 0 ? (
             <EmptyState
               icon={FileText}
@@ -691,19 +824,42 @@ export function NotesPage() {
               }
             />
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div className={cn(
+              viewMode === 'grid' ? 'grid gap-3 md:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-1'
+            )}>
               {(displayedNotes || []).map((note: NoteSummary) => {
                 const isIma = note.sourceFile === 'ima_openapi'
+                const isPinned = pinnedIds.includes(note.id)
+                const isSelected = selectedIds.has(note.id)
                 return (
                   <div
                     key={note.id}
-                    className="group surface-card flex cursor-pointer flex-col gap-3 transition-colors hover:bg-accent/50"
+                    className={cn(
+                      'group surface-card flex transition-colors',
+                      viewMode === 'grid' ? 'flex-col gap-3 cursor-pointer hover:bg-accent/50' : 'flex-row items-center gap-3 cursor-pointer rounded-lg px-3 py-2 hover:bg-accent',
+                      isPinned && 'border-l-2 border-primary/40',
+                      isSelected && 'bg-accent/60'
+                    )}
                     onClick={() => navigate(`/notes/${note.id}`)}
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => {
+                          setSelectedIds(prev => {
+                            const next = new Set(prev)
+                            if (checked) next.add(note.id)
+                            else next.delete(note.id)
+                            return next
+                          })
+                        }}
+                        className="size-3.5"
+                      />
+                    </div>
+                    <div className={cn('flex items-start gap-3 flex-1 min-w-0', viewMode === 'grid' ? '' : '')}>
                       <div
                         className={cn(
-                          'icon-badge size-9',
+                          'icon-badge size-9 shrink-0',
                           isIma
                             ? 'bg-gradient-to-br from-sky-500 to-blue-500'
                             : 'bg-gradient-to-br from-primary to-primary/80',
@@ -712,15 +868,18 @@ export function NotesPage() {
                         <FileText className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{note.title}</p>
+                        <div className="flex items-center gap-1.5">
+                          {isPinned && <Pin className="size-3 text-primary/60 shrink-0" />}
+                          <p className="truncate text-sm font-medium">{note.title}</p>
+                        </div>
                         {note.snippet && (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          <p className={cn('mt-1 text-xs text-muted-foreground', viewMode === 'grid' ? 'line-clamp-2' : 'truncate')}>
                             {note.snippet.replace(/[#*`>[\]-]/g, '').slice(0, 100)}
                           </p>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center justify-between pt-1">
+                    <div className={cn('flex items-center gap-1', viewMode === 'grid' ? 'justify-between pt-1' : 'shrink-0')}>
                       <div className="flex items-center gap-2">
                         <span
                           className={cn(
@@ -732,21 +891,44 @@ export function NotesPage() {
                         >
                           {isIma ? 'IMA' : '本地'}
                         </span>
-                        <span className="text-xs text-muted-foreground">
-                          {note.importedAt ? formatCST(note.importedAt, 'date') : ''}
-                        </span>
+                        {viewMode === 'grid' && (
+                          <span className="text-xs text-muted-foreground">
+                            {note.importedAt ? formatCST(note.importedAt, 'date') : ''}
+                          </span>
+                        )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteConfirmId(note.id)
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-7 md:opacity-0 md:group-hover:opacity-100" onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/notes/${note.id}`)
+                              toast.success('链接已复制')
+                            }}>
+                              <Copy className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>复制链接</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="size-7 md:opacity-0 md:group-hover:opacity-100" onClick={() => togglePin(note.id)}>
+                              {isPinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{isPinned ? '取消置顶' : '置顶'}</TooltipContent>
+                        </Tooltip>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 md:opacity-0 md:group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteConfirmId(note.id)
+                          }}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 )
@@ -778,6 +960,35 @@ export function NotesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={batchDeleteConfirm} onOpenChange={setBatchDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>批量删除笔记</AlertDialogTitle>
+            <AlertDialogDescription>确定要删除选中的 {selectedIds.size} 条笔记吗？此操作不可撤销。</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setBatchDeleteConfirm(false)}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                batchDeleteMutation.mutate(Array.from(selectedIds))
+                setBatchDeleteConfirm(false)
+              }}
+              disabled={batchDeleteMutation.isPending}
+            >
+              {batchDeleteMutation.isPending ? '删除中...' : `删除 (${selectedIds.size})`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Button
+        className="fixed bottom-6 right-6 z-50 size-12 rounded-full shadow-lg"
+        onClick={() => setQaOpen(true)}
+      >
+        <MessageCircle className="size-5" />
+      </Button>
+      <AIQaPanel open={qaOpen} onOpenChange={setQaOpen} />
     </div>
   )
 }

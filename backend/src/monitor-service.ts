@@ -11,6 +11,7 @@ import { callAI } from './utils/ai-client'
 import { decrypt } from './crypto-utils'
 import { nowBeijing, todayBeijing, nowCST, todayCST } from './time'
 import { getSetting } from './utils/settings'
+import { fetchWithTimeout } from './utils/fetch-timeout'
 
 // 热榜多源聚合：Worker 出口在 Cloudflare 网段，部分源（如 60s.viki.moe，其自身架在 Cloudflare 上并开启 Bot Fight）
 // 会对 CF→CF 请求返回 403 挑战页，故采用多源容错，按序尝试，首个返回有效数据的源胜出。
@@ -94,11 +95,15 @@ async function fetchHotList(platform: string): Promise<{ items: HotItem[]; sourc
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 8000)
     try {
-      const res = await fetch(url, {
-        headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
-        cf: { cacheTtl: 120 },
-        signal: ctrl.signal,
-      })
+      const res = await fetchWithTimeout(
+        url,
+        {
+          headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+          cf: { cacheTtl: 120 } as any,
+          signal: ctrl.signal,
+        },
+        8000,
+      )
       clearTimeout(timer)
       if (!res.ok) {
         const body = (await res.text().catch(() => '')).slice(0, 100)
@@ -141,16 +146,20 @@ async function fetchYouTubeChannel(env: Env, channelId: string): Promise<YtVideo
   const apiKey = await getSetting(env, 'youtube_api_key')
   if (!apiKey) throw new Error('未配置 YouTube API Key')
   // 1) 取频道的上传播放列表
-  const chRes = await fetch(
+  const chRes = await fetchWithTimeout(
     `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${encodeURIComponent(channelId)}&key=${apiKey}`,
+    {},
+    12000,
   )
   if (!chRes.ok) throw new Error(`channels.list HTTP ${chRes.status}`)
   const chJson = (await chRes.json()) as any
   const uploads = chJson?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads
   if (!uploads) throw new Error('频道不存在或无 uploads 播放列表')
   // 2) 取最新视频
-  const plRes = await fetch(
+  const plRes = await fetchWithTimeout(
     `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploads}&maxResults=5&key=${apiKey}`,
+    {},
+    12000,
   )
   if (!plRes.ok) throw new Error(`playlistItems.list HTTP ${plRes.status}`)
   const plJson = (await plRes.json()) as any
@@ -494,11 +503,15 @@ export async function pushMonitorBrief(
   let allOk = true
   for (const chunk of chunks) {
     try {
-      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
-      })
+      const res = await fetchWithTimeout(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
+        },
+        10000,
+      )
       if (!res.ok) {
         allOk = false
         console.error('[monitor] telegram send failed:', res.status)

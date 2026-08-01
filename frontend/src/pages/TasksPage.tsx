@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useUndo } from '@/lib/use-undo'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { tasksApi, aiApi, taskListsApi, settingsApi, type Task } from '@/lib/api'
@@ -13,9 +13,14 @@ import { CreateListDialog } from '@/components/tasks/CreateListDialog'
 import { NlTaskDialog } from '@/components/tasks/NlTaskDialog'
 import { BatchActionBar } from '@/components/tasks/BatchActionBar'
 import { AllView } from '@/components/tasks/AllView'
+import { TodayPanel } from '@/components/tasks/TodayPanel'
+import { ManageListDialog } from '@/components/tasks/ManageListDialog'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 export function TasksPage() {
+  usePageTitle('任务')
   const [searchParams] = useSearchParams()
+  const { view, listId } = useParams()
   const queryClient = useQueryClient()
   const { push: pushUndo } = useUndo()
 
@@ -28,6 +33,7 @@ export function TasksPage() {
   const [newListName, setNewListName] = useState('')
   const [nlOpen, setNlOpen] = useState(false)
   const [nlText, setNlText] = useState('')
+  const [manageListOpen, setManageListOpen] = useState(false)
   const [nlParsed, setNlParsed] = useState<{
     title: string
     dueDate: string | null
@@ -40,6 +46,7 @@ export function TasksPage() {
     null,
   )
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchPending, setBatchPending] = useState(false)
   const pendingDeleteRef = useRef<Task | null>(null)
   const newTaskInputRef = useRef<HTMLInputElement>(null)
 
@@ -78,6 +85,19 @@ export function TasksPage() {
       setSelectedTaskId(selectedId)
     }
   }, [searchParams])
+
+  // 从路由参数 :view 和 :listId 初始化状态
+  useEffect(() => {
+    if (view) {
+      // 路由 /tasks/today 等
+      if (view === 'today') {
+        // 设置视图为今日（默认行为）
+      }
+    }
+    if (listId) {
+      setNewTaskListId(listId)
+    }
+  }, [view, listId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -265,105 +285,130 @@ export function TasksPage() {
   }, [allSelected, allVisibleTasks])
 
   const batchComplete = async () => {
+    setBatchPending(true)
     const ids = Array.from(selectedIds)
     let success = 0
-    for (const id of ids) {
-      try {
-        await tasksApi.update(id, { isCompleted: true })
-        success++
-      } catch {}
+    try {
+      for (const id of ids) {
+        try {
+          await tasksApi.update(id, { isCompleted: true })
+          success++
+        } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setSelectedIds(new Set())
+      if (success > 0) toast.success(`已标记 ${success} 个任务完成`)
+    } finally {
+      setBatchPending(false)
     }
-    queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    setSelectedIds(new Set())
-    if (success > 0) toast.success(`已标记 ${success} 个任务完成`)
   }
 
   const batchDelete = async () => {
+    setBatchPending(true)
     const ids = Array.from(selectedIds)
     const deletedTasks: Task[] = []
     let success = 0
-    for (const id of ids) {
-      try {
-        const task = await tasksApi.get(id)
-        await tasksApi.delete(id)
-        deletedTasks.push(task)
-        success++
-      } catch {}
-    }
-    queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    setSelectedIds(new Set())
-    if (success > 0) {
-      pushUndo({
-        label: `已删除 ${success} 个任务`,
-        undo: async () => {
-          for (const task of deletedTasks) {
-            await tasksApi.create({
-              listId: task.listId,
-              title: task.title,
-              note: task.note,
-              isCompleted: task.isCompleted,
-              isImportant: task.isImportant,
-              isMyDay: task.isMyDay,
-              myDayDate: task.myDayDate,
-              dueDate: task.dueDate,
-              reminder: task.reminder,
-              recurrence: task.recurrence,
-              sortOrder: task.sortOrder,
-            })
-          }
-          queryClient.invalidateQueries({ queryKey: ['tasks'] })
-          toast.success('已撤销批量删除')
-        },
-      })
+    try {
+      for (const id of ids) {
+        try {
+          const task = await tasksApi.get(id)
+          await tasksApi.delete(id)
+          deletedTasks.push(task)
+          success++
+        } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setSelectedIds(new Set())
+      if (success > 0) {
+        pushUndo({
+          label: `已删除 ${success} 个任务`,
+          undo: async () => {
+            for (const task of deletedTasks) {
+              await tasksApi.create({
+                listId: task.listId,
+                title: task.title,
+                note: task.note,
+                isCompleted: task.isCompleted,
+                isImportant: task.isImportant,
+                isMyDay: task.isMyDay,
+                myDayDate: task.myDayDate,
+                dueDate: task.dueDate,
+                reminder: task.reminder,
+                recurrence: task.recurrence,
+                sortOrder: task.sortOrder,
+              })
+            }
+            queryClient.invalidateQueries({ queryKey: ['tasks'] })
+            toast.success('已撤销批量删除')
+          },
+        })
+      }
+    } finally {
+      setBatchPending(false)
     }
   }
 
   const batchMoveToList = async (targetListId: string) => {
+    setBatchPending(true)
     const ids = Array.from(selectedIds)
     let success = 0
-    for (const id of ids) {
-      try {
-        await tasksApi.update(id, { listId: targetListId })
-        success++
-      } catch {}
+    try {
+      for (const id of ids) {
+        try {
+          await tasksApi.update(id, { listId: targetListId })
+          success++
+        } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setSelectedIds(new Set())
+      if (success > 0) toast.success(`已移动 ${success} 个任务`)
+    } finally {
+      setBatchPending(false)
     }
-    queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    setSelectedIds(new Set())
-    if (success > 0) toast.success(`已移动 ${success} 个任务`)
   }
 
   const batchMarkImportant = async () => {
+    setBatchPending(true)
     const ids = Array.from(selectedIds)
     let success = 0
-    for (const id of ids) {
-      try {
-        await tasksApi.update(id, { isImportant: true })
-        success++
-      } catch {}
+    try {
+      for (const id of ids) {
+        try {
+          await tasksApi.update(id, { isImportant: true })
+          success++
+        } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setSelectedIds(new Set())
+      if (success > 0) toast.success(`已标记 ${success} 个任务为重要`)
+    } finally {
+      setBatchPending(false)
     }
-    queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    setSelectedIds(new Set())
-    if (success > 0) toast.success(`已标记 ${success} 个任务为重要`)
   }
 
   const batchAddToMyDay = async () => {
+    setBatchPending(true)
     const ids = Array.from(selectedIds)
     let success = 0
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Shanghai',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date())
-    for (const id of ids) {
-      try {
-        await tasksApi.update(id, { isMyDay: true, myDayDate: today })
-        success++
-      } catch {}
+    try {
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date())
+      for (const id of ids) {
+        try {
+          await tasksApi.update(id, { isMyDay: true, myDayDate: today })
+          success++
+        } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      setSelectedIds(new Set())
+      if (success > 0) toast.success(`已将 ${success} 个任务添加到我的一天`)
+    } finally {
+      setBatchPending(false)
     }
-    queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    setSelectedIds(new Set())
-    if (success > 0) toast.success(`已将 ${success} 个任务添加到我的一天`)
   }
 
   const completedCount = useMemo(() => tasks.filter((t) => t.isCompleted).length, [tasks])
@@ -391,6 +436,7 @@ export function TasksPage() {
         syncMsTodoMutation={syncMsTodoMutation}
         syncFeedback={syncFeedback}
         onOpenNl={() => setNlOpen(true)}
+        onManageLists={() => setManageListOpen(true)}
         showCompleted={showCompleted}
         onShowCompletedChange={setShowCompleted}
       />
@@ -415,6 +461,7 @@ export function TasksPage() {
       <BatchActionBar
         selectedCount={selectedIds.size}
         lists={lists}
+        disabled={batchPending}
         onComplete={batchComplete}
         onMarkImportant={batchMarkImportant}
         onAddToMyDay={batchAddToMyDay}
@@ -425,7 +472,16 @@ export function TasksPage() {
 
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="px-2 pb-24 pt-2 md:px-4 md:pb-2">
-          {isLoading ? <PageSkeleton /> : <AllView {...viewProps} />}
+          {isLoading ? (
+            <PageSkeleton />
+          ) : (
+            <>
+              <TodayPanel tasks={tasks} onSelectTask={setSelectedTaskId} />
+              <div className="mt-2">
+                <AllView {...viewProps} />
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -484,6 +540,13 @@ export function TasksPage() {
           setNlText('')
           setNlParsed(null)
         }}
+      />
+
+      <ManageListDialog
+        open={manageListOpen}
+        onOpenChange={setManageListOpen}
+        lists={lists}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ['taskLists'] })}
       />
     </div>
   )

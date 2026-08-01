@@ -5,6 +5,7 @@ import { decrypt } from './crypto-utils'
 import type { Env } from './types'
 import { nowBeijing } from './time'
 import { getSetting, setSetting } from './utils/settings'
+import { fetchWithTimeout } from './utils/fetch-timeout'
 import { marked } from 'marked'
 
 /**
@@ -52,21 +53,25 @@ async function getCredentials(env: Env): Promise<ImaCredentials | null> {
     .where(eq(schema.settings.key, 'ima_api_key'))
   if (!clientIdRow.length || !apiKeyRow.length) return null
   // api_key 走解密（若以 enc$ 开头则解密，否则明文返回）
-  const apiKey = await decrypt(env.JWT_SECRET, apiKeyRow[0].value)
+  const apiKey = await decrypt(env.ENCRYPTION_KEY ?? env.JWT_SECRET, apiKeyRow[0].value)
   return { clientId: clientIdRow[0].value, apiKey }
 }
 
 // 通用 IMA API 调用（原始版本，不含重试）
 async function imaPostRaw(apiPath: string, body: any, creds: ImaCredentials): Promise<any> {
-  const res = await fetch(`${IMA_BASE_URL}/${apiPath}`, {
-    method: 'POST',
-    headers: {
-      'ima-openapi-clientid': creds.clientId,
-      'ima-openapi-apikey': creds.apiKey,
-      'Content-Type': 'application/json',
+  const res = await fetchWithTimeout(
+    `${IMA_BASE_URL}/${apiPath}`,
+    {
+      method: 'POST',
+      headers: {
+        'ima-openapi-clientid': creds.clientId,
+        'ima-openapi-apikey': creds.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  })
+    15000,
+  )
   const text = await res.text()
   let data: any
   try {
@@ -230,7 +235,7 @@ export async function fetchWithImaFallbacks(
   ]
   for (const headers of strategies) {
     try {
-      const res = await fetch(downloadUrl, { headers })
+      const res = await fetchWithTimeout(downloadUrl, { headers }, 15000)
       if (res.ok) return res
     } catch {
       /* try next strategy */
@@ -275,7 +280,8 @@ export function stripImagesAndAttachments(md: string): string {
  * 用于前端展示阅读，替代客户端 ReactMarkdown 渲染。
  */
 export function markdownToCleanHtml(md: string): string {
-  const raw = marked.parse(md) as string
+  // 注意：marked.parse 默认不进行 XSS 过滤，若输入源不可信应使用 DOMPurify 等消毒库
+  const raw = marked.parse(md, { async: false }) as string
   // 移除 <img> 标签（以防 stripImagesAndAttachments 遗漏的 HTML img）
   return raw.replace(/<img[^>]*>/gi, '[图片]')
 }

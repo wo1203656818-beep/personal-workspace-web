@@ -1,4 +1,24 @@
 -- 性能索引：加速高频查询
+-- 前置：chat 表由运行时 ensureChatTables 创建，此处确保迁移即可独立建表
+CREATE TABLE IF NOT EXISTS `chat_sessions` (
+  `id` text PRIMARY KEY NOT NULL,
+  `title` text NOT NULL DEFAULT '新对话',
+  `tags` text,
+  `pinned` integer DEFAULT 0,
+  `created_at` text DEFAULT (datetime('now')),
+  `updated_at` text DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS `chat_messages` (
+  `id` text PRIMARY KEY NOT NULL,
+  `session_id` text NOT NULL,
+  `role` text NOT NULL,
+  `content` text NOT NULL DEFAULT '',
+  `tool_calls` text,
+  `created_at` text DEFAULT (datetime('now')),
+  FOREIGN KEY (`session_id`) REFERENCES `chat_sessions`(`id`) ON DELETE cascade
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_is_completed ON tasks(is_completed);
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);

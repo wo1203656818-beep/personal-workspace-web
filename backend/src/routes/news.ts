@@ -1,10 +1,12 @@
 import { Hono } from 'hono'
 import { drizzle } from 'drizzle-orm/d1'
 import { eq, and, or, like, desc, asc, sql } from 'drizzle-orm'
+import { z } from 'zod'
 import * as schema from '../schema'
 import type { Env } from '../types'
 import { nowBeijing, todayCST } from '../time'
 import { decrypt } from '../crypto-utils'
+import { fetchWithTimeout } from '../utils/fetch-timeout'
 import {
   fetchSourcesByCategory,
   fetchSingleSource,
@@ -13,6 +15,7 @@ import {
   pushDailyBrief,
 } from '../news-fetcher'
 import { PRESET_FEED_SOURCES } from '../news-sources'
+import { newsSourceSchema } from '../validation'
 
 const news = new Hono<{ Bindings: Env }>()
 
@@ -134,24 +137,41 @@ news.get('/categories', async (c) => {
 
 // 批量更新订阅源启用状态
 news.put('/sources', async (c) => {
-  const body = await c.req.json()
-  const db = drizzle(c.env.DB, { schema })
-  for (const s of body) {
-    await db
-      .update(schema.feedSources)
-      .set({ enabled: s.enabled, updatedAt: nowBeijing() })
-      .where(eq(schema.feedSources.id, s.id))
+  try {
+    const body = z.array(z.object({ id: z.string(), enabled: z.boolean() })).parse(await c.req.json())
+    const db = drizzle(c.env.DB, { schema })
+    for (const s of body) {
+      await db
+        .update(schema.feedSources)
+        .set({ enabled: s.enabled, updatedAt: nowBeijing() })
+        .where(eq(schema.feedSources.id, s.id))
+    }
+    return c.json({ ok: true })
+  } catch (err: any) {
+    if (err?.issues) {
+      return c.json({ error: '输入验证失败', detail: err.issues }, 400)
+    }
+    console.error('[news] PUT /sources error:', err)
+    return c.json({ error: '服务器内部错误' }, 500)
   }
-  return c.json({ ok: true })
 })
 
 // 新增自定义订阅源
 news.post('/sources', async (c) => {
-  const { name, url, type, category, lang = 'zh', enabled = true } = await c.req.json()
-  const db = drizzle(c.env.DB, { schema })
-  const id = crypto.randomUUID()
-  await db.insert(schema.feedSources).values({ id, name, url, type, category, lang, enabled })
-  return c.json({ ok: true, id }, 201)
+  try {
+    const body = newsSourceSchema.parse(await c.req.json())
+    const { name, url, type, category, lang = 'zh', enabled = true } = body
+    const db = drizzle(c.env.DB, { schema })
+    const id = crypto.randomUUID()
+    await db.insert(schema.feedSources).values({ id, name, url, type, category, lang, enabled })
+    return c.json({ ok: true, id }, 201)
+  } catch (err: any) {
+    if (err?.issues) {
+      return c.json({ error: '输入验证失败', detail: err.issues }, 400)
+    }
+    console.error('[news] POST /sources error:', err)
+    return c.json({ error: '服务器内部错误' }, 500)
+  }
 })
 
 // 删除订阅源
@@ -308,21 +328,25 @@ news.post('/test-push', async (c) => {
     .select()
     .from(schema.settings)
     .where(eq(schema.settings.key, 'telegram_chat_id'))
-  const botToken = tokenRow[0]?.value ? await decrypt(c.env.JWT_SECRET, tokenRow[0].value) : null
+  const botToken = tokenRow[0]?.value ? await decrypt(c.env.ENCRYPTION_KEY ?? c.env.JWT_SECRET, tokenRow[0].value) : null
   const chatId = chatRow[0]?.value || null
   if (!botToken || !chatId) {
     return c.json({ ok: false, error: 'Telegram 配置未完成，请先保存 Bot Token 和 Chat ID' }, 400)
   }
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: '✅ <b>电报推送测试</b>\n这是一条测试消息，如果你收到了，说明配置正确。',
-        parse_mode: 'HTML',
-      }),
-    })
+    const res = await fetchWithTimeout(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: '✅ <b>电报推送测试</b>\n这是一条测试消息，如果你收到了，说明配置正确。',
+          parse_mode: 'HTML',
+        }),
+      },
+      10000,
+    )
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
       const status = res.status

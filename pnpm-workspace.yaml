@@ -1,0 +1,16 @@
+packages:
+  - 'frontend'
+  - 'backend'
+
+allowBuilds:
+  canvas: false
+  core-js-pure: true
+  esbuild: true
+  sharp: true
+  workerd: true
+
+onlyBuiltDependencies:
+  - core-js-pure
+  - esbuild
+  - sharp
+  - workerd

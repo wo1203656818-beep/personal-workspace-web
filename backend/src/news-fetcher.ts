@@ -11,6 +11,7 @@ import {
   RSSHUB_INSTANCES,
 } from './news-sources'
 import { getSetting } from './utils/settings'
+import { fetchWithTimeout } from './utils/fetch-timeout'
 
 export interface RawFeedItem {
   title: string
@@ -42,10 +43,14 @@ async function mapBatch<T, R>(
 
 async function fetchRSS(url: string): Promise<RawFeedItem[]> {
   try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
-      cf: { cacheTtl: 300 },
-    })
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
+        cf: { cacheTtl: 300 } as any,
+      },
+      10000,
+    )
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const text = await response.text()
     return parseRSS(text)
@@ -113,10 +118,14 @@ async function fetchRSSHub(path: string): Promise<RawFeedItem[]> {
     if (!base) continue
     try {
       const url = `${base}${path}`
-      const response = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
-        cf: { cacheTtl: 300 },
-      })
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)' },
+          cf: { cacheTtl: 300 } as any,
+        },
+        10000,
+      )
       if (!response.ok) continue
       const text = await response.text()
       const items = parseRSS(text)
@@ -130,7 +139,7 @@ async function fetchRSSHub(path: string): Promise<RawFeedItem[]> {
 
 async function fetchAPI(url: string): Promise<RawFeedItem[]> {
   try {
-    const response = await fetch(url, { cf: { cacheTtl: 300 } })
+    const response = await fetchWithTimeout(url, { cf: { cacheTtl: 300 } as any }, 10000)
     if (!response.ok) return []
     const data = (await response.json()) as any
     if (Array.isArray(data)) {
@@ -616,16 +625,20 @@ export async function pushDailyBrief(
   const message = messageParts.join('\n')
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
-    })
+    const res = await fetchWithTimeout(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        }),
+      },
+      10000,
+    )
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
       console.error('[pushDailyBrief] telegram api error:', res.status, errText)

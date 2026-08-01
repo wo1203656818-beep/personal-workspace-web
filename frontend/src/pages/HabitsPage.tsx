@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Flame, Loader2, Plus, Check, Trash2, Pencil, CheckCheck, Target } from 'lucide-react'
+import {
+  Flame, Loader2, Plus, Check, Trash2, Pencil, CheckCheck, Target,
+  Search, ArrowUpDown, Archive, Trophy, Percent, Brain, RefreshCw,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { habitsApi, type Habit } from '@/lib/api'
 import { ActivityCalendar } from 'react-activity-calendar'
@@ -29,6 +32,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 type HeatItem = { date: string; count: number; level: number }
 
@@ -51,7 +55,23 @@ const HABIT_COLORS = [
 
 const HABIT_ICONS = ['💧', '📚', '🏃', '🧘', '🌅', '✍️', '🎯', '💪', '🌙', '🥗', '💻', '🎨']
 
+function StreakBadge({ streak }: { streak: number }) {
+  const milestones = [
+    { threshold: 100, label: '100天', emoji: '🏆' },
+    { threshold: 30, label: '30天', emoji: '🌟' },
+    { threshold: 7, label: '7天', emoji: '🔥' },
+  ]
+  const badge = milestones.find((m) => streak >= m.threshold)
+  if (!badge) return null
+  return (
+    <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-500">
+      {badge.emoji} {badge.label}
+    </span>
+  )
+}
+
 export function HabitsPage() {
+  usePageTitle('习惯')
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<Habit | null>(null)
@@ -61,6 +81,28 @@ export function HabitsPage() {
   const [color, setColor] = useState(HABIT_COLORS[0].value)
   const [description, setDescription] = useState('')
 
+  // 搜索、排序、归档
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortBy, setSortBy] = useState<'name' | 'streak' | 'created'>('created')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('habitArchivedIds')
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    } catch {
+      return new Set()
+    }
+  })
+  const [showArchived, setShowArchived] = useState(false)
+
+  const [pendingCheckinId, setPendingCheckinId] = useState<string | null>(null)
+  const [checkinNoteHabitId, setCheckinNoteHabitId] = useState<string | null>(null)
+  const [checkinNoteText, setCheckinNoteText] = useState('')
+
+  useEffect(() => {
+    localStorage.setItem('habitArchivedIds', JSON.stringify([...archivedIds]))
+  }, [archivedIds])
+
   const { data: habits, isLoading } = useQuery({
     queryKey: ['habits'],
     queryFn: habitsApi.list,
@@ -69,6 +111,11 @@ export function HabitsPage() {
   const { data: calendar } = useQuery({
     queryKey: ['habits', 'calendar'],
     queryFn: () => habitsApi.calendar(365),
+  })
+
+  const { data: correlation, isLoading: correlationLoading, refetch: refetchCorrelation } = useQuery({
+    queryKey: ['habits', 'correlation'],
+    queryFn: habitsApi.correlation,
   })
 
   const heatData: HeatItem[] = useMemo(
@@ -82,6 +129,47 @@ export function HabitsPage() {
   )
 
   const totalStreakToday = habits?.filter((h) => h.doneToday).length ?? 0
+
+  // 近30天完成率
+  const completionRate = useMemo(() => {
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+    const entries = heatData.filter((d) => d.date >= thirtyDaysAgoStr)
+    if (entries.length === 0) return 0
+    return Math.round((entries.filter((d) => d.count > 0).length / entries.length) * 100)
+  }, [heatData])
+
+  // 过滤和排序后的习惯列表
+  const visibleHabits = useMemo(() => {
+    if (!habits) return []
+    let filtered = habits.filter((h) =>
+      showArchived ? archivedIds.has(h.id) : !archivedIds.has(h.id),
+    )
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      filtered = filtered.filter(
+        (h) =>
+          h.name.toLowerCase().includes(q) ||
+          (h.description ?? '').toLowerCase().includes(q),
+      )
+    }
+    filtered = [...filtered].sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'name') cmp = a.name.localeCompare(b.name)
+      else if (sortBy === 'streak') cmp = a.streak - b.streak
+      else if (sortBy === 'created')
+        cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+    return filtered
+  }, [habits, searchQuery, sortBy, sortOrder, archivedIds, showArchived])
+
+  // 今日未打卡的习惯（用于快速打卡区）
+  const todayPending = useMemo(
+    () => (habits ?? []).filter((h) => !h.doneToday && !archivedIds.has(h.id)),
+    [habits, archivedIds],
+  )
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -102,12 +190,23 @@ export function HabitsPage() {
   })
 
   const checkinMutation = useMutation({
-    mutationFn: (habitId: string) => habitsApi.checkin(habitId),
-    onSuccess: () => {
+    mutationFn: ({ habitId, note }: { habitId: string; note?: string }) =>
+      habitsApi.checkin(habitId, undefined, note),
+    onMutate: async ({ habitId }) => {
+      setPendingCheckinId(habitId)
+    },
+    onSuccess: (data, { habitId }) => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
       queryClient.invalidateQueries({ queryKey: ['habits', 'calendar'] })
+      const habit = habits?.find((h) => h.id === habitId)
+      if (data.done) {
+        toast.success(habit ? `「${habit.name}」已打卡` : '已打卡')
+      }
     },
     onError: (err: Error) => toast.error(`操作失败: ${err.message}`),
+    onSettled: () => {
+      setPendingCheckinId(null)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -137,6 +236,27 @@ export function HabitsPage() {
     setColor(habit.color ?? HABIT_COLORS[0].value)
     setDescription(habit.description ?? '')
     setCreateOpen(true)
+  }
+
+  const toggleSort = (field: typeof sortBy) => {
+    if (sortBy === field) {
+      setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(field)
+      setSortOrder('desc')
+    }
+  }
+
+  const toggleArchive = (habitId: string) => {
+    setArchivedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(habitId)) next.delete(habitId)
+      else next.add(habitId)
+      return next
+    })
+    toast.success(
+      archivedIds.has(habitId) ? '习惯已取消归档' : '习惯已归档（可切换显示查看）',
+    )
   }
 
   return (
@@ -184,7 +304,7 @@ export function HabitsPage() {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <StatCard
                   label="习惯总数"
-                  value={habits.length}
+                  value={habits.length - archivedIds.size}
                   icon={Target}
                   color="text-indigo-500"
                   bg="bg-indigo-500/10"
@@ -214,6 +334,25 @@ export function HabitsPage() {
                   bg="bg-rose-500/10"
                   gradient="from-rose-500 to-pink-500"
                 />
+              </div>
+
+              {/* 近30天完成率 */}
+              <div className="flex items-center gap-3 rounded-xl border bg-card/50 px-4 py-3">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                  <Percent className="size-4 text-emerald-500" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">近30天打卡完成率</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all"
+                        style={{ width: `${completionRate}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-bold text-emerald-500">{completionRate}%</span>
+                  </div>
+                </div>
               </div>
 
               {/* 打卡热力图 */}
@@ -248,84 +387,238 @@ export function HabitsPage() {
                 </CardContent>
               </Card>
 
-              {/* 习惯列表 */}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {habits.map((habit) => (
-                  <Card
-                    key={habit.id}
-                    className="group overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              {/* 习惯关联分析 */}
+              <Card className="overflow-hidden">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <div className="flex size-6 items-center justify-center rounded-md bg-purple-500/10">
+                      <Brain className="size-3.5 text-purple-500" />
+                    </div>
+                    习惯关联分析
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 rounded-md"
+                    onClick={() => refetchCorrelation()}
+                    disabled={correlationLoading}
                   >
-                    <CardContent className="relative p-4">
-                      <div
-                        className="absolute inset-x-0 top-0 h-1"
-                        style={{ background: `linear-gradient(90deg, ${habit.color ?? '#7C3AED'}, transparent)` }}
-                      />
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div
-                            className="flex size-10 shrink-0 items-center justify-center rounded-xl text-xl"
-                            style={{ background: `${habit.color ?? '#7C3AED'}1a` }}
-                          >
-                            {habit.icon ?? '✨'}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold">{habit.name}</p>
-                            <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                              <Flame className="size-3.5 text-orange-500" />
-                              <span className="font-medium text-foreground">{habit.streak}</span>
-                              天连续 · 共 {habit.total} 次
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 rounded-md"
-                            onClick={() => openEdit(habit)}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 rounded-md text-destructive hover:text-destructive"
-                            onClick={() => setDeleting(habit)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
+                    <RefreshCw className={cn('size-3.5', correlationLoading && 'animate-spin')} />
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  {correlationLoading ? (
+                    <div className="space-y-3">
+                      <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                      <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+                      <div className="mt-3 space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-3 w-full animate-pulse rounded bg-muted" />
+                        ))}
                       </div>
-
-                      {habit.description && (
-                        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                          {habit.description}
-                        </p>
+                    </div>
+                  ) : correlation ? (
+                    <div className="space-y-3">
+                      <p className="text-sm leading-relaxed text-foreground/80">{correlation.report}</p>
+                      {correlation.pairs.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">高频组合</p>
+                          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                            {correlation.pairs.map(([a, b, count], i) => (
+                              <div
+                                key={i}
+                                className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-1.5 text-xs"
+                              >
+                                <span className="font-medium">{a}</span>
+                                <span className="text-muted-foreground">+</span>
+                                <span className="font-medium">{b}</span>
+                                <span className="ml-auto text-muted-foreground">{count}次</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
 
+              {/* 快速打卡区 */}
+              {todayPending.length > 0 && (
+                <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-orange-500">
+                    <Flame className="size-4" />
+                    今日待打卡
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {todayPending.map((h) => (
                       <Button
+                        key={h.id}
                         size="sm"
-                        variant={habit.doneToday ? 'default' : 'outline'}
-                        className={cn(
-                          'mt-3 w-full gap-1.5 rounded-lg',
-                          habit.doneToday && 'bg-emerald-600 hover:bg-emerald-700',
-                        )}
-                        onClick={() => checkinMutation.mutate(habit.id)}
-                        disabled={checkinMutation.isPending}
+                        variant="outline"
+                        className="gap-1.5 rounded-lg border-orange-500/30 hover:bg-orange-500/10"
+                        onClick={() => checkinMutation.mutate({ habitId: h.id })}
+                        disabled={pendingCheckinId === h.id}
                       >
-                        {checkinMutation.isPending ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : habit.doneToday ? (
-                          <Check className="size-4" />
+                        {pendingCheckinId === h.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
                         ) : (
-                          <CheckCheck className="size-4" />
+                          <Check className="size-3.5" />
                         )}
-                        {habit.doneToday ? '今日已完成' : '打卡'}
+                        {h.icon ?? '✨'}
+                        {h.name}
                       </Button>
-                    </CardContent>
-                  </Card>
-                ))}
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 搜索和排序栏 */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="搜索习惯..."
+                    className="h-9 rounded-lg pl-9"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  {(['name', 'streak', 'created'] as const).map((field) => (
+                    <Button
+                      key={field}
+                      variant={sortBy === field ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-9 gap-1 rounded-lg px-2.5 text-xs"
+                      onClick={() => toggleSort(field)}
+                    >
+                      <ArrowUpDown className="size-3" />
+                      {field === 'name' ? '名称' : field === 'streak' ? '连续' : '创建'}
+                    </Button>
+                  ))}
+                  <Button
+                    variant={showArchived ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-9 gap-1 rounded-lg px-2.5 text-xs"
+                    onClick={() => setShowArchived((v) => !v)}
+                  >
+                    <Archive className="size-3" />
+                    {showArchived ? '查看活跃' : '已归档'}
+                  </Button>
+                </div>
               </div>
+
+              {/* 习惯列表 */}
+              {visibleHabits.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  {searchQuery ? '没有匹配的习惯' : showArchived ? '没有已归档的习惯' : '暂无习惯'}
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleHabits.map((habit) => (
+                    <Card
+                      key={habit.id}
+                      className="group overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                    >
+                      <CardContent className="relative p-4">
+                        <div
+                          className="absolute inset-x-0 top-0 h-1"
+                          style={{
+                            background: `linear-gradient(90deg, ${habit.color ?? '#7C3AED'}, transparent)`,
+                          }}
+                        />
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className="flex size-10 shrink-0 items-center justify-center rounded-xl text-xl"
+                              style={{ background: `${habit.color ?? '#7C3AED'}1a` }}
+                            >
+                              {habit.icon ?? '✨'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
+                                {habit.name}
+                                <StreakBadge streak={habit.streak} />
+                              </p>
+                              <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                                <Flame className="size-3.5 text-orange-500" />
+                                <span className="font-medium text-foreground">{habit.streak}</span>
+                                天连续 · 共 {habit.total} 次
+                                {habit.streak >= 7 && (
+                                  <Trophy className="ml-1 size-3 text-amber-500" />
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 rounded-md"
+                              onClick={() => openEdit(habit)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 rounded-md"
+                              onClick={() => toggleArchive(habit.id)}
+                            >
+                              <Archive className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 rounded-md text-destructive hover:text-destructive"
+                              onClick={() => setDeleting(habit)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {habit.description && (
+                          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                            {habit.description}
+                          </p>
+                        )}
+
+                        <div className="mt-3 flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant={habit.doneToday ? 'default' : 'outline'}
+                            className={cn(
+                              'flex-1 gap-1.5 rounded-lg',
+                              habit.doneToday && 'bg-emerald-600 hover:bg-emerald-700',
+                            )}
+                            onClick={() => {
+                              if (habit.doneToday) {
+                                checkinMutation.mutate({ habitId: habit.id })
+                              } else {
+                                setCheckinNoteHabitId(habit.id)
+                                setCheckinNoteText('')
+                              }
+                            }}
+                            disabled={pendingCheckinId === habit.id}
+                          >
+                            {pendingCheckinId === habit.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : habit.doneToday ? (
+                              <Check className="size-4" />
+                            ) : (
+                              <CheckCheck className="size-4" />
+                            )}
+                            {habit.doneToday ? '今日已完成' : '打卡'}
+                          </Button>
+                          
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -447,6 +740,66 @@ export function HabitsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 打卡备注对话框 */}
+      <Dialog
+        open={!!checkinNoteHabitId}
+        onOpenChange={(o) => {
+          if (!o) {
+            setCheckinNoteHabitId(null)
+            setCheckinNoteText('')
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>打卡备注</DialogTitle>
+            <DialogDescription>
+              为「{habits?.find((h) => h.id === checkinNoteHabitId)?.name}」添加一条打卡备注（可选）
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={checkinNoteText}
+              onChange={(e) => setCheckinNoteText(e.target.value)}
+              placeholder="记录今天的状态或感想..."
+              maxLength={200}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (checkinNoteHabitId) {
+                  checkinMutation.mutate({ habitId: checkinNoteHabitId })
+                }
+                setCheckinNoteHabitId(null)
+                setCheckinNoteText('')
+              }}
+              disabled={pendingCheckinId === checkinNoteHabitId}
+            >
+              跳过
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (checkinNoteHabitId) {
+                  checkinMutation.mutate({
+                    habitId: checkinNoteHabitId,
+                    note: checkinNoteText.trim() || undefined,
+                  })
+                }
+                setCheckinNoteHabitId(null)
+                setCheckinNoteText('')
+              }}
+              disabled={pendingCheckinId === checkinNoteHabitId}
+            >
+              确认打卡
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

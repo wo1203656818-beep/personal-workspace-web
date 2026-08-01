@@ -1,9 +1,10 @@
 import { drizzle } from 'drizzle-orm/d1'
-import { eq, and, isNotNull } from 'drizzle-orm'
+import { eq, and, isNotNull, inArray, sql } from 'drizzle-orm'
 import * as schema from './schema'
 import type { Env } from './types'
 import { nowBeijing, todayCST } from './time'
 import { decrypt } from './crypto-utils'
+import { fetchWithTimeout } from './utils/fetch-timeout'
 import { logSync } from './sync-logger'
 import {
   fetchAllSources,
@@ -15,6 +16,7 @@ import { runMonitor, pushMonitorBrief } from './monitor-service'
 import { syncNotes, syncKnowledgeBase } from './ima-sync'
 import { fullSync } from './ms-sync'
 import { parseStoredTime, fmtDate } from './utils/helpers'
+import { runDailySuggestion, runWeeklyReport } from './daily-suggest'
 
 async function handleReminderPush(env: any, db: any): Promise<void> {
   try {
@@ -53,11 +55,15 @@ async function handleReminderPush(env: any, db: any): Promise<void> {
             if (pushed) continue
             let text = `⏰ 提醒：${task.title}`
             if (task.dueDate) text += `\n📅 截止：${task.dueDate}`
-            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-            }).catch(() => {})
+            await fetchWithTimeout(
+              `https://api.telegram.org/bot${botToken}/sendMessage`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+              },
+              10000,
+            ).catch(() => {})
             await env.CACHE.put(`reminder_pushed:${task.id}:${today}`, '1', {
               expirationTtl: 86400,
             })
@@ -67,6 +73,36 @@ async function handleReminderPush(env: any, db: any): Promise<void> {
     }
   } catch (e) {
     console.error('[cron] reminder push failed:', e)
+  }
+}
+
+async function handleQuickExpire(env: any, db: any): Promise<void> {
+  try {
+    const now = new Date().toISOString()
+    const expired = await db
+      .select({ id: schema.tasks.id })
+      .from(schema.tasks)
+      .where(
+        and(
+          eq(schema.tasks.isQuick, true),
+          eq(schema.tasks.isCompleted, false),
+          isNotNull(schema.tasks.quickDeadline),
+          sql`${schema.tasks.quickDeadline} <= ${now}`,
+        ),
+      )
+    if (expired.length > 0) {
+      const ids = expired.map((e: { id: string }) => e.id)
+      await db
+        .update(schema.tasks)
+        .set({
+          isQuick: false,
+          quickDeadline: null,
+          updatedAt: nowBeijing(),
+        })
+        .where(inArray(schema.tasks.id, ids))
+    }
+  } catch (e: any) {
+    console.error('[cron] quick expire failed:', e)
   }
 }
 
@@ -211,6 +247,7 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
       }
       await handleReminderPush(env, db)
       await handleRecurrence(env, db)
+      await handleQuickExpire(env, db)
       await handleNewsDigest(env)
     } else if (event.cron === '0 18 * * *') {
       // 每日 2 点（北京，UTC 18:00）：IMA 同步 → 生成今日简报 → 推送 Telegram
@@ -309,6 +346,38 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
       } catch (e: any) {
         console.error('[cron] monitor failed:', e)
         await logSync(env, 'monitor', { status: 'error', message: e.message })
+      }
+    } else if (event.cron === '0 22 * * *') {
+      // 每日 6 点（北京，UTC 22:00）：AI 代办建议推送（尊重 notify_daily_suggestions 开关）
+      const res = await runDailySuggestion(env)
+      if (res.ok) {
+        await logSync(env, 'daily_suggestion', {
+          status: 'success',
+          message: `[Cron] 每日代办建议已推送`,
+        })
+      } else if (res.error && !res.error.includes('关闭') && !res.error.includes('配置未完成')) {
+        await logSync(env, 'daily_suggestion', { status: 'error', message: res.error })
+      }
+    } else if (event.cron === '0 12 * * *') {
+      // 北京时间 20:00 晚间回顾
+      await fetchWithTimeout(
+        `https://${env.FRONTEND_URL}/api/evening-review/generate`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.CRON_SECRET}` },
+        },
+        30000,
+      )
+    } else if (event.cron === '0 1 * * 0') {
+      // 每周日 9 点（北京，UTC 1:00）：个人周报推送（尊重 notify_weekly_report 开关）
+      const res = await runWeeklyReport(env)
+      if (res.ok) {
+        await logSync(env, 'weekly_report', {
+          status: 'success',
+          message: `[Cron] 个人周报已推送`,
+        })
+      } else if (res.error && !res.error.includes('关闭') && !res.error.includes('配置未完成')) {
+        await logSync(env, 'weekly_report', { status: 'error', message: res.error })
       }
     } else {
       console.warn('[cron] unknown cron pattern:', event.cron)

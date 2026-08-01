@@ -143,7 +143,7 @@ subtasks.delete('/:id', async (c) => {
     await syncParentCompletion(db, existing[0].taskId)
   }
   c.executionCtx.waitUntil(
-    indexTarget(c, 'subtask', id, '').catch((e) =>
+    c.env.VECTORIZE.deleteByIds([`subtask:${id}`]).catch((e) =>
       console.error('[embed] subtask delete cleanup failed:', e?.message),
     ),
   )

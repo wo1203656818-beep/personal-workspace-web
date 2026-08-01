@@ -65,6 +65,18 @@ function SidebarCard({
   )
 }
 
+// Keyboard shortcut row
+function ShortcutRow({ label, keys }: { label: string; keys: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="truncate">{label}</span>
+      <kbd className="pointer-events-none inline-flex h-5 shrink-0 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+        {keys}
+      </kbd>
+    </div>
+  )
+}
+
 export function ConfigDrawer() {
   const { theme, setTheme } = useTheme()
   const { setOpen, state } = useSidebar()
@@ -136,19 +148,15 @@ export function ConfigDrawer() {
           {/* Keyboard shortcuts */}
           <div className="space-y-3">
             <Label className="text-sm font-medium">快捷键</Label>
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <div className="flex items-center justify-between">
-                <span>切换侧边栏</span>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                  Ctrl B
-                </kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>搜索</span>
-                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                  Ctrl K
-                </kbd>
-              </div>
+            <div className="space-y-1.5 text-sm text-muted-foreground">
+              <ShortcutRow label="命令面板" keys="⌘/Ctrl K" />
+              <ShortcutRow label="切换侧边栏" keys="⌘/Ctrl B" />
+              <ShortcutRow label="新建任务" keys="⌘/Ctrl N" />
+              <ShortcutRow label="新建笔记" keys="⌘/Ctrl ⇧ N" />
+              <ShortcutRow label="跳转日记" keys="⌘/Ctrl J" />
+              <ShortcutRow label="打开设置" keys="⌘/Ctrl ," />
+              <ShortcutRow label="切换主题" keys="⌘/Ctrl E" />
+              <ShortcutRow label="首页 / 任务 / 笔记 / 知识库" keys="⌘/Ctrl 1-4" />
             </div>
           </div>
         </div>

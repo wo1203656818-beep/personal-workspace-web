@@ -12,11 +12,13 @@ import {
 
 // 敏感键白名单：导出时剔除
 const SENSITIVE_KEYS = [
-  'password_hash',
-  'ms_refresh_token',
-  'ima_api_key',
-  'custom_ai_api_key',
   'ai_api_key',
+  'custom_ai_api_key',
+  'ima_api_key',
+  'ms_client_secret',
+  'ms_refresh_token',
+  'password_hash',
+  'telegram_bot_token',
 ]
 
 /**

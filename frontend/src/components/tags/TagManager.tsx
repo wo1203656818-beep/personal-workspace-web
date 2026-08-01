@@ -140,7 +140,7 @@ export function TagManager() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="size-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="size-5 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                   onClick={() => startEdit(tag)}
                 >
                   <Pencil className="size-3" />
@@ -148,7 +148,7 @@ export function TagManager() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="size-5 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="size-5 text-destructive md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                   onClick={() => {
                     if (confirm(`确定删除标签「${tag.name}」？`)) {
                       deleteMutation.mutate(tag.id)

@@ -13,7 +13,7 @@ export const kbApi = {
       if (title) fd.append('title', title)
       if (content) fd.append('content', content)
       xhr.open('POST', `${API_BASE}/kb/upload`)
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token')
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {

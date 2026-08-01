@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -8,6 +8,7 @@ import {
   BookOpen,
   Settings,
   ChevronsUpDown,
+  ChevronDown,
   User,
   LogOut,
   Moon,
@@ -22,6 +23,16 @@ import {
   Radar,
   BarChart3,
   Flame,
+  Timer,
+  Target,
+  Bookmark,
+  Wallet,
+  BookHeart,
+  Shield,
+  FolderOpen,
+  MoreHorizontal,
+  MessageSquare,
+  CalendarDays,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -61,50 +72,49 @@ import { useAuth } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
 import { settingsApi, imaApi } from '@/lib/api'
 import { exportAllData } from '@/lib/export'
+import { useGlobalHotkeys } from '@/hooks/use-global-hotkeys'
 import { toast } from 'sonner'
 
+import { cn } from '@/lib/utils'
 import { NavItem } from '@/components/layout/NavItem'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { SyncWarningBar } from '@/components/layout/SyncWarningBar'
 import { ChangePasswordDialog } from '@/components/layout/ChangePasswordDialog'
 import { MobileBottomNav } from '@/components/layout/MobileBottomNav'
+import { lazyImport } from '@/lib/lazy'
 
-const CommandPaletteDialog = lazy(() =>
+const CommandPaletteDialog = lazyImport(() =>
   import('@/components/layout/CommandPaletteDialog').then((m) => ({
     default: m.CommandPaletteDialog,
   })),
 )
 
-const navGroups = [
-  {
-    label: '核心',
-    items: [
-      { title: '首页', href: '/', icon: Home },
-      { title: '任务', href: '/tasks', icon: ListTodo },
-      { title: '笔记', href: '/notes', icon: FileText },
-      { title: '知识库', href: '/knowledge', icon: BookOpen },
-    ],
-  },
-  {
-    label: '更多',
-    items: [
-      { title: '资讯', href: '/news', icon: Newspaper },
-      { title: '监控', href: '/monitor', icon: Radar },
-      { title: '工具', href: '/tools', icon: Sparkles },
-      { title: '习惯', href: '/habits', icon: Flame },
-      { title: '分析', href: '/analysis', icon: BarChart3 },
-      { title: '设置', href: '/settings', icon: Settings },
-    ],
-  },
+const coreNavItems = [
+  { title: '首页', href: '/', icon: Home },
+  { title: '任务', href: '/tasks', icon: ListTodo },
+  { title: '笔记', href: '/notes', icon: FileText },
+  { title: '知识库', href: '/knowledge', icon: BookOpen },
+  { title: '日记', href: '/journal', icon: BookHeart },
+  { title: 'AI 聊天', href: '/chat', icon: MessageSquare },
+  { title: '日历', href: '/calendar', icon: CalendarDays },
 ]
 
-const navCommands = navGroups.flatMap((group) =>
-  group.items.map((item) => ({
-    label: item.title,
-    href: item.href,
-    icon: item.icon,
-  })),
-)
+const moreNavItems = [
+  { title: '专注', href: '/focus', icon: Timer },
+  { title: '习惯', href: '/habits', icon: Flame },
+  { title: '目标', href: '/goals', icon: Target },
+  { title: '收藏', href: '/collections', icon: Bookmark },
+  { title: '记录', href: '/records', icon: Wallet },
+  { title: '工具', href: '/tools', icon: Sparkles },
+  { title: '资讯', href: '/news', icon: Newspaper },
+  { title: '监控', href: '/monitor', icon: Radar },
+  { title: '分析', href: '/analysis', icon: BarChart3 },
+  { title: '备份', href: '/backup', icon: Shield },
+  { title: '文件', href: '/files', icon: FolderOpen },
+  { title: '设置', href: '/settings', icon: Settings },
+]
+
+const navCommands = [...coreNavItems, ...moreNavItems].map(({ title, ...rest }) => ({ label: title, ...rest }))
 
 function getBreadcrumbs(pathname: string): Array<{ label: string; href?: string }> {
   if (pathname === '/' || pathname === '') return [{ label: '首页' }]
@@ -113,9 +123,20 @@ function getBreadcrumbs(pathname: string): Array<{ label: string; href?: string 
   if (pathname.startsWith('/knowledge')) return [{ label: '知识库' }]
   if (pathname.startsWith('/news')) return [{ label: '资讯' }]
   if (pathname.startsWith('/habits')) return [{ label: '习惯' }]
+  if (pathname.startsWith('/focus')) return [{ label: '专注' }]
+  if (pathname.startsWith('/goals')) return [{ label: '目标' }]
+  if (pathname.startsWith('/collections')) return [{ label: '收藏' }]
+  if (pathname.startsWith('/records')) return [{ label: '记录' }]
   if (pathname.startsWith('/settings')) return [{ label: '设置' }]
+  if (pathname.startsWith('/journal')) return [{ label: '日记' }]
+  if (pathname.startsWith('/backup')) return [{ label: '备份' }]
+  if (pathname.startsWith('/files')) return [{ label: '文件' }]
+  if (pathname.startsWith('/chat')) return [{ label: 'AI 聊天' }]
+  if (pathname.startsWith('/calendar')) return [{ label: '日历' }]
   return [{ label: '首页' }]
 }
+
+type NavItemType = { title: string; href: string; icon: React.ComponentType<{ className?: string }> }
 
 export function AppLayout() {
   const location = useLocation()
@@ -126,6 +147,7 @@ export function AppLayout() {
   const [commandOpen, setCommandOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [moreExpanded, setMoreExpanded] = useState(false)
 
   const { data: msTodoStatus } = useQuery({
     queryKey: ['msTodoStatus'],
@@ -172,20 +194,14 @@ export function AppLayout() {
     })
   }
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault()
-        setCommandOpen((open) => !open)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  useGlobalHotkeys({
+    onOpenCommand: () => setCommandOpen((open) => !open),
+    onToggleTheme: () => setTheme(theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark'),
+  })
 
   const breadcrumbs = getBreadcrumbs(location.pathname)
 
-  const isNavActive = (item: (typeof navGroups)[number]['items'][number]) => {
+  const isNavActive = (item: NavItemType) => {
     if (item.href === '/') return location.pathname === '/'
     return location.pathname === item.href || location.pathname.startsWith(item.href)
   }
@@ -215,18 +231,44 @@ export function AppLayout() {
           </SidebarHeader>
           <SidebarSeparator />
           <SidebarContent className="gap-1 px-2">
-            {navGroups.map((group) => (
-              <SidebarGroup key={group.label}>
-                <SidebarGroupLabel className="text-xs font-medium text-muted-foreground/70">
-                  {group.label}
-                </SidebarGroupLabel>
-                <SidebarMenu>
-                  {group.items.map((item) => (
+            <SidebarGroup>
+              <SidebarGroupLabel className="text-xs font-medium text-muted-foreground/70">
+                核心
+              </SidebarGroupLabel>
+              <SidebarMenu>
+                {coreNavItems.map((item) => (
+                  <NavItem key={item.href} item={item} isActive={isNavActive(item)} />
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+            <SidebarSeparator />
+            <SidebarGroup>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setMoreExpanded(!moreExpanded)}
+                    className="text-muted-foreground"
+                    tooltip="更多功能"
+                  >
+                    <MoreHorizontal className="size-4" />
+                    <span>更多功能</span>
+                    <ChevronDown
+                      className={cn(
+                        'ml-auto size-4 transition-transform',
+                        moreExpanded && 'rotate-180',
+                      )}
+                    />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+              {moreExpanded && (
+                <SidebarMenu className="mt-1">
+                  {moreNavItems.map((item) => (
                     <NavItem key={item.href} item={item} isActive={isNavActive(item)} />
                   ))}
                 </SidebarMenu>
-              </SidebarGroup>
-            ))}
+              )}
+            </SidebarGroup>
           </SidebarContent>
           <SidebarSeparator />
           <SidebarFooter className="px-2 pb-3">
@@ -308,8 +350,10 @@ export function AppLayout() {
               onDismiss={() => setSyncWarningDismissed(true)}
             />
           )}
-          <div className="flex-1 overflow-auto pb-14 md:pb-0">
-            <Outlet />
+          <div className="flex-1 overflow-auto pb-16 md:pb-0">
+            <div className="page-enter">
+              <Outlet />
+            </div>
           </div>
         </SidebarInset>
       </div>

@@ -3,19 +3,23 @@ import { authApi } from './api'
 
 interface AuthContextValue {
   isAuthenticated: boolean
-  login: (password: string) => Promise<{ success: boolean; error?: string }>
+  login: (password: string, remember?: boolean) => Promise<{ success: boolean; error?: string }>
   logout: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token'))
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('token') || !!sessionStorage.getItem('token'))
 
-  const login = async (password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (password: string, remember: boolean = false): Promise<{ success: boolean; error?: string }> => {
     try {
       const data = await authApi.login(password)
-      localStorage.setItem('token', data.token)
+      if (remember) {
+        localStorage.setItem('token', data.token)
+      } else {
+        sessionStorage.setItem('token', data.token)
+      }
       setIsAuthenticated(true)
       return { success: true }
     } catch (err: unknown) {
@@ -27,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
     setIsAuthenticated(false)
   }
 

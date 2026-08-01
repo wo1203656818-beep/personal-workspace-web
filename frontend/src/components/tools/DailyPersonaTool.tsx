@@ -1,15 +1,24 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { entertainmentApi, type DailyPersona } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Loader2, RefreshCw, Music } from 'lucide-react'
+import { Loader2, RefreshCw, Music, ChevronDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { STALE_TIME } from '@/lib/query'
 
 export function DailyPersonaTool() {
   const [result, setResult] = useState<DailyPersona | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const mutation = useMutation({
     mutationFn: entertainmentApi.dailyPersona,
     onSuccess: setResult,
+  })
+
+  const { data: history } = useQuery({
+    queryKey: ['entertainment', 'daily-persona', 'history'],
+    queryFn: entertainmentApi.dailyPersonaHistory,
+    staleTime: STALE_TIME,
   })
 
   return (
@@ -71,6 +80,65 @@ export function DailyPersonaTool() {
           {mutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : null}
           生成今日人设
         </Button>
+      )}
+
+      {/* 历史记录 */}
+      {history && history.length > 0 && (
+        <div className="rounded-xl border bg-card/60">
+          <button
+            className="flex w-full items-center gap-2 px-4 py-3 text-left"
+            onClick={() => setHistoryOpen((v) => !v)}
+          >
+            <span className="text-sm font-medium">历史记录</span>
+            <span className="text-xs text-muted-foreground">{history.length} 条</span>
+            <ChevronDown
+              className={cn(
+                'ml-auto size-4 text-muted-foreground transition-transform',
+                historyOpen && 'rotate-180',
+              )}
+            />
+          </button>
+
+          {historyOpen && (
+            <div className="space-y-2 border-t px-4 pb-3 pt-2">
+              {history.map((item) => (
+                <div key={item.id} className="space-y-1 rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{item.date}</span>
+                    <div className="flex items-center gap-2">
+                      {item.luckyColor && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">幸运色</span>
+                          <div
+                            className="size-3 rounded-full border"
+                            style={{ backgroundColor: item.luckyColor }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm font-medium" style={{ color: item.luckyColor || undefined }}>
+                    {item.name}
+                  </p>
+                  <p className="text-sm leading-relaxed">
+                    {item.description.length > 100
+                      ? item.description.slice(0, 100) + '...'
+                      : item.description}
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {item.bgmStyle && (
+                      <span className="flex items-center gap-1">
+                        <Music className="size-3" />
+                        {item.bgmStyle}
+                      </span>
+                    )}
+                    {item.suitableFor && <span>适合: {item.suitableFor}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 // 任务列表
@@ -454,3 +454,125 @@ export const habitCheckinsHabitIdIdx = index('idx_habit_checkins_habit_id').on(
   habitCheckins.habitId,
   habitCheckins.date,
 )
+
+// ============ 专注（番茄钟）============
+
+// 专注会话记录
+export const focusSessions = sqliteTable('focus_sessions', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id'), // 关联任务（可选）
+  taskTitle: text('task_title'), // 冗余任务标题（任务可能被删）
+  minutes: integer('minutes').notNull(), // 计划专注分钟数
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  startedAt: text('started_at').notNull(), // ISO 时间（北京时间）
+  endedAt: text('ended_at'), // ISO 时间（实际结束）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const focusSessionsTaskIdIdx = index('idx_focus_sessions_task_id').on(focusSessions.taskId)
+
+// ============ 目标与倒数日 ============
+
+// 目标（OKR 风格，可关联习惯/任务量化）
+export const goals = sqliteTable('goals', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  description: text('description'),
+  icon: text('icon'), // emoji
+  color: text('color'),
+  // 量化进度（可选）：current/target + unit
+  currentValue: real('current_value'),
+  targetValue: real('target_value'),
+  unit: text('unit'),
+  targetDate: text('target_date'), // yyyy-MM-dd
+  status: text('status').notNull().default('active'), // active | done | archived
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+export const goalsStatusIdx = index('idx_goals_status').on(goals.status)
+
+// 倒数日/纪念日
+export const countdowns = sqliteTable('countdowns', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  date: text('date').notNull(), // yyyy-MM-dd（未来日期=倒数，过去=已过 N 天）
+  note: text('note'),
+  color: text('color'),
+  isYearly: integer('is_yearly', { mode: 'boolean' }).default(false),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// ============ 收藏（书单/链接）============
+
+// 书/影/剧清单
+export const mediaItems = sqliteTable('media_items', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(), // book | movie | tv | game
+  title: text('title').notNull(),
+  author: text('author'), // 作者/导演
+  status: text('status').notNull().default('want'), // want | doing | done
+  rating: integer('rating'), // 1-5
+  note: text('note'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+export const mediaItemsKindIdx = index('idx_media_items_kind').on(mediaItems.kind)
+
+// 收藏链接（剪藏稍后读）
+export const bookmarks = sqliteTable('bookmarks', {
+  id: text('id').primaryKey(),
+  url: text('url').notNull(),
+  title: text('title'),
+  summary: text('summary'),
+  tags: text('tags'), // JSON 数组
+  readStatus: text('read_status').notNull().default('unread'), // unread | read | archived
+  progress: real('progress').default(0), // 阅读进度 0-100
+  readingNote: text('reading_note'), // 阅读笔记
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+// ============ 记录（记账/健康）============
+
+// 记账流水
+export const expenses = sqliteTable('expenses', {
+  id: text('id').primaryKey(),
+  amount: real('amount').notNull(),
+  category: text('category').notNull().default('其他'),
+  note: text('note'),
+  date: text('date').notNull(), // yyyy-MM-dd（记账日期）
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const expensesDateIdx = index('idx_expenses_date').on(expenses.date)
+
+// 健康数值打卡（体重/血压/心率等）
+export const healthMetrics = sqliteTable('health_metrics', {
+  id: text('id').primaryKey(),
+  metric: text('metric').notNull(), // weight | blood_pressure | heart_rate | sleep_hours ...
+  value: real('value').notNull(),
+  unit: text('unit'),
+  note: text('note'),
+  date: text('date').notNull(), // yyyy-MM-dd
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+})
+
+export const healthMetricsIdx = index('idx_health_metrics_metric_date').on(
+  healthMetrics.metric,
+  healthMetrics.date,
+)
+
+// 日记/日志
+export const journalEntries = sqliteTable('journal_entries', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull().default(''),
+  content: text('content').notNull().default(''),
+  mood: text('mood'),
+  tags: text('tags'),
+  date: text('date').notNull(),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
+})
+
+export const journalEntriesDateIdx = index('idx_journal_entries_date').on(journalEntries.date)

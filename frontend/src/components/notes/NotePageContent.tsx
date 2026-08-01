@@ -1,7 +1,8 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 import type { Note } from '@/lib/api'
+import { lazyImport } from '@/lib/lazy'
 
-const MarkdownPreview = lazy(async () => {
+const MarkdownPreview = lazyImport(async () => {
   const [
     { default: ReactMarkdown },
     { default: remarkGfm },

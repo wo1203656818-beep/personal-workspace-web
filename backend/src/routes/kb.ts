@@ -259,7 +259,7 @@ kb.delete('/:id', async (c) => {
     }
   }
   // 清理知识库向量嵌入
-  await indexTarget(c, 'kb', id, '').catch((e) =>
+  await c.env.VECTORIZE.deleteByIds([`kb:${id}`]).catch((e) =>
     console.error('[embed] kb delete cleanup failed:', e?.message),
   )
   return c.json({ ok: true })

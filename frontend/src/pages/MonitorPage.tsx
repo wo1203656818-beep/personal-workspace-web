@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, Suspense } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,16 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectTrigger, SelectContent, SelectItem } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { monitorApi, type MonitorTarget, type MonitorBrief, type MonitorSnapshot } from '@/lib/api'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Plus,
   Trash2,
@@ -25,6 +35,20 @@ import {
   Video,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { lazyImport } from '@/lib/lazy'
+import { usePageTitle } from '@/hooks/use-page-title'
+
+const MonitorBriefContent = lazyImport(async () => {
+  const [{ default: ReactMarkdown }, { default: remarkGfm }] =
+    await Promise.all([import('react-markdown'), import('remark-gfm')])
+  return {
+    default: ({ content }: { content: string }) => (
+      <div className="prose prose-sm prose-invert max-w-none [overflow-wrap:anywhere] prose-headings:text-foreground prose-p:text-muted-foreground prose-li:text-muted-foreground prose-strong:text-foreground prose-code:text-foreground prose-pre:bg-muted">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    ),
+  }
+})
 
 const HOT_PLATFORMS = [
   { value: 'baidu', label: '百度热搜', available: true },
@@ -49,6 +73,7 @@ const COLORS = [
 ]
 
 export function MonitorPage() {
+  usePageTitle('监控')
   const qc = useQueryClient()
 
   // State
@@ -61,6 +86,7 @@ export function MonitorPage() {
   const [keyword, setKeyword] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [snapshotTab, setSnapshotTab] = useState<string>('all')
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // Queries
   const targetsQ = useQuery({ queryKey: ['monitor-targets'], queryFn: monitorApi.listTargets })
@@ -168,6 +194,7 @@ export function MonitorPage() {
       await monitorApi.deleteTarget(id)
       toast.success('已删除')
       qc.invalidateQueries({ queryKey: ['monitor-targets'] })
+      setDeleteConfirmId(null)
     } catch (e: any) {
       toast.error(`删除失败: ${e.message}`)
     }
@@ -300,7 +327,9 @@ export function MonitorPage() {
             </CardHeader>
             <CardContent>
               {'content' in (brief || {}) && brief && 'content' in brief && brief.content ? (
-                <div className="whitespace-pre-wrap text-sm leading-relaxed">{brief.content}</div>
+                <Suspense fallback={<div className="text-sm text-muted-foreground animate-pulse">加载简报...</div>}>
+                  <MonitorBriefContent content={brief.content} />
+                </Suspense>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   暂无简报。添加监控目标后点「立即运行」即可生成。
@@ -448,7 +477,7 @@ export function MonitorPage() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          onClick={() => handleDelete(t.id)}
+                          onClick={() => setDeleteConfirmId(t.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5 text-red-500" />
                         </Button>
@@ -605,6 +634,29 @@ export function MonitorPage() {
           </Card>
         </div>
       </ScrollArea>
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(o) => { if (!o) setDeleteConfirmId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除监控目标</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除此监控目标吗？此操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmId(null)}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteConfirmId) handleDelete(deleteConfirmId)
+              }}
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

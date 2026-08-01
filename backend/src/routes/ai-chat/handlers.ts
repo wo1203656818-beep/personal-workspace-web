@@ -231,7 +231,7 @@ async function handleDeleteTask(c: Context<{ Bindings: Env }>, db: any, args: an
     .where(eq(schema.tasks.id, id))
     .limit(1)
   const title = cur[0]?.title ?? '任务'
-  await indexTarget(c, 'task', id, '').catch(() => {})
+  await c.env.VECTORIZE.deleteByIds([`task:${id}`]).catch(() => {})
   await db.delete(schema.tasks).where(eq(schema.tasks.id, id))
   return { observation: `已删除：${title}`, refresh: true }
 }
@@ -574,7 +574,7 @@ async function handleDeleteSubtask(
   }
   if (!id) return { observation: `没找到要删除的子任务`, refresh: false }
   await db.delete(schema.subtasks).where(eq(schema.subtasks.id, id))
-  await indexTarget(c, 'subtask', id, '').catch(() => {})
+  await c.env.VECTORIZE.deleteByIds([`subtask:${id}`]).catch(() => {})
   return { observation: '已删除子任务', refresh: true }
 }
 
@@ -625,7 +625,7 @@ async function handleDeleteNote(c: Context<{ Bindings: Env }>, db: any, args: an
       refresh: false,
     }
   await db.delete(schema.imaNotes).where(eq(schema.imaNotes.id, id))
-  await indexTarget(c, 'note', id, '').catch(() => {})
+  await c.env.VECTORIZE.deleteByIds([`note:${id}`]).catch(() => {})
   return { observation: '已删除笔记', refresh: true }
 }
 

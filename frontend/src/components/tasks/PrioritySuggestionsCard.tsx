@@ -1,53 +1,51 @@
-import { Star, RefreshCw } from 'lucide-react'
+import { useMutation } from '@tanstack/react-query'
+import { Star, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { Task } from '@/lib/api'
+import { aiApi, type Task } from '@/lib/api'
+import { toast } from 'sonner'
 
 export function PrioritySuggestionsCard({
-  currentView,
-  priorityLoading,
-  priorityData,
   tasks,
   onSelectTask,
-  regeneratePriorityMutation,
 }: {
-  currentView: string
-  priorityLoading: boolean
-  priorityData: { suggestions: { taskId: string; reason: string }[]; cached?: boolean } | undefined
   tasks: Task[]
   onSelectTask: (taskId: string) => void
-  regeneratePriorityMutation: { mutate: () => void; isPending: boolean }
 }) {
-  if (currentView !== 'myday') return null
-  if (!priorityLoading && (!priorityData?.suggestions || priorityData.suggestions.length === 0))
-    return null
+  const generateMutation = useMutation({
+    mutationFn: aiApi.prioritySuggestions,
+    onError: () => toast.error('生成失败，请检查 AI 配置'),
+  })
+
+  const suggestions = generateMutation.data?.suggestions ?? []
+  const loading = generateMutation.isPending
 
   return (
-    <div className="mb-3 rounded-2xl border bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-3 md:p-4">
+    <div className="rounded-2xl border bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-3 md:p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
           <Star className="size-4" />
           AI 优先级建议
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={() => regeneratePriorityMutation.mutate()}
-          disabled={regeneratePriorityMutation.isPending || priorityLoading}
-          title="重新生成"
-        >
-          <RefreshCw
-            className={`size-3.5 ${regeneratePriorityMutation.isPending || priorityLoading ? 'animate-spin' : ''}`}
-          />
-        </Button>
+        {suggestions.length > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => generateMutation.mutate()}
+            disabled={loading}
+            title="重新生成"
+          >
+            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
-      <div className="mt-2 space-y-2">
-        {priorityLoading && !priorityData ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <RefreshCw className="size-3.5 animate-spin" /> 正在分析任务优先级...
-          </div>
-        ) : (
-          priorityData?.suggestions.map((s, idx) => {
+      {loading && !generateMutation.data ? (
+        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <RefreshCw className="size-3.5 animate-spin" /> 正在分析任务优先级...
+        </div>
+      ) : suggestions.length > 0 ? (
+        <div className="mt-2 space-y-2">
+          {suggestions.map((s, idx) => {
             const task = tasks.find((t) => t.id === s.taskId)
             if (!task) return null
             return (
@@ -65,9 +63,29 @@ export function PrioritySuggestionsCard({
                 </div>
               </div>
             )
-          })
-        )}
-      </div>
+          })}
+        </div>
+      ) : (
+        <div className="mt-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full gap-1"
+            onClick={() => generateMutation.mutate()}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" /> 正在分析...
+              </>
+            ) : (
+              <>
+                <Star className="size-3.5" /> 生成优先级建议
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

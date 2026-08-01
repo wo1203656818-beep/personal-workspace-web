@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Square, Trash2, Pin, Tag, X, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -27,8 +27,9 @@ export function ChatHistorySidebar({
   const [tagInput, setTagInput] = useState('')
   const [search, setSearch] = useState('')
 
-  const filtered = sessions.filter(
-    (s) => !search || s.title?.toLowerCase().includes(search.toLowerCase()),
+  const filtered = useMemo(
+    () => sessions.filter((s) => !search || s.title?.toLowerCase().includes(search.toLowerCase())),
+    [sessions, search],
   )
 
   const openTagPopover = (s: ChatSessionPreview) => {

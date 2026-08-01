@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { HTTPError } from 'ky'
-import { Sun, Star, Sparkles, X, Calendar, Trash2, FileText, Zap, Gauge, Timer } from 'lucide-react'
+import { Sun, Star, Sparkles, X, Calendar, Trash2, FileText, Zap, Gauge, Timer, Play, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
-import { tasksApi, subtasksApi, aiApi, type Task, type TaskList } from '@/lib/api'
+import { tasksApi, subtasksApi, aiApi, tagsApi, type Task, type TaskList, type Tag } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -70,6 +71,8 @@ export function TaskDetailDialog({
   const [insertAtPosition, setInsertAtPosition] = useState<number | null>(null)
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false)
   const [showDecisionTimer, setShowDecisionTimer] = useState(false)
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([])
+  const [suggestingTags, setSuggestingTags] = useState(false)
 
   const { data: task } = useQuery<Task>({
     queryKey: ['task', taskId],
@@ -87,6 +90,18 @@ export function TaskDetailDialog({
     () => [...subtasks].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [subtasks],
   )
+
+  const { data: allTags = [] } = useQuery<Tag[]>({
+    queryKey: ['tags'],
+    queryFn: tagsApi.list,
+  })
+
+  const { data: timeEstimate } = useQuery({
+    queryKey: ['task-estimate', taskId],
+    queryFn: () => tasksApi.estimateTime(task?.title || '', task?.note || undefined),
+    enabled: !!taskId && !!task && !task.isCompleted,
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     if (task) setNoteDraft(task.note || '')
@@ -120,6 +135,18 @@ export function TaskDetailDialog({
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
       queryClient.invalidateQueries({ queryKey: ['task', taskId] })
     },
+  })
+
+  const quickActionMutation = useMutation({
+    mutationFn: ({ id, mark }: { id: string; mark: boolean }) =>
+      mark ? tasksApi.markQuick(id) : tasksApi.unmarkQuick(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', 'quick-pool'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      toast.success('已更新快速行动状态')
+    },
+    onError: () => toast.error('操作失败'),
   })
 
   const addSubtaskMutation = useMutation({
@@ -210,6 +237,16 @@ export function TaskDetailDialog({
     },
   })
 
+  const startMutation = useMutation({
+    mutationFn: () => tasksApi.start(taskId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['task', taskId] })
+      toast.success('开始执行任务')
+    },
+    onError: () => toast.error('操作失败'),
+  })
+
   const abandonMutation = useMutation({
     mutationFn: () => tasksApi.abandon(taskId!),
     onSuccess: () => {
@@ -220,6 +257,20 @@ export function TaskDetailDialog({
     },
     onError: (err: Error) => toast.error(`放弃失败: ${err.message}`),
   })
+
+  const handleSuggestTags = async () => {
+    if (!task) return
+    setSuggestingTags(true)
+    try {
+      const res = await tasksApi.suggestTags(task.title, task.note || undefined)
+      setSuggestedTags(res.tags)
+    } catch (err) {
+      toast.error('AI 标签建议失败')
+      console.error('[suggestTags]', err)
+    } finally {
+      setSuggestingTags(false)
+    }
+  }
 
   if (!task) return null
 
@@ -287,6 +338,50 @@ export function TaskDetailDialog({
 
         <div className="space-y-3 rounded-xl bg-muted/30 p-4">
           <TagAssignment targetType="task" targetId={task.id} />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs h-7"
+              onClick={handleSuggestTags}
+              disabled={suggestingTags}
+            >
+              <Sparkles className="size-3 text-purple-500" />
+              {suggestingTags ? 'AI 建议中...' : 'AI 建议'}
+            </Button>
+            {suggestedTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {suggestedTags.map((tagName) => {
+                  const tag = allTags.find((t) => t.name === tagName)
+                  return (
+                    <Badge
+                      key={tagName}
+                      variant="secondary"
+                      className="gap-1 px-2 py-0.5 text-xs cursor-pointer hover:opacity-80"
+                      style={tag ? {
+                        backgroundColor: tag.color + '20',
+                        color: tag.color,
+                        border: `1px solid ${tag.color}40`,
+                      } : undefined}
+                      onClick={() => {
+                        if (tag) {
+                          tagsApi.assign({ tagId: tag.id, targetType: 'task', targetId: task.id })
+                            .then(() => {
+                              queryClient.invalidateQueries({ queryKey: ['tags', 'task', task.id] })
+                              setSuggestedTags((prev) => prev.filter((t) => t !== tagName))
+                            })
+                            .catch((err) => toast.error(`添加标签失败: ${err.message}`))
+                        }
+                      }}
+                    >
+                      {tag && <span className="size-1.5 rounded-full" style={{ backgroundColor: tag.color }} />}
+                      {tagName}
+                    </Badge>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-3 rounded-xl bg-muted/30 p-4">
@@ -457,6 +552,20 @@ export function TaskDetailDialog({
           />
         </div>
 
+        {timeEstimate?.estimatedDays && (
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Clock className="size-4" /> 预估完成时间
+            </div>
+            <p className="text-sm">
+              预计 <strong>{timeEstimate.estimatedDays}</strong> 天完成
+            </p>
+            {timeEstimate.reason && (
+              <p className="text-xs text-muted-foreground">{timeEstimate.reason}</p>
+            )}
+          </div>
+        )}
+
         <div className="space-y-1 rounded-xl bg-muted/30 p-2">
           <Button
             variant="ghost"
@@ -490,12 +599,32 @@ export function TaskDetailDialog({
           </Button>
           <Button
             variant="ghost"
+            className="w-full justify-start gap-2"
+            onClick={() => quickActionMutation.mutate({ id: task.id, mark: !task.quickDeadline })}
+            disabled={quickActionMutation.isPending}
+          >
+            <Zap className={cn('size-4', task.quickDeadline && 'text-orange-400')} />
+            {task.quickDeadline ? '取消快速行动' : '标记为快速行动（2分钟）'}
+          </Button>
+          <Button
+            variant="ghost"
             className="w-full justify-start gap-2 text-destructive hover:bg-destructive/10"
             onClick={() => onDelete(task.id)}
           >
             <Trash2 className="size-4" />
             删除任务
           </Button>
+          {task.status === 'committed' && (
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 text-green-600 hover:bg-green-600/10"
+              onClick={() => startMutation.mutate()}
+              disabled={startMutation.isPending}
+            >
+              <Play className="size-4" />
+              {startMutation.isPending ? '开始中...' : '开始执行'}
+            </Button>
+          )}
           <Button
             variant="ghost"
             className="w-full justify-start gap-2 text-orange-500 hover:bg-orange-500/10"

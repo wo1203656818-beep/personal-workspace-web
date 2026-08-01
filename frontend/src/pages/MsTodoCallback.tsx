@@ -5,10 +5,12 @@ import { HTTPError } from 'ky'
 import { settingsApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 type State = 'loading' | 'success' | 'error'
 
 export function MsTodoCallback() {
+  usePageTitle('OAuth 回调')
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [state, setState] = useState<State>('loading')
@@ -57,7 +59,7 @@ export function MsTodoCallback() {
   }, [searchParams, navigate])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
         <CardContent className="flex flex-col items-center gap-4 pt-8 pb-8 text-center">
           {state === 'loading' && (

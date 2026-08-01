@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
@@ -12,6 +12,11 @@ import {
   Star,
   BookOpen,
   Quote,
+  Download,
+  Share2,
+  Image,
+  CalendarRange,
+  Inbox,
 } from 'lucide-react'
 import { EmptyState } from '@/components/EmptyState'
 import {
@@ -35,6 +40,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -113,6 +119,10 @@ export function AnalysisPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [currentReport, setCurrentReport] = useState<{ report: string; week: string } | null>(null)
+  const [comparePeriod, setComparePeriod] = useState<'none' | 'previous' | 'same_last_year'>('none')
+  const [hasAnimated, setHasAnimated] = useState(false)
+  const chartRef = useRef<HTMLDivElement>(null)
+  const [shareLoading, setShareLoading] = useState(false)
 
   const effectiveRange =
     range === 'custom' && customStart && customEnd ? `custom:${customStart}:${customEnd}` : range
@@ -167,6 +177,73 @@ export function AnalysisPage() {
     [data],
   )
 
+  // 首次加载动画
+  useEffect(() => {
+    if (data && !hasAnimated) {
+      const timer = setTimeout(() => setHasAnimated(true), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [data, hasAnimated])
+
+  // 下载分析报告
+  const handleDownloadReport = useCallback(() => {
+    if (!data?.analysis) return
+    const blob = new Blob([data.analysis], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ai-analysis-${new Date().toISOString().slice(0, 10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('分析报告已下载')
+  }, [data])
+
+  // 分享分析
+  const handleShareAnalysis = useCallback(() => {
+    if (!data?.analysis) return
+    setShareLoading(true)
+    navigator.clipboard.writeText(data.analysis).then(() => {
+      toast.success('分析报告已复制到剪贴板')
+    }).catch(() => {
+      toast.error('复制失败，请手动复制')
+    }).finally(() => {
+      setShareLoading(false)
+    })
+  }, [data])
+
+  // 图表导出为图片
+  const handleExportChart = useCallback(() => {
+    if (!chartRef.current) return
+    try {
+      const svgEl = chartRef.current.querySelector('svg')
+      if (!svgEl) {
+        toast.error('未找到可导出的图表')
+        return
+      }
+      const svgData = new XMLSerializer().serializeToString(svgEl)
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      const img = document.createElement('img')
+      img.onload = () => {
+        canvas.width = img.width * 2
+        canvas.height = img.height * 2
+        ctx!.scale(2, 2)
+        ctx!.fillStyle = '#ffffff'
+        ctx!.fillRect(0, 0, canvas.width, canvas.height)
+        ctx!.drawImage(img, 0, 0)
+        const a = document.createElement('a')
+        a.href = canvas.toDataURL('image/png')
+        a.download = `chart-${new Date().toISOString().slice(0, 10)}.png`
+        a.click()
+        toast.success('图表已导出为图片')
+      }
+      img.onerror = () => toast.error('导出失败')
+      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
+    } catch {
+      toast.error('导出失败')
+    }
+  }, [])
+
   // 每日完成趋势 + 热力图数据
   const trendData = useMemo(() => {
     const dailyRaw: DailyItem[] = Array.isArray(data?.stats?.dailyCompleted)
@@ -210,7 +287,21 @@ export function AnalysisPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* 对比周期选择 */}
+          {data && !isEmpty && (
+            <Select value={comparePeriod} onValueChange={(v) => setComparePeriod(v as typeof comparePeriod)}>
+              <SelectTrigger size="sm" className="w-28 rounded-lg">
+                <CalendarRange className="size-3.5 mr-1" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不对比</SelectItem>
+                <SelectItem value="previous">对比上期</SelectItem>
+                <SelectItem value="same_last_year">同比去年</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <Select value={range} onValueChange={setRange} disabled={!enabled}>
             <SelectTrigger size="sm" className="w-28 rounded-lg">
               <SelectValue />
@@ -265,18 +356,39 @@ export function AnalysisPage() {
               </>
             )}
           </Button>
+          {data?.analysis && (
+            <>
+              <Button size="sm" variant="ghost" onClick={handleDownloadReport} className="rounded-lg gap-1">
+                <Download className="size-4" />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={handleShareAnalysis} disabled={shareLoading} className="rounded-lg gap-1">
+                <Share2 className="size-4" />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={handleExportChart} className="rounded-lg gap-1">
+                <Image className="size-4" />
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-4 md:p-6">
           {isFetching && (
-            <div className="empty-state py-20">
-              <Loader2 className="mb-4 size-12 animate-spin text-primary" />
-              <p className="text-base font-medium">AI 正在分析数据...</p>
-              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-                请稍候，正在生成图表与洞察报告
-              </p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="overflow-hidden">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <Skeleton className="h-8 w-12" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      <Skeleton className="size-9 shrink-0 rounded-xl" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
 
@@ -313,7 +425,7 @@ export function AnalysisPage() {
 
           {/* 图表区域 */}
           {data?.stats && !isEmpty && !isFetching && (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div ref={chartRef} className={cn("grid gap-4 md:grid-cols-2", hasAnimated && "animate-in fade-in duration-500")}>
               {/* 任务完成率 */}
               <Card className="overflow-hidden">
                 <CardHeader className="pb-2">
@@ -325,30 +437,37 @@ export function AnalysisPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <PieChart>
-                      <Pie
-                        data={completionData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={44}
-                        outerRadius={72}
-                        dataKey="value"
-                        stroke="none"
-                        label={(entry: { name?: string; value?: number }) =>
-                          `${entry.name ?? ''} ${entry.value ?? 0}`
-                        }
-                      >
-                        {completionData.map((_, index) => (
-                          <Cell
-                            key={index}
-                            fill={index === 0 ? CHART_COLORS.success : CHART_COLORS.slate}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {completionData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie
+                          data={completionData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={44}
+                          outerRadius={72}
+                          dataKey="value"
+                          stroke="none"
+                          label={(entry: { name?: string; value?: number }) =>
+                            `${entry.name ?? ''} ${entry.value ?? 0}`
+                          }
+                        >
+                          {completionData.map((_, index) => (
+                            <Cell
+                              key={index}
+                              fill={index === 0 ? CHART_COLORS.success : CHART_COLORS.slate}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Inbox className="size-8 mb-2 opacity-50" />
+                      <p className="text-xs">暂无数据</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -363,36 +482,43 @@ export function AnalysisPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={categoryData}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke="hsl(var(--color-border))"
-                      />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                        allowDecimals={false}
-                      />
-                      <Tooltip cursor={{ radius: 4 }} />
-                      <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                        {categoryData.map((_, index) => (
-                          <Cell
-                            key={index}
-                            fill={index === 0 ? CHART_COLORS.primary : CHART_COLORS.warning}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {categoryData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={categoryData}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke="hsl(var(--color-border))"
+                        />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip cursor={{ radius: 4 }} />
+                        <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                          {categoryData.map((_, index) => (
+                            <Cell
+                              key={index}
+                              fill={index === 0 ? CHART_COLORS.primary : CHART_COLORS.warning}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Inbox className="size-8 mb-2 opacity-50" />
+                      <p className="text-xs">暂无数据</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -446,7 +572,10 @@ export function AnalysisPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : (
-                    <p className="py-10 text-center text-xs text-muted-foreground">暂无趋势数据</p>
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Inbox className="size-8 mb-2 opacity-50" />
+                      <p className="text-xs">暂无趋势数据</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -478,7 +607,10 @@ export function AnalysisPage() {
                       />
                     </div>
                   ) : (
-                    <p className="py-10 text-center text-xs text-muted-foreground">暂无贡献数据</p>
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Inbox className="size-8 mb-2 opacity-50" />
+                      <p className="text-xs">暂无贡献数据</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -494,24 +626,31 @@ export function AnalysisPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={overviewData}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke="hsl(var(--color-border))"
-                      />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fontSize: 12 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <Tooltip cursor={{ radius: 4 }} />
-                      <Bar dataKey="value" fill={CHART_COLORS.primaryLight} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {overviewData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={overviewData}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke="hsl(var(--color-border))"
+                        />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12 }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                        <Tooltip cursor={{ radius: 4 }} />
+                        <Bar dataKey="value" fill={CHART_COLORS.primaryLight} radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                      <Inbox className="size-8 mb-2 opacity-50" />
+                      <p className="text-xs">暂无数据</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -521,12 +660,24 @@ export function AnalysisPage() {
           {data?.analysis && !isEmpty && !isFetching && (
             <Card className="overflow-hidden">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <div className="icon-badge size-8 bg-gradient-to-br from-violet-500 to-fuchsia-500">
-                    <Quote className="size-4" />
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <div className="icon-badge size-8 bg-gradient-to-br from-violet-500 to-fuchsia-500">
+                      <Quote className="size-4" />
+                    </div>
+                    AI 分析报告
+                  </CardTitle>
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" variant="ghost" onClick={handleDownloadReport} className="rounded-lg gap-1">
+                      <Download className="size-4" />
+                      <span className="hidden sm:inline text-xs">下载</span>
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={handleShareAnalysis} disabled={shareLoading} className="rounded-lg gap-1">
+                      <Share2 className="size-4" />
+                      <span className="hidden sm:inline text-xs">分享</span>
+                    </Button>
                   </div>
-                  AI 分析报告
-                </CardTitle>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="relative rounded-xl bg-muted/40 p-5">

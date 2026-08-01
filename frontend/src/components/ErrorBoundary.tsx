@@ -37,7 +37,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 function ErrorFallback({ error }: { error?: Error }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 p-8 text-center">
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-6 p-8 text-center">
       <TriangleAlert className="size-16 text-destructive" />
       <div className="space-y-2">
         <h1 className="text-2xl font-bold tracking-tight">出错了</h1>

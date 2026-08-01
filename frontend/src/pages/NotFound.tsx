@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Ghost } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { usePageTitle } from '@/hooks/use-page-title'
 
 export function NotFound() {
+  usePageTitle('404')
   return (
     <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-6 p-8 text-center">
       <Ghost className="size-20 text-muted-foreground" />
