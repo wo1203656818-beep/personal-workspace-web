@@ -141,13 +141,27 @@ function getBreadcrumbs(pathname: string): Array<{ label: string; href?: string 
 
 type NavItemType = { title: string; href: string; icon: React.ComponentType<{ className?: string }> }
 
+function SidebarCloseButton() {
+  const { setOpenMobile } = useSidebar()
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-8 md:hidden"
+      onClick={() => setOpenMobile(false)}
+      aria-label="关闭菜单"
+    >
+      <X className="size-4" />
+    </Button>
+  )
+}
+
 export function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const { logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
-  const { setOpenMobile } = useSidebar()
   const [commandOpen, setCommandOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
@@ -232,15 +246,7 @@ export function AppLayout() {
                       </div>
                     </Link>
                   </SidebarMenuButton>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 md:hidden"
-                    onClick={() => setOpenMobile(false)}
-                    aria-label="关闭菜单"
-                  >
-                    <X className="size-4" />
-                  </Button>
+                  <SidebarCloseButton />
                 </div>
               </SidebarMenuItem>
             </SidebarMenu>
