@@ -34,13 +34,16 @@ export function QuickActionPool() {
   if (quickTasks.length === 0) return null
 
   return (
-    <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <Zap className="size-4 text-orange-500" />
+    <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-500/[0.05] to-orange-600/[0.03]" />
+      <div className="relative flex items-center gap-2">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400">
+          <Zap className="size-4" />
+        </div>
         <p className="text-sm font-medium">快速行动池</p>
         <span className="text-xs text-muted-foreground">2分钟内完成</span>
       </div>
-      <div className="space-y-2">
+      <div className="relative mt-3 space-y-2">
         {quickTasks.map((task) => (
           <QuickTaskRow
             key={task.id}
@@ -85,12 +88,12 @@ function QuickTaskRow({
   const color = isExpired ? 'text-red-500' : remaining < 30 ? 'text-yellow-500' : 'text-green-500'
 
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-background p-2">
-      <Button size="sm" variant="ghost" className="size-8 p-0" onClick={onComplete}>
-        <CheckCircle className="size-4" />
+    <div className="group flex items-center gap-2 rounded-lg border bg-card p-2 transition-all duration-200 hover:-translate-y-0.5 hover:bg-accent/40 hover:shadow-sm">
+      <Button size="sm" variant="ghost" className="size-8 min-touch-target p-0" onClick={onComplete}>
+        <CheckCircle className="size-4 text-green-600" />
       </Button>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm truncate">{task.title}</p>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">{task.title}</p>
       </div>
       <div className={`flex items-center gap-1 text-xs font-mono ${color}`}>
         <Clock className="size-3" />
@@ -98,7 +101,7 @@ function QuickTaskRow({
           ? '已过期'
           : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`}
       </div>
-      <Button size="sm" variant="ghost" className="text-xs h-6 px-2" onClick={onUnmark}>
+      <Button size="sm" variant="ghost" className="h-8 min-touch-target px-2 text-xs" onClick={onUnmark}>
         取消
       </Button>
     </div>

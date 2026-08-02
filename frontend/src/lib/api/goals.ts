@@ -57,6 +57,8 @@ export const goalsApi = {
     list: () => api.get('goals/countdowns').json<Countdown[]>(),
     create: (data: { title: string; date: string; note?: string; color?: string; isYearly?: boolean }) =>
       api.post('goals/countdowns', { json: data }).json<Countdown>(),
+    update: (id: string, data: Partial<{ title: string; date: string; note?: string; color?: string; isYearly?: boolean }>) =>
+      api.put(`goals/countdowns/${id}`, { json: data }).json<Countdown>(),
     remove: (id: string) => api.delete(`goals/countdowns/${id}`).json<{ ok: boolean }>(),
   },
 }

@@ -162,8 +162,10 @@ export const aiApi = {
   getChatSession: (id: string) =>
     api
       .get(`ai/chat/sessions/${id}`)
-      .json<{ session: { id: string; title: string } | null; messages: ChatMessageRow[] }>(),
+      .json<{ session: { id: string; title: string; configId?: string | null } | null; messages: ChatMessageRow[] }>(),
   deleteChatSession: (id: string) => api.delete(`ai/chat/sessions/${id}`).json<{ ok: boolean }>(),
-  updateChatSession: (id: string, patch: { title?: string; tags?: string[]; pinned?: boolean }) =>
-    api.patch(`ai/chat/sessions/${id}`, { json: patch }).json<{ ok: boolean }>(),
+  updateChatSession: (
+    id: string,
+    patch: { title?: string; tags?: string[]; pinned?: boolean; configId?: string | null },
+  ) => api.patch(`ai/chat/sessions/${id}`, { json: patch }).json<{ ok: boolean }>(),
 }

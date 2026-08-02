@@ -148,6 +148,16 @@ async function handleRecurrence(env: any, db: any): Promise<void> {
         const nmAdj = nm > 11 ? 0 : nm
         const maxD = new Date(Date.UTC(ny, nmAdj + 1, 0)).getUTCDate()
         nextDate = `${ny}-${String(nmAdj + 1).padStart(2, '0')}-${String(Math.min(day, maxD)).padStart(2, '0')}`
+      } else if (raw === 'yearly') {
+        const y = cur.getUTCFullYear() + 1
+        const m = cur.getUTCMonth() + 1
+        const d = cur.getUTCDate()
+        nextDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      } else if (raw.startsWith('every:')) {
+        const n = Math.max(1, parseInt(raw.split(':')[1]) || 1)
+        const d = new Date(cur.getTime())
+        d.setUTCDate(d.getUTCDate() + n)
+        nextDate = fmtDate(d)
       }
       if (!nextDate) continue
       await db.insert(schema.tasks).values({

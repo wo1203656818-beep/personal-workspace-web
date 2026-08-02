@@ -354,18 +354,19 @@ export function RecordsPage() {
     setExpenseOpen(true)
   }
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-amber-500 to-orange-500 md:size-10">
             <Wallet className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">记录</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">记录</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">记账与健康指数</p>
           </div>
         </div>
       </div>
+      <div className="page-content-wide">
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-4 md:p-6">
@@ -380,7 +381,7 @@ export function RecordsPage() {
             </TabsList>
 
             <TabsContent value="expenses" className="mt-4 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
                   本月支出 <span className="font-semibold text-foreground">¥{monthTotal.toFixed(2)}</span>
                 </p>
@@ -662,9 +663,9 @@ export function RecordsPage() {
                             <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">{e.category}</Badge>
                             <span className="font-semibold text-sm">¥{e.amount.toFixed(2)}</span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {e.note && <span className="text-xs text-muted-foreground">{e.note}</span>}
-                            <span className="text-[10px] text-muted-foreground">{e.date}</span>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 mt-0.5">
+                            {e.note && <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground">{e.note}</span>}
+                            <span className="shrink-0 text-[10px] text-muted-foreground">{e.date}</span>
                           </div>
                         </div>
                         <div className="flex gap-1">
@@ -692,8 +693,8 @@ export function RecordsPage() {
             </TabsContent>
 
             <TabsContent value="health" className="mt-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Select value={healthMetric} onValueChange={(v) => setHealthMetric(v)}>
                     <SelectTrigger className="h-8 w-32 rounded-lg text-xs">
                       <SelectValue />
@@ -872,9 +873,9 @@ export function RecordsPage() {
                             <span className="font-semibold text-sm">{s.value}</span>
                             {healthData.raw[0]?.unit && <span className="text-xs text-muted-foreground">{healthData.raw[0].unit}</span>}
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {s.note && <span className="text-xs text-muted-foreground">{s.note}</span>}
-                            <span className="text-[10px] text-muted-foreground">{s.date}</span>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 mt-0.5">
+                            {s.note && <span className="min-w-0 max-w-full truncate text-xs text-muted-foreground">{s.note}</span>}
+                            <span className="shrink-0 text-[10px] text-muted-foreground">{s.date}</span>
                           </div>
                         </div>
                         <div className="flex gap-1">
@@ -1085,6 +1086,7 @@ export function RecordsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   )
 }

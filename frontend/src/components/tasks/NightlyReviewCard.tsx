@@ -17,40 +17,47 @@ export function NightlyReviewCard() {
   })
 
   return (
-    <div className="rounded-xl border p-4 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-500/[0.04] to-violet-500/[0.04]" />
+      <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Moon className="size-4 text-indigo-500" />
-          <p className="text-sm font-medium">睡前回顾</p>
+          <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+            <Moon className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">睡前回顾</p>
+            <p className="text-xs text-muted-foreground">温柔地结束这一天</p>
+          </div>
         </div>
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 px-2"
+          className="size-8 p-0"
           onClick={() => generateMutation.mutate()}
           disabled={generateMutation.isPending}
         >
-          <RefreshCw className={`size-3 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`size-4 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
         </Button>
       </div>
 
       {review ? (
-        <div className="space-y-2">
-          <div className="flex gap-3 text-xs text-muted-foreground">
+        <div className="relative mt-3 space-y-2">
+          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
             <span>完成 {review.stats.completed} 个</span>
             <span>待办 {review.stats.pending} 个</span>
             <span>心情 {review.stats.mood}</span>
             <span>决策 {review.stats.decisions} 次</span>
           </div>
           <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-sm whitespace-pre-wrap">{review.review}</p>
+            <p className="whitespace-pre-wrap text-sm">{review.review}</p>
           </div>
         </div>
       ) : (
-        <div className="text-center py-4">
+        <div className="relative py-4 text-center">
           <Button
             variant="outline"
             size="sm"
+            className="border-indigo-500/20 text-indigo-600 hover:bg-indigo-500/5 hover:text-indigo-700"
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending}
           >

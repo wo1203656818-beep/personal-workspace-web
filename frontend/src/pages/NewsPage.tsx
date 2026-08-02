@@ -147,6 +147,20 @@ function NewsPage() {
     toast.success(`已标记 ${ids.length} 条为已读`)
   }
 
+  const toggleRead = (id: string) => {
+    const newRead = new Set(getReadItems())
+    if (newRead.has(id)) {
+      newRead.delete(id)
+      toast.success('已标记为未读')
+    } else {
+      newRead.add(id)
+    }
+    localStorage.setItem(READ_KEY, JSON.stringify([...newRead]))
+    setReadItems(newRead)
+  }
+
+  const unreadCount = items.filter((i) => !readItems.has(i.id)).length
+
   const { data: feedbackList } = useQuery({
     queryKey: ['news', 'feedback'],
     queryFn: newsApi.feedbackList,
@@ -372,28 +386,33 @@ function NewsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="page-layout">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-blue-500 to-indigo-500 md:size-10">
             <Newspaper className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
-              资讯
-              {todayCount > 0 && (
-                <span className="ml-2 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 align-middle">
-                  今日 {todayCount}
-                </span>
-              )}
-            </h1>
+              <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">
+                资讯
+                {unreadCount > 0 && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 align-middle">
+                    未读 {unreadCount}
+                  </span>
+                )}
+                {todayCount > 0 && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400 align-middle">
+                    今日 {todayCount}
+                  </span>
+                )}
+              </h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               全网爬虫实时抓取 · AI 自动评分筛选 · {total} 条
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="page-header-right">
           {/* 桌⾯端显示全部按钮 */}
           <div className="hidden md:flex md:gap-2">
             <Button
@@ -404,9 +423,9 @@ function NewsPage() {
                 localStorage.setItem('news-compact-view', String(next))
                 return next
               })}
-              className="gap-2"
+              className="h-8 gap-2 rounded-lg sm:h-9"
             >
-              <List className="w-4 h-4" />
+              <List className="size-3.5 sm:size-4" />
               {compactView ? '详细' : '紧凑'}
             </Button>
             {items.length > 0 && (
@@ -414,7 +433,7 @@ function NewsPage() {
                 variant="outline"
                 size="sm"
                 onClick={markAllAsRead}
-                className="gap-2"
+                className="h-8 gap-2 rounded-lg sm:h-9"
               >
                 全部已读
               </Button>
@@ -424,11 +443,12 @@ function NewsPage() {
               size="sm"
               onClick={() => refreshMutation.mutate()}
               disabled={refreshMutation.isPending || isRefreshing}
+              className="h-8 rounded-lg sm:h-9"
             >
               {isRefreshing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="size-3.5 animate-spin sm:size-4" />
               ) : (
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="size-3.5 sm:size-4" />
               )}
               {isRefreshing ? '抓取中...' : '抓取'}
             </Button>
@@ -437,16 +457,17 @@ function NewsPage() {
               size="sm"
               onClick={() => processMutation.mutate()}
               disabled={processMutation.isPending}
+              className="h-8 rounded-lg sm:h-9"
             >
               {processMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="size-3.5 animate-spin sm:size-4" />
               ) : (
-                <Lightbulb className="w-4 h-4" />
+                <Lightbulb className="size-3.5 sm:size-4" />
               )}
               AI 分析
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setSourcesOpen(true)}>
-              <Rss className="w-4 h-4" /> 订阅源
+            <Button variant="outline" size="sm" onClick={() => setSourcesOpen(true)} className="h-8 gap-1 rounded-lg sm:h-9">
+              <Rss className="size-3.5 sm:size-4" /> 订阅源
             </Button>
           </div>
           {/* 移动端：只保留核心操作，其余折叠到更多菜单 */}
@@ -456,18 +477,18 @@ function NewsPage() {
               size="sm"
               onClick={() => refreshMutation.mutate()}
               disabled={refreshMutation.isPending || isRefreshing}
-              className="gap-1"
+              className="h-8 gap-1 rounded-lg sm:h-9"
             >
               {isRefreshing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="size-3.5 animate-spin sm:size-4" />
               ) : (
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="size-3.5 sm:size-4" />
               )}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="px-2">
-                  <MoreHorizontal className="w-4 h-4" />
+                <Button variant="outline" size="sm" className="h-8 rounded-lg px-2 sm:h-9">
+                  <MoreHorizontal className="size-3.5 sm:size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
@@ -499,6 +520,7 @@ function NewsPage() {
           </div>
         </div>
       </div>
+      <div className="page-content-wide">
 
       <ScrollArea ref={scrollAreaRef} className="flex-1">
         <div className="space-y-4 p-4 md:p-6">
@@ -539,6 +561,7 @@ function NewsPage() {
             onSave={handleSave}
             compactView={compactView}
             readItems={readItems}
+            onToggleRead={toggleRead}
           />
         </div>
       </ScrollArea>
@@ -546,7 +569,7 @@ function NewsPage() {
       {showScrollTop && (
         <button
           onClick={scrollToTop}
-          className="fixed bottom-6 right-6 z-50 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
+          className="fixed bottom-20 right-6 z-50 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 md:bottom-6"
           title="返回顶部"
         >
           <ArrowUp className="size-5" />
@@ -572,6 +595,7 @@ function NewsPage() {
         expandedDigestId={expandedDigestId}
         onToggleDigest={(id) => setExpandedDigestId(expandedDigestId === id ? null : id)}
       />
+      </div>
     </div>
   )
 }

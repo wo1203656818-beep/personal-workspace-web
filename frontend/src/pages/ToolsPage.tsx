@@ -126,14 +126,14 @@ export function ToolsPage() {
   })
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500 text-white md:size-10">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
+          <div className="icon-badge size-9 bg-gradient-to-br from-amber-400 to-yellow-500 md:size-10">
             <Coins className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">工具箱</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">工具箱</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               AI 文案 · 决策规则 · 趣味娱乐
             </p>
@@ -141,9 +141,8 @@ export function ToolsPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="mx-auto max-w-4xl">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="page-content-wide">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
             {tools.map((tool) => {
               const Icon = tool.icon
               return (
@@ -152,23 +151,23 @@ export function ToolsPage() {
                   className="group cursor-pointer border-border/60 transition-all hover:shadow-md hover:border-primary/30"
                   onClick={() => navigate(tool.path)}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex items-start gap-2.5 sm:gap-3">
                       <div
                         className={cn(
-                          'flex size-10 shrink-0 items-center justify-center rounded-xl',
+                          'flex size-9 shrink-0 items-center justify-center rounded-xl sm:size-10',
                           tool.bg,
                         )}
                       >
-                        <Icon className={cn('size-5', tool.color)} />
+                        <Icon className={cn('size-4 sm:size-5', tool.color)} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-medium">{tool.title}</h3>
-                        <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                        <h3 className="text-xs font-medium sm:text-sm">{tool.title}</h3>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground line-clamp-2 sm:text-xs">
                           {tool.description}
                         </p>
                       </div>
-                      <ArrowRight className="mt-1 size-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-primary" />
+                      <ArrowRight className="mt-1 size-3.5 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-primary sm:size-4" />
                     </div>
                   </CardContent>
                 </Card>
@@ -177,16 +176,18 @@ export function ToolsPage() {
           </div>
 
           {/* 决策模式复盘 */}
-          <div className="mt-8 border-t pt-8">
+          <div className="mt-6 border-t pt-6 sm:mt-8 sm:pt-8">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Brain className="size-5 text-purple-500" />
-                <h2 className="text-base font-semibold">决策模式复盘</h2>
+                <div className="flex size-7 items-center justify-center rounded-lg bg-purple-500/10 sm:size-8">
+                  <Brain className="size-4 text-purple-500" />
+                </div>
+                <h2 className="text-sm font-semibold sm:text-base">决策模式复盘</h2>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1.5 text-muted-foreground"
+                className="h-8 gap-1.5 text-muted-foreground"
                 onClick={() => refetch()}
                 disabled={isRefetching}
               >
@@ -197,49 +198,49 @@ export function ToolsPage() {
 
             {isLoading ? (
               <div className="space-y-3">
-                <div className="flex gap-4">
-                  <Skeleton className="h-20 flex-1 rounded-lg" />
-                  <Skeleton className="h-20 flex-1 rounded-lg" />
-                  <Skeleton className="h-20 flex-1 rounded-lg" />
-                  <Skeleton className="h-20 flex-1 rounded-lg" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Skeleton className="h-20 rounded-lg" />
+                  <Skeleton className="h-20 rounded-lg" />
+                  <Skeleton className="h-20 rounded-lg" />
+                  <Skeleton className="h-20 rounded-lg" />
                 </div>
                 <Skeleton className="h-32 w-full rounded-lg" />
               </div>
             ) : analysis ? (
               <div className="space-y-4">
                 {/* 统计概览 */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-lg border bg-card p-3">
-                    <p className="text-xs text-muted-foreground">总决策数</p>
-                    <p className="mt-1 text-2xl font-bold">{analysis.stats.totalLogs}</p>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="rounded-lg border bg-card p-2.5 sm:p-3">
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">总决策数</p>
+                    <p className="mt-1 text-xl font-bold sm:text-2xl">{analysis.stats.totalLogs}</p>
                   </div>
-                  <div className="rounded-lg border bg-card p-3">
-                    <p className="text-xs text-muted-foreground">平均耗时</p>
-                    <p className="mt-1 text-2xl font-bold">
-                      {analysis.stats.avgDuration}<span className="text-sm font-normal text-muted-foreground">秒</span>
+                  <div className="rounded-lg border bg-card p-2.5 sm:p-3">
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">平均耗时</p>
+                    <p className="mt-1 text-xl font-bold sm:text-2xl">
+                      {analysis.stats.avgDuration}<span className="text-xs font-normal text-muted-foreground">秒</span>
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-card p-3">
-                    <p className="text-xs text-muted-foreground">满意度</p>
-                    <p className="mt-1 text-2xl font-bold">
-                      {analysis.stats.avgSatisfaction}<span className="text-sm font-normal text-muted-foreground">/5</span>
+                  <div className="rounded-lg border bg-card p-2.5 sm:p-3">
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">满意度</p>
+                    <p className="mt-1 text-xl font-bold sm:text-2xl">
+                      {analysis.stats.avgSatisfaction}<span className="text-xs font-normal text-muted-foreground">/5</span>
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-card p-3">
-                    <p className="text-xs text-muted-foreground">规则使用率</p>
-                    <p className="mt-1 text-2xl font-bold">
-                      {analysis.stats.ruleRate}<span className="text-sm font-normal text-muted-foreground">%</span>
+                  <div className="rounded-lg border bg-card p-2.5 sm:p-3">
+                    <p className="text-[10px] text-muted-foreground sm:text-xs">规则使用率</p>
+                    <p className="mt-1 text-xl font-bold sm:text-2xl">
+                      {analysis.stats.ruleRate}<span className="text-xs font-normal text-muted-foreground">%</span>
                     </p>
                   </div>
                 </div>
 
                 {/* AI 洞察报告 */}
-                <div className="rounded-lg border bg-card p-4">
+                <div className="rounded-lg border bg-card p-3 sm:p-4">
                   <div className="mb-2 flex items-center gap-1.5">
                     <Brain className="size-4 text-purple-500" />
                     <h3 className="text-sm font-medium">AI 洞察报告</h3>
                   </div>
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                  <div className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground sm:text-sm">
                     {analysis.report}
                   </div>
                   <p className="mt-3 text-[10px] text-muted-foreground/50">
@@ -249,10 +250,9 @@ export function ToolsPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-center text-sm text-muted-foreground py-8">暂无决策数据，开始记录决策后即可查看分析</p>
+              <p className="py-8 text-center text-xs text-muted-foreground sm:text-sm">暂无决策数据，开始记录决策后即可查看分析</p>
             )}
           </div>
-        </div>
       </div>
     </div>
   )

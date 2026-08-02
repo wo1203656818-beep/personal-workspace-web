@@ -216,21 +216,22 @@ export function BackupPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 text-white md:size-10">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
+          <div className="icon-badge size-9 bg-gradient-to-br from-cyan-500 to-blue-500 md:size-10">
             <Shield className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">数据备份</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">数据备份</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">导出和导入所有数据</p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="mx-auto max-w-2xl space-y-4">
+      <div className="page-content-wide">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="mx-auto max-w-2xl space-y-4">
           {/* Progress Bar */}
           {progress > 0 && (
             <Card>
@@ -367,6 +368,7 @@ export function BackupPage() {
             </CardContent>
           </Card>
         </div>
+      </div>
       </div>
 
       <AlertDialog open={importConfirm} onOpenChange={(o) => { if (!o) { setImportConfirm(false); setImportData(null); setImportPreview(null) }}}>

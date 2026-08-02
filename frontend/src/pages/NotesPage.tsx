@@ -462,63 +462,68 @@ export function NotesPage() {
   if (id && selectedNote) {
     return (
       <>
-        <div className="flex h-full flex-col">
-          <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-lg"
-              onClick={() => navigate('/notes')}
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-            <Input
-              value={editableTitle}
-              onChange={(e) => setEditableTitle(e.target.value)}
-              onBlur={() => {
-                const trimmed = editableTitle.trim()
-                if (trimmed && trimmed !== selectedNote.title) {
-                  updateNoteMutation.mutate({ title: trimmed })
-                } else if (!trimmed) {
-                  setEditableTitle(selectedNote.title)
+        <div className="page-layout">
+          <div className="page-header">
+            <div className="page-header-left min-w-0 flex-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 rounded-lg"
+                onClick={() => navigate('/notes')}
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+              <div className="icon-badge size-9 shrink-0 bg-gradient-to-br from-primary to-primary/80 md:size-10">
+                <FileText className="size-5" />
+              </div>
+              <Input
+                value={editableTitle}
+                onChange={(e) => setEditableTitle(e.target.value)}
+                onBlur={() => {
+                  const trimmed = editableTitle.trim()
+                  if (trimmed && trimmed !== selectedNote.title) {
+                    updateNoteMutation.mutate({ title: trimmed })
+                  } else if (!trimmed) {
+                    setEditableTitle(selectedNote.title)
+                  }
+                }}
+                className="min-w-0 flex-1 border-0 px-0 text-lg font-semibold tracking-tight focus-visible:ring-0 sm:text-xl md:text-2xl"
+              />
+            </div>
+            <div className="page-header-right">
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={
+                  updateNoteMutation.isPending ||
+                  appendImaMutation.isPending ||
+                  (selectedNote?.sourceFile === 'ima_openapi' && !appendContent.trim())
                 }
-              }}
-              className="flex-1 border-0 px-0 text-xl font-semibold tracking-tight focus-visible:ring-0"
-            />
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={
-                updateNoteMutation.isPending ||
-                appendImaMutation.isPending ||
-                (selectedNote?.sourceFile === 'ima_openapi' && !appendContent.trim())
-              }
-              className={cn(
-                "gap-2 rounded-lg transition-all",
-                (updateNoteMutation.isPending || appendImaMutation.isPending) && "animate-pulse bg-primary/80"
-              )}
-            >
-              {updateNoteMutation.isPending || appendImaMutation.isPending ? (
-                <><Loader2 className="size-4 animate-spin" /> 保存中...</>
-              ) : (
-                <><Save className="size-4" />
-                {selectedNote?.sourceFile === 'ima_openapi'
-                  ? appendContent.trim()
-                    ? '追加*'
-                    : '追加'
-                  : isDirty
-                    ? '保存*'
-                    : '保存'}
-                </>
-              )}
-            </Button>
-            <div className="flex items-center gap-1">
+                className={cn(
+                  "h-8 gap-2 rounded-lg transition-all sm:h-9",
+                  (updateNoteMutation.isPending || appendImaMutation.isPending) && "animate-pulse bg-primary/80"
+                )}
+              >
+                {updateNoteMutation.isPending || appendImaMutation.isPending ? (
+                  <><Loader2 className="size-4 animate-spin" /> 保存中...</>
+                ) : (
+                  <><Save className="size-4" />
+                  {selectedNote?.sourceFile === 'ima_openapi'
+                    ? appendContent.trim()
+                      ? '追加*'
+                      : '追加'
+                    : isDirty
+                      ? '保存*'
+                      : '保存'}
+                  </>
+                )}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleAi('summary')}
                 disabled={noteAiMutation.isPending}
-                className="gap-1 rounded-lg"
+                className="h-8 gap-1 rounded-lg sm:h-9"
               >
                 <Sparkles className="size-3.5" /> 总结
               </Button>
@@ -527,7 +532,7 @@ export function NotesPage() {
                 size="sm"
                 onClick={() => handleAi('points')}
                 disabled={noteAiMutation.isPending}
-                className="rounded-lg"
+                className="h-8 rounded-lg sm:h-9"
               >
                 要点
               </Button>
@@ -536,12 +541,13 @@ export function NotesPage() {
                 size="sm"
                 onClick={() => handleAi('to-task')}
                 disabled={noteAiMutation.isPending}
-                className="rounded-lg"
+                className="h-8 rounded-lg sm:h-9"
               >
                 转任务
               </Button>
             </div>
           </div>
+          <div className="page-content-wide">
           <div className="flex flex-1 overflow-hidden">
             <ScrollArea className="flex-1">
               <div className="p-4 md:p-6">
@@ -665,6 +671,7 @@ export function NotesPage() {
             </ScrollArea>
             <TocSidebar items={tocItems} activeSlug={activeSlug} onTocClick={handleTocClick} />
           </div>
+          </div>
         </div>
 
         <Dialog open={aiOpen} onOpenChange={setAiOpen}>
@@ -710,31 +717,32 @@ export function NotesPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-primary to-primary/80 md:size-10">
             <FileText className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">笔记</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">笔记</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">记录想法、知识与灵感</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="page-header-right">
           <Button
             size="sm"
             onClick={() => createNoteMutation.mutate()}
             disabled={createNoteMutation.isPending}
-            className="rounded-lg gap-1"
+            className="h-8 gap-1 rounded-lg sm:h-9"
           >
-            <FileText className="size-4" /> 新建笔记
+            <FileText className="size-3.5 sm:size-4" /> 新建笔记
           </Button>
-          <Button size="sm" onClick={() => setShowImport(!showImport)} className="rounded-lg gap-1">
-            <Plus className="size-4" /> 导入
+          <Button size="sm" onClick={() => setShowImport(!showImport)} className="h-8 gap-1 rounded-lg sm:h-9">
+            <Plus className="size-3.5 sm:size-4" /> 导入
           </Button>
         </div>
       </div>
+      <div className="page-content-wide">
 
       <div className="border-b px-4 py-3 md:px-6">
         <div className="relative">
@@ -983,12 +991,13 @@ export function NotesPage() {
       </AlertDialog>
 
       <Button
-        className="fixed bottom-6 right-6 z-50 size-12 rounded-full shadow-lg"
+        className="fixed bottom-20 right-6 z-50 size-12 rounded-full shadow-lg md:bottom-6"
         onClick={() => setQaOpen(true)}
       >
         <MessageCircle className="size-5" />
       </Button>
       <AIQaPanel open={qaOpen} onOpenChange={setQaOpen} />
+      </div>
     </div>
   )
 }

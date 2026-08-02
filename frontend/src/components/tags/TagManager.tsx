@@ -91,7 +91,7 @@ export function TagManager() {
         {tags.map((tag) => (
           <div key={tag.id} className="group flex items-center gap-1">
             {editingId === tag.id ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -164,12 +164,12 @@ export function TagManager() {
         {tags.length === 0 && <p className="text-sm text-muted-foreground">暂无标签，创建一个吧</p>}
       </div>
 
-      <div className="flex items-center gap-2 border-t pt-3">
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
         <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="新标签名"
-          className="h-8 flex-1 text-sm"
+          className="h-8 min-w-0 flex-1 text-sm"
           onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
         />
         <div className="flex gap-1">

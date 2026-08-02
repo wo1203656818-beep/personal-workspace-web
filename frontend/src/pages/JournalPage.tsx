@@ -347,7 +347,7 @@ export function JournalPage() {
   const hasEntry = (dateStr: string) => entryDates.has(dateStr)
 
   return (
-    <div className="flex h-full flex-col" {...swipeHandlers}>
+    <div className="page-layout" {...swipeHandlers}>
       {/* Mobile sidebar overlay */}
       {showMobileSidebar && (
         <div className="fixed inset-0 z-40 md:hidden">
@@ -401,11 +401,12 @@ export function JournalPage() {
                   </div>
                 </div>
                 <div className="px-3"><div className="border-t" /></div>
+                <div className="space-y-1 stagger-container">
                 {filteredEntries.map((e) => (
                   <button
                     key={e.id}
                     onClick={() => { loadEntry(e); setShowMobileSidebar(false) }}
-                    className={cn('w-full text-left rounded-lg px-3 py-2 text-xs transition-colors hover:bg-accent', e.id === editId && 'bg-accent')}
+                    className={cn('w-full text-left rounded-lg px-3 py-2 text-xs transition-all duration-200 hover:bg-accent hover:shadow-sm stagger-item', e.id === editId && 'bg-accent')}
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">{e.date.slice(5)}</span>
@@ -415,20 +416,21 @@ export function JournalPage() {
                   </button>
                 ))}
               </div>
+              </div>
             </ScrollArea>
           </div>
         </div>
       )}
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-amber-500 to-orange-500 md:size-10">
             <BookHeart className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">
               日记
               {entries?.find(e => e.date === today && e.mood) && (
-                <span className="ml-2 text-lg" title={MOODS.find(m => m.value === entries.find(e => e.date === today)?.mood)?.label}>
+                <span className="ml-2 text-base sm:text-lg" title={MOODS.find(m => m.value === entries.find(e => e.date === today)?.mood)?.label}>
                   {MOODS.find(m => m.value === entries.find(e => e.date === today)?.mood)?.emoji}
                 </span>
               )}
@@ -436,14 +438,14 @@ export function JournalPage() {
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">记录每日心情与思考</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setShowMobileSidebar(true)} className="md:hidden">
+        <div className="page-header-right">
+          <Button size="sm" variant="outline" onClick={() => setShowMobileSidebar(true)} className="size-8 rounded-lg md:hidden">
             <List className="size-4" />
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowEntries(!showEntries)} className="hidden md:flex">
+          <Button size="sm" variant="outline" onClick={() => setShowEntries(!showEntries)} className="hidden h-8 gap-1 rounded-lg md:flex sm:h-9">
             {showEntries ? '隐藏列表' : '显示列表'}
           </Button>
-          <Button size="sm" onClick={newEntry} className="gap-1 rounded-lg">
+          <Button size="sm" onClick={newEntry} className="h-8 gap-1 rounded-lg sm:h-9">
             <Plus className="size-4" />新日记
           </Button>
         </div>
@@ -560,13 +562,13 @@ export function JournalPage() {
                   Object.entries(groupedFiltered).map(([month, monthEntries]) => (
                     <div key={month}>
                       <p className="text-xs font-medium text-muted-foreground mb-2">{month}</p>
-                      <div className="space-y-1">
+                      <div className="space-y-1 stagger-container">
                         {monthEntries.map((e) => (
                           <button
                             key={e.id}
                             onClick={() => loadEntry(e)}
                             className={cn(
-                              'w-full text-left rounded-lg px-3 py-2 text-xs transition-colors hover:bg-accent',
+                              'w-full text-left rounded-lg px-3 py-2 text-xs transition-all duration-200 hover:bg-accent hover:shadow-sm stagger-item',
                               e.id === editId && 'bg-accent'
                             )}
                           >
@@ -680,7 +682,7 @@ export function JournalPage() {
                   )}
                   {/* Calendar popover */}
                   {showCalendar && (
-                    <div className="absolute top-8 left-1/2 -translate-x-1/2 z-50 w-64 rounded-xl border bg-card p-3 shadow-xl">
+                    <div className="absolute top-8 left-1/2 z-[60] w-64 -translate-x-1/2 rounded-xl border bg-card p-3 shadow-xl">
                       <div className="flex items-center justify-between mb-2">
                         <Button variant="ghost" size="icon" className="size-7" onClick={() => {
                           const d = new Date(calYear, calMonth - 1, 1)
@@ -720,7 +722,7 @@ export function JournalPage() {
                                 else newEntry()
                               }}
                               className={cn(
-                                'relative size-7 rounded-lg text-xs transition-colors',
+                                'relative size-8 rounded-lg text-xs transition-colors',
                                 isSelected && 'bg-primary text-primary-foreground',
                                 !isSelected && isToday && 'border border-primary/50',
                                 !isSelected && !isToday && 'hover:bg-accent',

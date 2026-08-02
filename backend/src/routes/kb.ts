@@ -25,6 +25,19 @@ const kbGlobalAskSchema = z.object({
 
 const kb = new Hono<{ Bindings: Env }>()
 
+// 运行时确保 KB 表增强列存在（避免依赖迁移部署连通性）
+async function ensureKbTables(dbRaw: any): Promise<void> {
+  const alters = [
+    `ALTER TABLE kb_documents ADD COLUMN is_starred INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE kb_documents ADD COLUMN ai_summary TEXT`,
+  ]
+  for (const sql of alters) {
+    try {
+      await dbRaw.prepare(sql).run()
+    } catch {}
+  }
+}
+
 kb.get('/', async (c) => {
   try {
     const db = drizzle(c.env.DB, { schema })
@@ -44,6 +57,7 @@ kb.get('/', async (c) => {
 // 知识库摘要列表：排除 content 大字段
 kb.get('/summary', async (c) => {
   try {
+    await ensureKbTables(c.env.DB)
     const db = drizzle(c.env.DB, { schema })
     const limit = Math.min(parseInt(c.req.query('limit') || '50', 10) || 50, 200)
     const rows = await db
@@ -53,11 +67,12 @@ kb.get('/summary', async (c) => {
         fileType: schema.kbDocuments.fileType,
         fileSize: schema.kbDocuments.fileSize,
         r2Key: schema.kbDocuments.r2Key,
+        isStarred: schema.kbDocuments.isStarred,
         importedAt: schema.kbDocuments.importedAt,
         updatedAt: schema.kbDocuments.updatedAt,
       })
       .from(schema.kbDocuments)
-      .orderBy(desc(schema.kbDocuments.updatedAt))
+      .orderBy(desc(schema.kbDocuments.isStarred), desc(schema.kbDocuments.updatedAt))
       .limit(limit)
     return c.json(rows)
   } catch (e: any) {
@@ -86,12 +101,31 @@ kb.get('/:id', async (c) => {
   return c.json(doc[0])
 })
 
-// AI 总结知识库文档
-kb.post('/:id/summary', async (c) => {
+// 切换星标收藏
+kb.post('/:id/star', async (c) => {
   const { id } = c.req.param()
   const db = drizzle(c.env.DB, { schema })
   const doc = await db.select().from(schema.kbDocuments).where(eq(schema.kbDocuments.id, id))
   if (!doc.length) return c.json({ error: '未找到' }, 404)
+  const next = !doc[0].isStarred
+  await db
+    .update(schema.kbDocuments)
+    .set({ isStarred: next, updatedAt: new Date().toISOString() })
+    .where(eq(schema.kbDocuments.id, id))
+  return c.json({ ok: true, isStarred: next })
+})
+
+// AI 总结知识库文档（已缓存则直接返回）
+kb.post('/:id/summary', async (c) => {
+  const { id } = c.req.param()
+  await ensureKbTables(c.env.DB)
+  const db = drizzle(c.env.DB, { schema })
+  const doc = await db.select().from(schema.kbDocuments).where(eq(schema.kbDocuments.id, id))
+  if (!doc.length) return c.json({ error: '未找到' }, 404)
+  // 命中缓存直接返回
+  if (doc[0].aiSummary) {
+    return c.json({ summary: doc[0].aiSummary, cached: true })
+  }
   const content = (doc[0].content || '').slice(0, 8000)
   if (!content.trim()) {
     return c.json({ error: '该文档暂无可用正文，无法总结' }, 400)
@@ -108,7 +142,13 @@ kb.post('/:id/summary', async (c) => {
       ],
       { maxTokens: 400 },
     )
-    return c.json({ summary: summary.trim() })
+    const trimmed = summary.trim()
+    // 写入缓存
+    await db
+      .update(schema.kbDocuments)
+      .set({ aiSummary: trimmed, updatedAt: new Date().toISOString() })
+      .where(eq(schema.kbDocuments.id, id))
+    return c.json({ summary: trimmed, cached: false })
   } catch (e: any) {
     console.error('[kb/summary] error:', e)
     return c.json({ error: 'AI 调用失败，请检查 AI 配置或稍后重试' }, 500)

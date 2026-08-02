@@ -81,7 +81,7 @@ export function ChatHistorySidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索会话标题..."
-            className="flex-1 bg-transparent text-[13px] text-white placeholder:text-white/30 focus-visible:outline-none"
+            className="flex-1 bg-transparent text-base text-white placeholder:text-white/30 focus-visible:outline-none sm:text-[13px]"
           />
           {search && (
             <button
@@ -145,7 +145,7 @@ export function ChatHistorySidebar({
                     e.stopPropagation()
                     openTagPopover(s)
                   }}
-                  className="shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
+                  className="shrink-0 text-white/30 opacity-100 transition-opacity group-hover:opacity-100 md:opacity-0"
                   title="编辑标签"
                 >
                   <Tag className="size-3.5" />
@@ -190,7 +190,7 @@ export function ChatHistorySidebar({
                       }
                     }}
                     placeholder="输入标签，回车添加"
-                    className="h-7 rounded-lg border-white/10 bg-white/5 text-xs text-white placeholder:text-white/30"
+                    className="h-9 rounded-lg border-white/10 bg-white/5 text-base text-white placeholder:text-white/30 sm:h-7 sm:text-xs"
                   />
                   <Button
                     type="button"
@@ -220,10 +220,14 @@ export function ChatHistorySidebar({
                 </div>
               </PopoverContent>
             </Popover>
-            <Trash2
-              className="size-3.5 shrink-0 text-white/30 opacity-0 transition-opacity group-hover:opacity-100"
+            <button
+              type="button"
+              className="shrink-0 text-white/30 opacity-100 transition-opacity hover:text-white/60 md:opacity-0 md:group-hover:opacity-100"
               onClick={(e) => onRemove(s.id, e)}
-            />
+              aria-label="删除会话"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
           </div>
         ))}
       </div>

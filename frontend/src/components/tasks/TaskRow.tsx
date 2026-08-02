@@ -102,7 +102,7 @@ export const TaskRow = memo(function TaskRow({
     })()
 
   return (
-    <div className="relative overflow-hidden rounded-xl">
+    <div className="relative overflow-hidden rounded-xl stagger-item">
       {/* P2-14: 滑动操作提示 (CSS hover/focus 时显示) */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-4 opacity-0 transition-opacity md:hidden">
         <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -120,14 +120,15 @@ export const TaskRow = memo(function TaskRow({
         {...(provided?.dragHandleProps ?? {})}
         {...swipeHandlers}
         className={cn(
-          'group relative overflow-hidden rounded-xl border bg-card transition-all duration-200 hover:bg-accent/30 hover:shadow-sm',
+          'group relative overflow-hidden rounded-xl border bg-card transition-all duration-300 hover:-translate-y-0.5 hover:bg-accent/40 hover:shadow-md',
           task.isImportant &&
             !task.isCompleted &&
             'before:content-[""] before:absolute before:left-0 before:top-3 before:bottom-3 before:w-1 before:rounded-r-full before:bg-yellow-400',
+          selected && 'border-primary/40 bg-primary/[0.04] ring-1 ring-primary/20',
         )}
         onClick={() => onSelect(task.id)}
       >
-        <div className="flex items-center gap-3 px-3 py-3">
+        <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
           <input
             type="checkbox"
             checked={selected}
@@ -158,14 +159,14 @@ export const TaskRow = memo(function TaskRow({
                   setIsEditing(false)
                 }
               }}
-              className="flex-1 h-7"
+              className="h-7 flex-1"
             />
           ) : (
             <span
               onDoubleClick={startEditing}
               className={cn(
-                'flex-1 transition-all duration-300 cursor-text',
-                task.isCompleted && 'line-through opacity-60',
+                'min-w-0 flex-1 cursor-text truncate text-sm transition-all duration-300',
+                task.isCompleted && 'text-muted-foreground line-through opacity-60',
               )}
               title="双击编辑标题"
             >
@@ -175,14 +176,14 @@ export const TaskRow = memo(function TaskRow({
           {/* 子任务展开/收起按钮；有子任务时展示完成进度 x/y，避免 N+1 拉取再算进度 */}
           <Button
             variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground"
+            size="icon"
+            className="size-8 shrink-0 text-muted-foreground"
             onClick={(e) => {
               e.stopPropagation()
               onToggleExpand(task.id)
             }}
           >
-            {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+            {isExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
             {(task.subtaskCount ?? 0) > 0 &&
               (() => {
                 const total = task.subtaskCount!
@@ -200,23 +201,23 @@ export const TaskRow = memo(function TaskRow({
                 )
               })()}
           </Button>
-          {task.isImportant && <Star className="size-4 fill-yellow-400 text-yellow-400" />}
+          {task.isImportant && <Star className="size-4 shrink-0 fill-yellow-400 text-yellow-400" />}
           {task.dueDate && (
-            <Badge variant={isOverdue ? 'destructive' : 'secondary'} className="gap-1">
+            <Badge variant={isOverdue ? 'destructive' : 'secondary'} className="shrink-0 gap-1">
               <Calendar className="size-3" />
               {formatCST(task.dueDate, 'cnDate')}
             </Badge>
           )}
           <Button
             variant="ghost"
-            size="icon-xs"
-            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+            size="icon"
+            className="size-8 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation()
               onDelete(task.id)
             }}
           >
-            <Trash2 className="size-3" />
+            <Trash2 className="size-3.5" />
           </Button>
         </div>
         {/* 展开的子任务列表 */}
@@ -228,7 +229,7 @@ export const TaskRow = memo(function TaskRow({
               subtasks.map((st: Subtask) => (
                 <div
                   key={st.id}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent"
+                  className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-accent"
                 >
                   <Checkbox
                     checked={st.isCompleted}
@@ -238,8 +239,8 @@ export const TaskRow = memo(function TaskRow({
                   />
                   <span
                     className={cn(
-                      'flex-1 text-sm',
-                      st.isCompleted && 'line-through text-muted-foreground',
+                      'min-w-0 flex-1 truncate text-sm transition-all duration-200',
+                      st.isCompleted && 'text-muted-foreground line-through',
                     )}
                   >
                     {st.title}

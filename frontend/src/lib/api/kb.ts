@@ -35,7 +35,9 @@ export const kbApi = {
       xhr.send(fd)
     })
   },
-  summary: (id: string) => api.post(`kb/${id}/summary`).json<{ summary: string }>(),
+  summary: (id: string) => api.post(`kb/${id}/summary`).json<{ summary: string; cached?: boolean }>(),
+  toggleStar: (id: string) =>
+    api.post(`kb/${id}/star`).json<{ ok: boolean; isStarred: boolean }>(),
   ask: (id: string, question: string) =>
     api.post(`kb/${id}/ask`, { json: { question } }).json<{ answer: string }>(),
   globalAsk: (question: string, topK?: number) =>

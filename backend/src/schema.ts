@@ -81,6 +81,8 @@ export const kbDocuments = sqliteTable('kb_documents', {
   fileType: text('file_type').notNull(),
   r2Key: text('r2_key'),
   fileSize: integer('file_size'),
+  isStarred: integer('is_starred', { mode: 'boolean' }).default(false),
+  aiSummary: text('ai_summary'),
   importedAt: text('imported_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })
@@ -210,6 +212,7 @@ export const chatSessions = sqliteTable('chat_sessions', {
   title: text('title').notNull().default('新对话'),
   tags: text('tags'), // JSON 数组，如 ["工作","重要"]，可空
   pinned: integer('pinned').default(0), // 0/1 置顶（固定到顶部）
+  configId: text('config_id'), // 会话绑定的 AI 配置 id（可空=使用默认）
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })
@@ -437,6 +440,9 @@ export const habits = sqliteTable('habits', {
   icon: text('icon'), // emoji 或 lucide 图标名
   color: text('color'), // 主题色 hex
   description: text('description'),
+  isGood: integer('is_good', { mode: 'boolean' }).default(true), // true=好习惯, false=坏习惯
+  frequency: text('frequency'), // null/''=每天；'weekly:1,3,5'=每周指定星期
+  targetPerWeek: integer('target_per_week'), // 每周目标打卡次数（可选）
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 })
@@ -464,6 +470,7 @@ export const focusSessions = sqliteTable('focus_sessions', {
   taskTitle: text('task_title'), // 冗余任务标题（任务可能被删）
   minutes: integer('minutes').notNull(), // 计划专注分钟数
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  tags: text('tags'), // 逗号分隔的标签
   startedAt: text('started_at').notNull(), // ISO 时间（北京时间）
   endedAt: text('ended_at'), // ISO 时间（实际结束）
   createdAt: text('created_at').default(sql`(datetime('now'))`),

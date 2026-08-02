@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Loader2, Trash2, Pencil, ExternalLink, Star,
   Film, Tv, Gamepad2, Bookmark as BookmarkIcon, Link2, MessageSquare, Search, X,
-  Clipboard, ArrowUpDown, Copy, BookMarked, Archive, TrendingUp,
+  Clipboard, ArrowUpDown, Copy, BookMarked, Archive, TrendingUp, Minus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { collectionsApi, type MediaItem, type Bookmark } from '@/lib/api'
@@ -76,6 +76,7 @@ export function CollectionsPage() {
 
   // 书签筛选
   const [bookmarkStatus, setBookmarkStatus] = useState('all')
+  const [bookmarkTag, setBookmarkTag] = useState('')
 
   // 排序
   const [mediaStatus, setMediaStatus] = useState('all')
@@ -233,6 +234,17 @@ export function CollectionsPage() {
     return { total, read, archived, avgProgress }
   }, [bookmarks])
 
+  const bookmarkTags = useMemo(() => {
+    if (!bookmarks) return []
+    const set = new Set<string>()
+    bookmarks.forEach((b) => {
+      if (b.tags) {
+        try { JSON.parse(b.tags).forEach((t: string) => set.add(t)) } catch { /* ignore */ }
+      }
+    })
+    return [...set].sort()
+  }, [bookmarks])
+
   // 键盘快捷键
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -275,32 +287,33 @@ export function CollectionsPage() {
 
   const filteredBookmarks = useMemo(() => {
     if (!bookmarks) return []
-    if (!bmSearch.trim()) return bookmarks
-    const q = bmSearch.toLowerCase()
+    const q = bmSearch.trim().toLowerCase()
     return bookmarks.filter(b =>
-      (b.title && b.title.toLowerCase().includes(q)) ||
-      b.url.toLowerCase().includes(q) ||
-      (b.summary && b.summary.toLowerCase().includes(q))
+      (!bookmarkTag || (b.tags && JSON.parse(b.tags).includes(bookmarkTag))) &&
+      (!q ||
+        (b.title && b.title.toLowerCase().includes(q)) ||
+        b.url.toLowerCase().includes(q) ||
+        (b.summary && b.summary.toLowerCase().includes(q)))
     )
-  }, [bookmarks, bmSearch])
+  }, [bookmarks, bmSearch, bookmarkTag])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-teal-500 to-emerald-500 md:size-10">
             <BookmarkIcon className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">收藏</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">收藏</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">书单/影单与链接剪藏</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="page-header-right">
           <Button
             size="sm"
             variant="outline"
-            className="gap-1.5 rounded-lg"
+            className="h-8 gap-1.5 rounded-lg sm:h-9"
             onClick={async () => {
               try {
                 const text = await navigator.clipboard.readText()
@@ -318,13 +331,14 @@ export function CollectionsPage() {
               }
             }}
           >
-            <Clipboard className="size-4" />快速收藏
+            <Clipboard className="size-3.5 sm:size-4" />快速收藏
           </Button>
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="space-y-6 p-4 md:p-6">
+      <div className="page-content-wide">
+        <ScrollArea className="flex-1">
+          <div className="space-y-6 p-4 md:p-6">
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full justify-start gap-1 overflow-x-auto">
               <TabsTrigger value="media" className="gap-1.5">
@@ -339,8 +353,8 @@ export function CollectionsPage() {
             </TabsList>
 
             <TabsContent value="media" className="mt-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Select value={mediaKind} onValueChange={setMediaKind}>
                     <SelectTrigger className="h-8 w-28 rounded-lg text-xs">
                       <SelectValue />
@@ -356,7 +370,7 @@ export function CollectionsPage() {
                   <span className="text-xs text-muted-foreground">
                     {mediaCounts.want}/{mediaCounts.doing}/{mediaCounts.done}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     {['all', 'want', 'doing', 'done'].map((s) => (
                       <Button
                         key={s}
@@ -370,7 +384,7 @@ export function CollectionsPage() {
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Select value={mediaSort} onValueChange={setMediaSort}>
                     <SelectTrigger className="h-8 w-24 rounded-lg text-xs">
                       <ArrowUpDown className="mr-1 size-3" />
@@ -482,9 +496,9 @@ export function CollectionsPage() {
             </TabsContent>
 
             <TabsContent value="bookmarks" className="mt-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap gap-1">
                     {['all', 'unread', 'read', 'archived'].map((s) => (
                       <Button
                         key={s}
@@ -497,6 +511,26 @@ export function CollectionsPage() {
                       </Button>
                     ))}
                   </div>
+                  {bookmarkTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {bookmarkTag && (
+                        <Button variant="ghost" size="sm" className="h-7 rounded-lg px-2.5 text-xs" onClick={() => setBookmarkTag('')}>
+                          <X className="size-3" />清除
+                        </Button>
+                      )}
+                      {bookmarkTags.map((t) => (
+                        <Button
+                          key={t}
+                          variant={bookmarkTag === t ? 'default' : 'outline'}
+                          size="sm"
+                          className="h-7 rounded-full px-2.5 text-xs"
+                          onClick={() => setBookmarkTag(bookmarkTag === t ? '' : t)}
+                        >
+                          #{t}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <Button size="sm" onClick={() => setBmOpen(true)} className="gap-1 rounded-lg">
                   <Plus className="size-4" />收藏链接
@@ -589,9 +623,9 @@ export function CollectionsPage() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <a href={b.url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-sm font-medium hover:text-primary"
+                          className="flex min-w-0 items-center gap-1 text-sm font-medium hover:text-primary"
                         >
-                          {b.title || b.url}
+                          <span className="truncate">{b.title || b.url}</span>
                           <ExternalLink className="size-3 shrink-0" />
                         </a>
                         {b.summary && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{b.summary}</p>}
@@ -604,35 +638,56 @@ export function CollectionsPage() {
                             ))}
                           </div>
                         )}
-                        <div className="mt-1.5 flex items-center gap-2">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
                           <Badge variant={b.readStatus === 'unread' ? 'default' : 'secondary'}
                             className="rounded-full px-2 py-0 text-[10px] cursor-pointer"
                             onClick={() => toggleReadStatus(b)}
                           >
                             {b.readStatus === 'unread' ? '未读' : b.readStatus === 'read' ? '已读' : '归档'}
                           </Badge>
-                          {b.progress != null && b.progress > 0 && (
-                            <div className="flex items-center gap-1.5">
-                              <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+                          {b.progress != null && b.progress > 0 ? (
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                className="flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="进度-10%"
+                                onClick={(e) => { e.preventDefault(); updateBmMutation.mutate({ id: b.id, data: { progress: Math.max(0, b.progress! - 10) } }) }}
+                              >
+                                <Minus className="size-3" />
+                              </button>
+                              <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
                                 <div
                                   className="h-full rounded-full bg-primary"
                                   style={{ width: `${b.progress}%` }}
                                 />
                               </div>
-                              <span className="text-[10px] text-muted-foreground">{b.progress}%</span>
+                              <span className="w-7 text-center text-[10px] text-muted-foreground">{b.progress}%</span>
+                              <button
+                                className="flex size-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                title="进度+10%"
+                                onClick={(e) => { e.preventDefault(); updateBmMutation.mutate({ id: b.id, data: { progress: Math.min(100, b.progress! + 10) } }) }}
+                              >
+                                <Plus className="size-3" />
+                              </button>
                             </div>
+                          ) : (
+                            <button
+                              className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/20"
+                              onClick={(e) => { e.preventDefault(); updateBmMutation.mutate({ id: b.id, data: { progress: 10 } }) }}
+                            >
+                              开始阅读
+                            </button>
                           )}
                           {b.readingNote && (
                             <span className="truncate text-[10px] text-muted-foreground max-w-[120px] inline-block">
                               📝 {b.readingNote}
                             </span>
                           )}
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="shrink-0 text-[10px] text-muted-foreground">
                             {b.createdAt.slice(0, 10)}
                           </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -677,6 +732,7 @@ export function CollectionsPage() {
           </Tabs>
         </div>
       </ScrollArea>
+      </div>
 
       {/* 媒体编辑对话框 */}
       <Dialog open={mediaOpen} onOpenChange={(o) => { if (!o) closeMediaForm() }}>
@@ -688,7 +744,7 @@ export function CollectionsPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">类型</label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {['book', 'movie', 'tv', 'game'].map((k) => {
                   const KI = KIND_ICONS[k] ?? BookOpen
                   return (

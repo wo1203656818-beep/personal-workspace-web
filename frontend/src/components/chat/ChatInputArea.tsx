@@ -1,8 +1,9 @@
 import { useRef } from 'react'
-import { Send, Square, Brain, Mic, Paperclip, X, Globe } from 'lucide-react'
+import { Send, Square, Brain, Mic, Paperclip, X, Globe, Cpu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { genId } from './types'
+import type { AiConfig } from '@/lib/api'
 
 export function ChatInputArea({
   input,
@@ -16,6 +17,9 @@ export function ChatInputArea({
   setImages,
   speechSupported,
   listening,
+  configs,
+  configId,
+  onConfigChange,
   onToggleVoice,
   onSend,
   onStop,
@@ -35,6 +39,9 @@ export function ChatInputArea({
   ) => void
   speechSupported: boolean
   listening: boolean
+  configs?: AiConfig[]
+  configId?: string
+  onConfigChange?: (id: string) => void
   onToggleVoice: () => void
   onSend: (text: string) => void
   onStop: () => void
@@ -106,11 +113,11 @@ export function ChatInputArea({
           }}
           rows={1}
           placeholder="有问题，尽管问"
-          className="max-h-32 min-h-[36px] w-full resize-none bg-transparent py-1 text-[14px] leading-relaxed text-white placeholder:text-white/30 focus-visible:outline-none"
+          className="max-h-32 min-h-10 w-full resize-none bg-transparent py-1 text-base leading-relaxed text-white placeholder:text-white/30 focus-visible:outline-none sm:text-[14px]"
         />
 
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setDeepThink((v) => !v)}
@@ -137,15 +144,40 @@ export function ChatInputArea({
             >
               <Globe className="size-3.5" /> 联网搜索
             </button>
+            {configs && configs.length > 0 && (
+              <div className="relative">
+                <select
+                  value={configId ?? 'default'}
+                  onChange={(e) => onConfigChange?.(e.target.value)}
+                  title="选择当前对话使用的模型配置（默认=系统默认配置）"
+                  className="flex h-7 cursor-pointer appearance-none items-center gap-1 rounded-full border border-white/10 bg-transparent py-0 pl-2 pr-6 text-[12px] text-white/60 transition-colors hover:border-white/20 hover:text-white/80 focus-visible:outline-none"
+                >
+                  <option value="default" className="bg-[#1a1a1a] text-white/80">
+                    默认模型
+                  </option>
+                  {configs.map((cfg) => (
+                    <option
+                      key={cfg.id}
+                      value={cfg.id}
+                      className="bg-[#1a1a1a] text-white/80"
+                    >
+                      {cfg.name}
+                      {cfg.isDefault ? '（默认）' : ''}
+                    </option>
+                  ))}
+                </select>
+                <Cpu className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-white/30" />
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex shrink-0 items-center gap-1">
             {speechSupported && (
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className={cn('size-8 text-white/40 hover:text-white', listening && 'text-primary')}
+                className={cn('size-10 text-white/40 hover:text-white sm:size-8', listening && 'text-primary')}
                 title={listening ? '停止语音输入' : '语音输入'}
                 onClick={onToggleVoice}
               >
@@ -156,7 +188,7 @@ export function ChatInputArea({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-8 text-white/40 hover:text-white"
+              className="size-10 text-white/40 hover:text-white sm:size-8"
               title="上传图片"
               onClick={() => fileRef.current?.click()}
             >
@@ -165,7 +197,7 @@ export function ChatInputArea({
             {loading ? (
               <Button
                 size="icon"
-                className="size-8 shrink-0 rounded-xl"
+                className="size-10 shrink-0 rounded-xl sm:size-8"
                 onClick={onStop}
                 title="停止"
               >
@@ -174,7 +206,7 @@ export function ChatInputArea({
             ) : (
               <Button
                 size="icon"
-                className="size-8 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none"
+                className="size-10 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none sm:size-8"
                 disabled={!input.trim()}
                 onClick={() => onSend(input)}
               >

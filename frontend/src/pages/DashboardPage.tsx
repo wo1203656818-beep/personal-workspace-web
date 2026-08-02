@@ -168,41 +168,48 @@ export function DashboardPage() {
   const today = todayFormatter.format(new Date())
 
   return (
-    <div className="p-4 sm:p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">{greeting}，欢迎回来</h1>
-        <p className="text-sm text-muted-foreground">{today}</p>
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
+          <div className="icon-badge size-9 bg-gradient-to-br from-primary to-primary/80 md:size-10">
+            <ListTodo className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">{greeting}，欢迎回来</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">{today}</p>
+          </div>
+        </div>
+        <div className="page-header-right">
+          <Button asChild size="sm" className="h-8 gap-1.5 sm:h-9">
+            <Link to="/tasks?new=1">
+              <Plus className="size-3.5 sm:size-4" />
+              新建任务
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 sm:h-9">
+            <Link to="/notes">
+              <Plus className="size-3.5 sm:size-4" />
+              新建笔记
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 sm:h-9">
+            <Link to="/knowledge">
+              <Plus className="size-3.5 sm:size-4" />
+              上传文件
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Button asChild size="sm">
-          <Link to="/tasks?new=1">
-            <Plus className="mr-1.5 size-4" />
-            新建任务
-          </Link>
-        </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link to="/notes">
-            <Plus className="mr-1.5 size-4" />
-            新建笔记
-          </Link>
-        </Button>
-        <Button asChild size="sm" variant="outline">
-          <Link to="/knowledge">
-            <Plus className="mr-1.5 size-4" />
-            上传文件
-          </Link>
-        </Button>
-      </div>
-
-      {/* Stats cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <div className="page-content-wide">
+        {/* Stats cards */}
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 stagger-container">
+        <Card premium className="stagger-item hover-lift">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">待办任务</CardTitle>
-            <ListTodo className="size-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-medium text-muted-foreground sm:text-sm">待办任务</CardTitle>
+            <div className="flex size-7 items-center justify-center rounded-lg bg-blue-500/10 sm:size-8">
+              <ListTodo className="size-3.5 text-blue-500 sm:size-4" />
+            </div>
           </CardHeader>
           <CardContent>
             {taskStatsLoading ? (
@@ -217,16 +224,18 @@ export function DashboardPage() {
               </div>
             ) : (
               <>
-                <div className="text-2xl font-bold">{stats.pendingTasks}</div>
+                <div className="text-xl font-bold sm:text-2xl">{stats.pendingTasks}</div>
                 <p className="text-xs text-muted-foreground">今日完成 {stats.todayCompleted} 个</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card className="stagger-item hover-lift">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">逾期任务</CardTitle>
-            <Clock className="size-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-medium text-muted-foreground sm:text-sm">逾期任务</CardTitle>
+            <div className="flex size-7 items-center justify-center rounded-lg bg-amber-500/10 sm:size-8">
+              <Clock className="size-3.5 text-amber-500 sm:size-4" />
+            </div>
           </CardHeader>
           <CardContent>
             {taskStatsLoading ? (
@@ -241,7 +250,7 @@ export function DashboardPage() {
               </div>
             ) : (
               <>
-                <div className="text-2xl font-bold">{stats.overdue}</div>
+                <div className="text-xl font-bold sm:text-2xl">{stats.overdue}</div>
                 <p className="text-xs text-muted-foreground">
                   {stats.overdue === 0 ? '全部按时' : '需要关注'}
                 </p>
@@ -249,10 +258,12 @@ export function DashboardPage() {
             )}
           </CardContent>
         </Card>
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card className="stagger-item hover-lift">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">今日专注</CardTitle>
-            <Timer className="size-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-medium text-muted-foreground sm:text-sm">今日专注</CardTitle>
+            <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/10 sm:size-8">
+              <Timer className="size-3.5 text-emerald-500 sm:size-4" />
+            </div>
           </CardHeader>
           <CardContent>
             {focusStatsLoading ? (
@@ -267,28 +278,30 @@ export function DashboardPage() {
               </div>
             ) : (
               <>
-                <div className="text-2xl font-bold">{focusStatsData?.todayMinutes ?? 0} 分钟</div>
+                <div className="text-xl font-bold sm:text-2xl">{focusStatsData?.todayMinutes ?? 0} 分钟</div>
                 <p className="text-xs text-muted-foreground">{focusStatsData?.todayCount ?? 0} 个番茄钟</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card className="stagger-item hover-lift">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">习惯打卡</CardTitle>
-            <Flame className="size-4 text-muted-foreground" />
+            <CardTitle className="text-xs font-medium text-muted-foreground sm:text-sm">习惯打卡</CardTitle>
+            <div className="flex size-7 items-center justify-center rounded-lg bg-orange-500/10 sm:size-8">
+              <Flame className="size-3.5 text-orange-500 sm:size-4" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todayDoneCount}/{habitsData?.length ?? 0}</div>
+            <div className="text-xl font-bold sm:text-2xl">{todayDoneCount}/{habitsData?.length ?? 0}</div>
             <p className="text-xs text-muted-foreground">今日已完成</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Second row: goals + journal + focus weekly */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-container">
         {/* Goals progress */}
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card premium className="stagger-item">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">目标进度</CardTitle>
             <Target className="size-4 text-muted-foreground" />
@@ -322,7 +335,7 @@ export function DashboardPage() {
         </Card>
 
         {/* Journal streak */}
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card premium className="stagger-item">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">日记</CardTitle>
             <BookHeart className="size-4 text-muted-foreground" />
@@ -358,7 +371,7 @@ export function DashboardPage() {
         </Card>
 
         {/* Focus weekly trend */}
-        <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card premium className="stagger-item">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">本周专注</CardTitle>
             <TrendingUp className="size-4 text-muted-foreground" />
@@ -415,9 +428,9 @@ export function DashboardPage() {
       </div>
 
       {/* Content grid */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 stagger-container">
         {/* Recent tasks */}
-        <Card>
+        <Card premium className="stagger-item">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base font-semibold">待办任务</CardTitle>
             <Button asChild variant="ghost" size="sm" className="h-8">
@@ -473,7 +486,7 @@ export function DashboardPage() {
         </Card>
 
         {/* Recent notes */}
-        <Card>
+        <Card premium className="stagger-item">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base font-semibold">最近笔记</CardTitle>
             <Button asChild variant="ghost" size="sm" className="h-8">
@@ -535,10 +548,10 @@ export function DashboardPage() {
       </div>
 
       {/* 目标进度仪表盘 + 每日能量补给 */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 stagger-container">
         {/* 目标进度仪表盘 */}
         {activeGoals.length > 0 ? (
-          <Card>
+          <Card premium className="stagger-item">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-base font-semibold">目标进度仪表盘</CardTitle>
               <Target className="size-4 text-rose-500" />
@@ -602,7 +615,7 @@ export function DashboardPage() {
 
         {/* 每日能量补给 */}
         {inspiration ? (
-          <Card>
+          <Card premium className="stagger-item">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-base font-semibold">每日能量补给</CardTitle>
               <Sparkles className="size-4 text-amber-500" />
@@ -636,7 +649,7 @@ export function DashboardPage() {
 
       {/* Habits streak */}
       {habitsLoading ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <Skeleton className="size-5 rounded" />
@@ -650,7 +663,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : habitsError ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardContent className="flex flex-col items-center justify-center py-6 text-center">
             <p className="text-sm text-destructive">习惯数据加载失败</p>
             <Button size="sm" variant="outline" onClick={() => refetchHabits()} className="mt-2">
@@ -659,7 +672,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : habitsData && habitsData.length > 0 ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <Flame className="size-5 text-orange-500" />
@@ -710,7 +723,7 @@ export function DashboardPage() {
 
       {/* Today's news digest */}
       {newsLoading ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <Skeleton className="size-5 rounded" />
@@ -725,7 +738,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : newsError ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardContent className="flex flex-col items-center justify-center py-6 text-center">
             <p className="text-sm text-destructive">新闻加载失败</p>
             <Button size="sm" variant="outline" onClick={() => refetchNews()} className="mt-2">
@@ -734,7 +747,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : todayNews ? (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <Newspaper className="size-5" />
@@ -773,7 +786,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="mt-4">
+        <Card premium className="mt-4">
           <CardContent className="flex flex-col items-center justify-center py-6 text-center">
             <Newspaper className="mb-2 size-8 text-muted-foreground/30" />
             <p className="text-sm text-muted-foreground">今日暂未生成简报</p>
@@ -784,7 +797,7 @@ export function DashboardPage() {
 
       {/* Today's mood */}
       {journalLoading ? (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardContent className="p-4 flex items-center gap-3">
             <Skeleton className="size-10 shrink-0 rounded-xl" />
             <div className="flex-1 space-y-1.5">
@@ -794,7 +807,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : journalError ? (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardContent className="flex flex-col items-center justify-center py-6 text-center">
             <p className="text-sm text-destructive">日记加载失败</p>
             <Button size="sm" variant="outline" onClick={() => refetchJournal()} className="mt-2">
@@ -803,7 +816,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : todayJournal && todayJournal.length > 0 ? (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500/10">
               <BookHeart className="size-4 text-amber-500" />
@@ -818,7 +831,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500/10">
               <BookHeart className="size-4 text-amber-500" />
@@ -836,7 +849,7 @@ export function DashboardPage() {
 
       {/* Countdowns */}
       {countdownsLoading ? (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
               <div className="size-5 rounded bg-muted animate-pulse" />
@@ -850,7 +863,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : countdownList.length > 0 ? (
-        <Card className="mb-6">
+        <Card premium className="mb-6">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <PartyPopper className="size-5 text-rose-500" />
@@ -864,14 +877,14 @@ export function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger-container">
               {countdownList.map((c) => {
                 const label = c.diffDays === 0 ? '今天' : c.diffDays > 0 ? `还有 ${c.diffDays} 天` : `已过 ${Math.abs(c.diffDays)} 天`
                 const isUrgent = c.diffDays >= 0 && c.diffDays <= 7
                 return (
                   <div
                     key={c.id}
-                    className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50"
+                    className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-accent/50 stagger-item"
                   >
                     <div
                       className="flex size-10 shrink-0 items-center justify-center rounded-xl"
@@ -931,6 +944,7 @@ export function DashboardPage() {
             <p className="text-xs text-muted-foreground">保持好习惯</p>
           </div>
         </Link>
+      </div>
       </div>
     </div>
   )

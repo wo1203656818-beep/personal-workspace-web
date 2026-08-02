@@ -80,6 +80,8 @@ export interface KbDocument {
   fileType?: string | null
   fileSize?: number | null
   r2Key?: string | null
+  isStarred?: boolean | null
+  aiSummary?: string | null
   importedAt?: string | null
   updatedAt?: string | null
 }
@@ -90,6 +92,7 @@ export interface KbSummary {
   fileType?: string | null
   fileSize?: number | null
   r2Key?: string | null
+  isStarred?: boolean | null
   importedAt?: string | null
   updatedAt?: string | null
 }
@@ -138,6 +141,7 @@ export interface ChatSessionPreview {
   preview: string
   pinned?: number
   tags?: string[]
+  configId?: string | null
 }
 
 export interface ChatMessageRow {

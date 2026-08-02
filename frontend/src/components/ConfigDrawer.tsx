@@ -89,7 +89,7 @@ export function ConfigDrawer() {
           <span className="sr-only">配置</span>
         </Button>
       </SheetTrigger>
-      <SheetContent className="w-80">
+      <SheetContent className="w-full max-w-[85vw] overflow-y-auto sm:w-80">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <Settings className="size-4" />
@@ -125,7 +125,7 @@ export function ConfigDrawer() {
           <Separator />
 
           {/* Sidebar */}
-          <div className="space-y-3">
+          <div className="hidden space-y-3 md:block">
             <Label className="text-sm font-medium">侧边栏</Label>
             <div className="grid grid-cols-2 gap-2">
               <SidebarCard

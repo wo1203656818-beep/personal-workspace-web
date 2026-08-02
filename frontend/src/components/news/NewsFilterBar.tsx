@@ -47,9 +47,9 @@ export function NewsFilterBar({
           </button>
         ))}
       </div>
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
         <Select value={sort} onValueChange={onSortChange}>
-          <SelectTrigger className="w-[110px] h-8 text-xs">
+          <SelectTrigger className="h-8 w-[110px] shrink-0 text-xs">
             <ArrowUpDown className="w-3 h-3 mr-1" />
             <SelectValue />
           </SelectTrigger>
@@ -59,14 +59,14 @@ export function NewsFilterBar({
             <SelectItem value="personal">个性化</SelectItem>
           </SelectContent>
         </Select>
-        <div className="relative">
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             placeholder="搜索..."
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-[180px] pl-8 pr-3 py-1.5 text-sm border rounded-lg bg-background"
+            className="w-full pl-8 pr-3 py-1.5 text-sm border rounded-lg bg-background sm:w-[180px]"
           />
         </div>
       </div>

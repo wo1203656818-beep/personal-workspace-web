@@ -28,6 +28,7 @@ import {
   MessageCircle,
   CheckSquare,
   Square,
+  Star,
   type LucideIcon,
 } from 'lucide-react'
 import { kbApi, type KbDocument, type KbSummary } from '@/lib/api'
@@ -137,6 +138,7 @@ const ACCEPTED_TYPES: Record<string, string[]> = {
 
 const TYPE_FILTERS = [
   { value: 'all', label: '全部' },
+  { value: 'starred', label: '星标' },
   { value: 'pdf', label: 'PDF' },
   { value: 'docx', label: 'Word' },
   { value: 'xlsx', label: 'Excel' },
@@ -155,19 +157,21 @@ export function KnowledgePage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-emerald-500 to-teal-400 md:size-10">
             <BookOpen className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">知识库</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">知识库</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">沉淀文档、资料与灵感</p>
           </div>
         </div>
       </div>
+      <div className="page-content-wide">
       <KnowledgeList onNavigate={navigate} />
+      </div>
     </div>
   )
 }
@@ -283,6 +287,15 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   })
 
+  const toggleStarMutation = useMutation({
+    mutationFn: (id: string) => kbApi.toggleStar(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kb'] })
+      queryClient.invalidateQueries({ queryKey: ['kbDoc'] })
+    },
+    onError: (err: Error) => toast.error(`操作失败: ${err.message}`),
+  })
+
   const batchDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       for (const id of ids) {
@@ -309,6 +322,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
   }, [trimmedQuery, searchResults, docs])
 
   const filteredDocs = baseDocs.filter((doc: KbDocument) => {
+    if (typeFilter === 'starred') return doc.isStarred === true
     if (typeFilter === 'all') return true
     return doc.fileType === typeFilter
   })
@@ -334,7 +348,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
             className="rounded-xl pl-9"
           />
         </div>
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground shrink-0">
               {filteredDocs.length > 0
@@ -443,6 +457,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                 const colorClass = fileTypeColor[doc.fileType || ''] || fileTypeColor.unknown
                 const isRecent = recentlyViewedIds.includes(doc.id)
                 const isSelected = selectedDocIds.has(doc.id)
+                const isStarred = doc.isStarred === true
                 return (
                   <div
                     key={doc.id}
@@ -478,6 +493,21 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
                         </div>
                       </div>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'size-7 opacity-100 shrink-0 sm:opacity-0 sm:group-hover:opacity-100',
+                        isStarred && 'text-amber-500 sm:opacity-100',
+                      )}
+                      title={isStarred ? '取消星标' : '星标收藏'}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleStarMutation.mutate(doc.id)
+                      }}
+                    >
+                      <Star className={cn('size-3.5', isStarred && 'fill-amber-400 text-amber-400')} />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -726,7 +756,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
       </Dialog>
 
       <Button
-        className="fixed bottom-6 right-6 z-50 size-12 rounded-full shadow-lg"
+        className="fixed bottom-20 right-6 z-50 size-12 rounded-full shadow-lg md:bottom-6"
         onClick={() => setQaOpen(true)}
       >
         <MessageCircle className="size-5" />
@@ -737,6 +767,7 @@ function KnowledgeList({ onNavigate }: { onNavigate: ReturnType<typeof useNaviga
 }
 
 function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
+  const queryClient = useQueryClient()
   const [summary, setSummary] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
@@ -746,6 +777,8 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
     queryFn: () => kbApi.get(id),
     staleTime: STALE_TIME,
   })
+
+  const effectiveSummary = summary ?? selectedDoc?.aiSummary ?? null
 
   const summaryMutation = useMutation({
     mutationFn: (docId: string) => kbApi.summary(docId),
@@ -757,6 +790,15 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
     mutationFn: ({ docId, q }: { docId: string; q: string }) => kbApi.ask(docId, q),
     onSuccess: (data) => setAnswer(data.answer),
     onError: (err: Error) => toast.error(`问答失败: ${err.message}`),
+  })
+
+  const toggleStarMutation = useMutation({
+    mutationFn: (id: string) => kbApi.toggleStar(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['kbDoc', id] })
+      queryClient.invalidateQueries({ queryKey: ['kb'] })
+    },
+    onError: (err: Error) => toast.error(`操作失败: ${err.message}`),
   })
 
   if (selectedDocLoading) return <DetailSkeleton />
@@ -789,56 +831,70 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b bg-card/50 px-4 py-3 backdrop-blur-sm">
-        <Button variant="ghost" size="icon" className="rounded-lg" onClick={onBack}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div
-          className={cn(
-            'icon-badge size-8',
-            fileTypeColor[selectedDoc.fileType || ''] || fileTypeColor.unknown,
-          )}
-        >
-          <Icon className="size-4" />
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left min-w-0 flex-1">
+          <Button variant="ghost" size="icon" className="shrink-0 rounded-lg" onClick={onBack}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <div
+            className={cn(
+              'icon-badge size-9 shrink-0 md:size-10',
+              fileTypeColor[selectedDoc.fileType || ''] || fileTypeColor.unknown,
+            )}
+          >
+            <Icon className="size-5" />
+          </div>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">
+            {selectedDoc.title}
+          </h1>
         </div>
-        <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">
-          {selectedDoc.title}
-        </h1>
-        {selectedDocFetching && !selectedDocLoading && (
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
-        )}
-        <Badge variant="secondary" className="rounded-lg uppercase">
-          {selectedDoc.fileType}
-        </Badge>
-        {hasContent && (
+        <div className="page-header-right">
+          {selectedDocFetching && !selectedDocLoading && (
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          )}
+          <Badge variant="secondary" className="rounded-lg uppercase">
+            {selectedDoc.fileType}
+          </Badge>
           <Button
             size="sm"
             variant="outline"
-            className="gap-2 rounded-lg"
-            onClick={() => summaryMutation.mutate(selectedDoc.id)}
-            disabled={summaryMutation.isPending}
+            className="h-8 gap-2 rounded-lg sm:h-9"
+            onClick={() => toggleStarMutation.mutate(selectedDoc.id)}
           >
-            <Sparkles className={`size-4 ${summaryMutation.isPending ? 'animate-spin' : ''}`} />
-            AI 总结
+            <Star className={cn('size-4', selectedDoc.isStarred === true && 'fill-amber-400 text-amber-400')} />
+            {selectedDoc.isStarred === true ? '取消星标' : '星标'}
           </Button>
-        )}
-        {hasBinary && (
-          <Button size="sm" variant="outline" className="gap-2 rounded-lg" onClick={handleDownload}>
-            <Download className="size-4" />
-            下载
-          </Button>
-        )}
+          {hasContent && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-2 rounded-lg sm:h-9"
+              onClick={() => summaryMutation.mutate(selectedDoc.id)}
+              disabled={summaryMutation.isPending}
+            >
+              <Sparkles className={`size-4 ${summaryMutation.isPending ? 'animate-spin' : ''}`} />
+              AI 总结
+            </Button>
+          )}
+          {hasBinary && (
+            <Button size="sm" variant="outline" className="h-8 gap-2 rounded-lg sm:h-9" onClick={handleDownload}>
+              <Download className="size-4" />
+              下载
+            </Button>
+          )}
+        </div>
       </div>
+      <div className="page-content-wide">
       <ScrollArea className="flex-1">
         <div className="space-y-4 p-4 md:p-6">
-          {summary && (
+          {effectiveSummary && (
             <div className="surface-card overflow-x-hidden border-l-4 border-l-violet-500">
               <div className="flex items-center gap-2 text-sm font-medium text-violet-600 dark:text-violet-400">
                 <Sparkles className="size-4" />
                 AI 总结
               </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{summary}</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{effectiveSummary}</p>
             </div>
           )}
 
@@ -889,6 +945,7 @@ function KnowledgeDetail({ id, onBack }: { id: string; onBack: () => void }) {
           </div>
         </div>
       </ScrollArea>
+      </div>
     </div>
   )
 }

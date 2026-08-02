@@ -19,7 +19,7 @@ export function ChatSettingsModal({
       onClick={onClose}
     >
       <div
-        className="relative w-80 rounded-2xl border border-white/10 bg-[#1a1a1a] p-4 shadow-xl"
+        className="relative max-h-[85dvh] w-full max-w-[85vw] overflow-y-auto rounded-2xl border border-white/10 bg-[#1a1a1a] p-4 shadow-xl sm:w-80"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -57,7 +57,7 @@ export function ChatSettingsModal({
           onChange={(e) => setCustomPrompt(e.target.value)}
           rows={3}
           placeholder="例如：回答尽量简短；专业术语要解释…"
-          className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white placeholder:text-white/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+          className="w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-base text-white placeholder:text-white/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 sm:text-[12px]"
         />
         <div className="mt-3 flex gap-2">
           {customPrompt && (

@@ -64,7 +64,7 @@ export function AppHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-50 flex h-12 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-md sm:px-6">
+      <header className="sticky top-0 z-50 flex h-12 items-center gap-2 border-b bg-background/75 px-4 backdrop-blur-2xl backdrop-saturate-150 sm:px-6 shadow-[0_1px_0_0_rgba(255,255,255,0.06)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.04)]">
         <SidebarTrigger className="-ml-1 size-8" />
         <Separator orientation="vertical" className="h-4" />
         <Breadcrumb>
@@ -100,7 +100,7 @@ export function AppHeader({
             <Search className="size-4" />
             <span className="hidden sm:inline text-xs">搜索</span>
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleTheme}>
+          <Button variant="ghost" size="icon" className="size-9 sm:size-8" onClick={onToggleTheme}>
             <ThemeIcon className="size-4" />
             <span className="sr-only">切换主题</span>
           </Button>

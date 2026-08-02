@@ -59,6 +59,7 @@ export async function ensureChatTables(dbRaw: any): Promise<void> {
   const alters = [
     `ALTER TABLE chat_sessions ADD COLUMN tags TEXT DEFAULT '[]'`,
     `ALTER TABLE chat_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE chat_sessions ADD COLUMN config_id TEXT`,
   ]
   for (const sql of alters) {
     try {
@@ -140,6 +141,28 @@ export async function getActiveConfig(env: Env): Promise<{
     baseUrl: active.baseUrl ?? '',
     apiKey: active.apiKey ? await decrypt(env.JWT_SECRET, active.apiKey) : '',
     model: active.model || (active.type === 'cloudflare' ? DEFAULT_CF_MODEL : 'gpt-4o'),
+  }
+}
+
+export async function getConfigById(
+  env: Env,
+  id: string,
+): Promise<{
+  type: AiConfigType
+  baseUrl: string
+  apiKey: string
+  model: string
+} | null> {
+  const db = drizzle(env.DB, { schema })
+  await ensureAiConfigsTable(env.DB)
+  const rows = await db.select().from(schema.aiConfigs).where(eq(schema.aiConfigs.id, id)).limit(1)
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return {
+    type: r.type as AiConfigType,
+    baseUrl: r.baseUrl ?? '',
+    apiKey: r.apiKey ? await decrypt(env.JWT_SECRET, r.apiKey) : '',
+    model: r.model || (r.type === 'cloudflare' ? DEFAULT_CF_MODEL : 'gpt-4o'),
   }
 }
 

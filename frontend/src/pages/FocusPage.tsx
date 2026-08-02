@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Timer, Play, Pause, RotateCcw, Check, Loader2, Trash2, Plus, Clock, Target, BarChart3, Coffee, SkipForward, GanttChart, Brain, X, TrendingUp, Lightbulb, RefreshCw, Search } from 'lucide-react'
+import { Timer, Play, Pause, RotateCcw, Check, Loader2, Trash2, Plus, Clock, Target, BarChart3, Coffee, SkipForward, GanttChart, Brain, X, TrendingUp, Lightbulb, RefreshCw, Search, Medal, Tag } from 'lucide-react'
 import { toast } from 'sonner'
 import { focusApi, tasksApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 import { AmbientSounds } from '@/components/AmbientSounds'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { ActivityCalendar } from 'react-activity-calendar'
+import type { FocusBadge } from '@/lib/api'
 
 export function FocusPage() {
   usePageTitle('专注')
@@ -52,6 +53,11 @@ export function FocusPage() {
   const [dailyGoal, setDailyGoal] = useState(() => {
     try { return parseInt(localStorage.getItem('focusDailyGoal') || '4', 10) } catch { return 4 }
   })
+  const [dailyMinGoal, setDailyMinGoal] = useState(() => {
+    try { return parseInt(localStorage.getItem('focusDailyMinGoal') || '120', 10) } catch { return 120 }
+  })
+  const [sessionTags, setSessionTags] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
   const [showStopConfirm, setShowStopConfirm] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [historySearch, setHistorySearch] = useState('')
@@ -82,21 +88,30 @@ export function FocusPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
-    queryKey: ['focus', 'stats'],
-    queryFn: () => focusApi.stats(),
+  const { data: focusCalendar } = useQuery({
+    queryKey: ['focus', 'calendar'],
+    queryFn: () => focusApi.calendar(365),
+    staleTime: 60000,
+  })
+
+  const { data: achievements } = useQuery({
+    queryKey: ['focus', 'achievements'],
+    queryFn: focusApi.achievements,
     staleTime: 60000,
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: { minutes: number; taskId?: string; taskTitle?: string }) =>
+    mutationFn: (data: { minutes: number; taskId?: string; taskTitle?: string; tags?: string[] }) =>
       focusApi.create({ ...data, completed: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['focus'] })
+      queryClient.invalidateQueries({ queryKey: ['focus', 'calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['focus', 'achievements'] })
       toast.success('专注记录已保存')
       setCreateOpen(false)
       setMinutes(25)
       setTaskTitle('')
+      setSessionTags('')
     },
     onError: (err: Error) => toast.error(`保存失败: ${err.message}`),
   })
@@ -105,6 +120,8 @@ export function FocusPage() {
     mutationFn: (id: string) => focusApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['focus'] })
+      queryClient.invalidateQueries({ queryKey: ['focus', 'calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['focus', 'achievements'] })
       toast.success('记录已删除')
     },
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
@@ -135,6 +152,9 @@ export function FocusPage() {
   useEffect(() => {
     try { localStorage.setItem('focusDailyGoal', String(dailyGoal)) } catch {}
   }, [dailyGoal])
+  useEffect(() => {
+    try { localStorage.setItem('focusDailyMinGoal', String(dailyMinGoal)) } catch {}
+  }, [dailyMinGoal])
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -349,10 +369,25 @@ export function FocusPage() {
   const sessions = data?.sessions ?? []
 
   const filteredSessions = useMemo(() => {
-    if (!historySearch.trim()) return sessions
-    const q = historySearch.toLowerCase()
-    return sessions.filter((s) => s.taskTitle?.toLowerCase().includes(q))
-  }, [sessions, historySearch])
+    let result = sessions
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase()
+      result = result.filter((s) => s.taskTitle?.toLowerCase().includes(q))
+    }
+    if (tagFilter) {
+      result = result.filter((s) => (s.tags ?? '').split(',').map((t) => t.trim()).includes(tagFilter))
+    }
+    return result
+  }, [sessions, historySearch, tagFilter])
+
+  // 所有出现过的标签
+  const allTags = useMemo(() => {
+    const set = new Set<string>()
+    for (const s of sessions) {
+      for (const t of (s.tags ?? '').split(',').map((x) => x.trim()).filter(Boolean)) set.add(t)
+    }
+    return [...set].sort()
+  }, [sessions])
 
   const visibleSessions = filteredSessions.slice(0, historyPage * HISTORY_PAGE_SIZE)
   const hasMoreHistory = visibleSessions.length < filteredSessions.length
@@ -388,7 +423,7 @@ export function FocusPage() {
 
   const maxMinutes = Math.max(...weeklyData.map((d) => d.minutes), 1)
 
-  // 热力图数据
+  // 热力图数据（全年）
   type HeatItem = { date: string; count: number; level: number }
   function minutesToLevel(minutes: number): number {
     if (minutes <= 0) return 0
@@ -399,34 +434,37 @@ export function FocusPage() {
   }
   const heatData: HeatItem[] = useMemo(
     () =>
-      (statsData?.weekly ?? []).map((d) => ({
+      (focusCalendar ?? []).map((d) => ({
         date: d.date,
         count: d.minutes,
         level: minutesToLevel(d.minutes),
       })),
-    [statsData],
+    [focusCalendar],
   )
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-rose-500 to-pink-500 md:size-10">
             <Timer className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">专注</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">专注</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">番茄钟与今日专注统计</p>
           </div>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1 rounded-lg">
-          <Plus className="size-4" />
-          记录专注
-        </Button>
+        <div className="page-header-right">
+          <Button size="sm" onClick={() => setCreateOpen(true)} className="h-8 gap-1 rounded-lg sm:h-9">
+            <Plus className="size-3.5 sm:size-4" />
+            记录专注
+          </Button>
+        </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="space-y-6 p-4 md:p-6">
+      <div className="page-content-wide">
+        <ScrollArea className="flex-1">
+          <div className="space-y-6 p-4 md:p-6">
           {/* 番茄钟计时器 */}
           <div className="flex flex-col items-center rounded-xl border bg-card p-6 md:p-8">
             {/* 圆形进度 */}
@@ -510,7 +548,7 @@ export function FocusPage() {
             </div>
 
             {/* 时长选择 */}
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               {[15, 25, 30, 45, 60].map((min) => (
                 <Button
                   key={min}
@@ -525,11 +563,11 @@ export function FocusPage() {
               ))}
             </div>
             {/* Task selector */}
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               <select
                 value={selectedTaskId}
                 onChange={(e) => setSelectedTaskId(e.target.value)}
-                className="h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-8 max-w-full flex-1 min-w-0 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">无关联任务</option>
                 {allTasks.filter((t: any) => !t.isCompleted).map((task: any) => (
@@ -560,6 +598,29 @@ export function FocusPage() {
               {dailyGoal > 0 && (
                 <span className="text-emerald-500">
                   {Math.min(sessionCount, dailyGoal)}/{dailyGoal}
+                </span>
+              )}
+            </div>
+            {/* Daily minute goal */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Clock className="size-3.5" />
+              <span>时长目标：</span>
+              <div className="flex items-center gap-1">
+                {[60, 120, 180, 240].map((g) => (
+                  <Button
+                    key={g}
+                    variant={dailyMinGoal === g ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-6 rounded px-2 text-[10px]"
+                    onClick={() => setDailyMinGoal(g)}
+                  >
+                    {g}分
+                  </Button>
+                ))}
+              </div>
+              {stats?.todayMinutes != null && (
+                <span className="text-violet-500">
+                  {Math.min(stats.todayMinutes, dailyMinGoal)}/{dailyMinGoal} 分
                 </span>
               )}
             </div>
@@ -795,11 +856,7 @@ export function FocusPage() {
                   <BarChart3 className="size-4" />
                   专注热力图
                 </h3>
-                {statsLoading ? (
-                  <div className="flex items-center justify-center py-10">
-                    <Skeleton className="h-28 w-full max-w-[600px]" />
-                  </div>
-                ) : heatData.length > 0 ? (
+                {heatData.length > 0 ? (
                   <div className="w-full overflow-x-auto">
                     <ActivityCalendar
                       data={heatData}
@@ -817,6 +874,23 @@ export function FocusPage() {
                 ) : (
                   <p className="py-10 text-center text-xs text-muted-foreground">暂无专注数据</p>
                 )}
+              </div>
+
+              {/* 专注成就徽章 */}
+              <div className="rounded-xl border bg-card p-4">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <Medal className="size-4" />
+                  专注成就
+                  <span className="text-xs">
+                    {achievements?.badges.filter((b) => b.achieved).length ?? 0}/
+                    {achievements?.badges.length ?? 0}
+                  </span>
+                </h3>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  {(achievements?.badges ?? []).map((badge) => (
+                    <FocusBadgeCard key={badge.id} badge={badge} />
+                  ))}
+                </div>
               </div>
 
               {/* AI 专注分析 */}
@@ -929,6 +1003,36 @@ export function FocusPage() {
                   <BarChart3 className="size-4" />
                   最近记录
                 </h3>
+                {allTags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Tag className="size-3.5 text-muted-foreground" />
+                    <button
+                      onClick={() => setTagFilter('')}
+                      className={cn(
+                        'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+                        !tagFilter
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-muted',
+                      )}
+                    >
+                      全部
+                    </button>
+                    {allTags.map((tag) => (
+                      <button
+                        key={tag}
+                        onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
+                        className={cn(
+                          'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+                          tagFilter === tag
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:bg-muted',
+                        )}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -966,6 +1070,15 @@ export function FocusPage() {
                         {s.taskTitle && (
                           <span className="truncate text-xs text-muted-foreground">· {s.taskTitle}</span>
                         )}
+                        {s.tags && (
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            {s.tags.split(',').map((t) => t.trim()).filter(Boolean).map((t) => (
+                              <span key={t} className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                #{t}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {s.startedAt.slice(0, 16).replace('T', ' ')}
@@ -1000,6 +1113,7 @@ export function FocusPage() {
           )}
         </div>
       </ScrollArea>
+      </div>
 
       {/* 新建记录对话框 */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -1046,6 +1160,14 @@ export function FocusPage() {
                 placeholder="输入任务或活动名称"
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">标签（可选，用逗号分隔）</label>
+              <Input
+                value={sessionTags}
+                onChange={(e) => setSessionTags(e.target.value)}
+                placeholder="如：工作, 深度, 学习"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -1058,7 +1180,13 @@ export function FocusPage() {
             </Button>
             <Button
               size="sm"
-              onClick={() => createMutation.mutate({ minutes, taskTitle: taskTitle || undefined })}
+              onClick={() =>
+                createMutation.mutate({
+                  minutes,
+                  taskTitle: taskTitle || undefined,
+                  tags: sessionTags.split(',').map((t) => t.trim()).filter(Boolean),
+                })
+              }
               disabled={createMutation.isPending}
             >
               {createMutation.isPending ? (
@@ -1112,6 +1240,32 @@ export function FocusPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+function FocusBadgeCard({ badge }: { badge: FocusBadge }) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col items-center gap-1 rounded-xl border p-3 text-center transition-all',
+        badge.achieved
+          ? 'border-amber-500/40 bg-amber-500/5'
+          : 'border-border opacity-50 grayscale',
+      )}
+    >
+      <span className="text-2xl">{badge.icon}</span>
+      <p className="text-xs font-semibold">{badge.name}</p>
+      <p className="text-[10px] leading-tight text-muted-foreground">{badge.desc}</p>
+      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-amber-500 transition-all"
+          style={{ width: `${Math.min(100, (badge.progress / badge.target) * 100)}%` }}
+        />
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        {Math.min(badge.progress, badge.target)}/{badge.target}
+      </p>
     </div>
   )
 }

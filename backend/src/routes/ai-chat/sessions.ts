@@ -79,20 +79,20 @@ async function resolveChatSession(
   db: any,
   sessionId: string | null,
   firstMessage: string,
-): Promise<{ id: string }> {
+): Promise<{ id: string; configId: string | null }> {
   if (sessionId) {
     const existing = await db
-      .select({ id: schema.chatSessions.id })
+      .select({ id: schema.chatSessions.id, configId: schema.chatSessions.configId })
       .from(schema.chatSessions)
       .where(eq(schema.chatSessions.id, sessionId))
       .limit(1)
-    if (existing.length) return { id: existing[0].id }
+    if (existing.length) return { id: existing[0].id, configId: existing[0].configId || null }
   }
   const id = crypto.randomUUID()
   const title =
     firstMessage.length > 30 ? firstMessage.slice(0, 30) + '…' : firstMessage || '新对话'
   await db.insert(schema.chatSessions).values({ id, title })
-  return { id }
+  return { id, configId: null }
 }
 
 async function loadChatHistory(
@@ -167,6 +167,7 @@ sessions.get('/', async (c) => {
         updatedAt: schema.chatSessions.updatedAt,
         pinned: schema.chatSessions.pinned,
         tags: schema.chatSessions.tags,
+        configId: schema.chatSessions.configId,
       })
       .from(schema.chatSessions)
       .orderBy(desc(schema.chatSessions.pinned), desc(schema.chatSessions.updatedAt))
@@ -208,6 +209,7 @@ sessions.get('/', async (c) => {
         preview: previewMap.get(s.id) || '',
         pinned: s.pinned ? 1 : 0,
         tags,
+        configId: s.configId || null,
       }
     })
     return c.json(withPreview)
@@ -232,7 +234,11 @@ sessions.get('/:id', async (c) => {
       .where(eq(schema.chatMessages.sessionId, id))
       .orderBy(asc(schema.chatMessages.createdAt))
     const session = await db
-      .select({ id: schema.chatSessions.id, title: schema.chatSessions.title })
+      .select({
+        id: schema.chatSessions.id,
+        title: schema.chatSessions.title,
+        configId: schema.chatSessions.configId,
+      })
       .from(schema.chatSessions)
       .where(eq(schema.chatSessions.id, id))
       .limit(1)
@@ -277,6 +283,7 @@ sessions.patch('/:id', async (c) => {
     }
     if (typeof body.pinned === 'boolean' || typeof body.pinned === 'number')
       patch.pinned = body.pinned ? 1 : 0
+    if ('configId' in body) patch.configId = body.configId ? String(body.configId).slice(0, 80) : null
     if (Object.keys(patch).length === 0) return c.json({ error: '无可更新字段' }, 400)
     patch.updatedAt = nowBeijing()
     await db.update(schema.chatSessions).set(patch).where(eq(schema.chatSessions.id, id))

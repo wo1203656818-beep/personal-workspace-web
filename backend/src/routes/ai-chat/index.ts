@@ -45,6 +45,7 @@ aiChat.post('/', async (c) => {
 
   const session = await resolveChatSession(db, sessionId, message)
   const history = await loadChatHistory(db, session.id)
+  const configId = session.configId
 
   const ctx = await buildChatCtx(db)
 
@@ -72,6 +73,7 @@ aiChat.post('/', async (c) => {
           images,
           webSearch,
           ctx,
+          configId,
           send,
         })
       } catch (e: any) {
@@ -101,6 +103,7 @@ async function streamChat(
     systemPrompt?: string
     role?: string
     images?: string[]
+    configId?: string | null
   },
 ): Promise<void> {
   const {
@@ -114,6 +117,7 @@ async function streamChat(
     systemPrompt,
     role,
     images,
+    configId,
   } = opts
   await insertChatMessage(db, sessionId, 'user', message, null)
 
@@ -145,6 +149,7 @@ async function streamChat(
         stream: true,
         deepThink,
         images,
+        configId,
         tools: CHAT_TOOLS,
         onText: (t) => send({ type: 'delta', text: t }),
         onReasoning: (t) => send({ type: 'reasoning', text: t }),

@@ -14,7 +14,7 @@ import {
 import { copyChatAsMarkdown, downloadChatMarkdown, exportChatPdf } from '@/lib/chat-export'
 import { cn } from '@/lib/utils'
 import { lazyImport } from '@/lib/lazy'
-import { aiApi } from '@/lib/api'
+import { aiApi, aiConfigsApi, type AiConfig } from '@/lib/api'
 import { toast } from 'sonner'
 
 import type { Msg } from '@/components/chat/types'
@@ -38,7 +38,7 @@ const ChatMarkdown = lazyImport(async () => {
     ])
   return {
     default: ({ content }: { content: string }) => (
-      <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-white/90 prose-headings:font-semibold prose-p:text-white/75 prose-li:text-white/75 prose-strong:text-white/90 prose-code:text-white/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-white/60 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px]">
+      <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-white/90 prose-headings:font-semibold prose-p:text-white/75 prose-li:text-white/75 prose-strong:text-white/90 prose-code:text-white/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-white/60 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
@@ -71,6 +71,8 @@ export function ChatPage() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameTitle, setRenameTitle] = useState('')
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false)
+  const [configs, setConfigs] = useState<AiConfig[]>([])
+  const [configId, setConfigId] = useState('default')
 
   const customPromptRef = useRef<string>(customPrompt)
   customPromptRef.current = customPrompt
@@ -132,6 +134,33 @@ export function ChatPage() {
     }
   }, [sessionId, sessions])
 
+  // 加载 AI 配置列表
+  useEffect(() => {
+    aiConfigsApi
+      .list()
+      .then((list) => {
+        setConfigs(list)
+        const def = list.find((c) => c.isDefault)
+        if (def && configId === 'default') setConfigId(def.id)
+      })
+      .catch(() => {})
+  }, [])
+
+  // 会话切换时同步绑定的配置
+  useEffect(() => {
+    if (sessionId && sessions.length > 0) {
+      const found = sessions.find((s) => s.id === sessionId)
+      if (found) setConfigId(found.configId || 'default')
+    }
+  }, [sessionId, sessions])
+
+  const handleConfigChange = (id: string) => {
+    setConfigId(id)
+    if (sessionId) {
+      aiApi.updateChatSession(sessionId, { configId: id === 'default' ? null : id }).catch(() => {})
+    }
+  }
+
   const retryLast = useCallback(() => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     if (lastUser) send(lastUser.content)
@@ -140,20 +169,23 @@ export function ChatPage() {
   const { listening, speechSupported, toggleVoice } = useVoiceInput({ setInput })
 
   return (
-    <div className="flex h-full flex-col bg-[#0a0a0a]">
+    <div className="page-layout">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
-            <Sparkles className="size-4 text-primary" />
+      <div className="page-header">
+        <div className="page-header-left">
+          <div className="icon-badge size-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 md:size-10">
+            <Sparkles className="size-5" />
           </div>
-          <h1 className="text-sm font-medium text-white/90">AI 助手</h1>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">AI 助手</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">问答、写作、翻译、代码、闲聊</p>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="page-header-right">
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-white/60 hover:text-white"
+            className="size-9 rounded-lg text-muted-foreground hover:text-foreground sm:size-8"
             title="聊天历史"
             onClick={() => setHistoryOpen((v) => !v)}
           >
@@ -162,7 +194,7 @@ export function ChatPage() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-white/60 hover:text-white"
+            className="size-9 rounded-lg text-muted-foreground hover:text-foreground sm:size-8"
             title="新对话"
             onClick={() => newChat(abortRef)}
           >
@@ -172,7 +204,7 @@ export function ChatPage() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-white/60 hover:text-white"
+              className="size-9 rounded-lg text-muted-foreground hover:text-foreground sm:size-8"
               title="更多"
               onClick={() => setExportOpen((v) => !v)}
             >
@@ -371,7 +403,7 @@ export function ChatPage() {
                                 setEditingMsgId(m.id)
                                 setEditingContent(m.content)
                               }}
-                              className="absolute -left-7 top-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-white/40 hover:text-white"
+                              className="absolute -left-8 top-1 flex size-8 items-center justify-center rounded-lg text-white/40 transition-opacity hover:text-white md:opacity-0 md:group-hover:opacity-100"
                               title="编辑"
                             >
                               <Pencil className="size-3.5" />
@@ -445,7 +477,7 @@ export function ChatPage() {
                           ) : null}
                           <button
                             onClick={() => navigator.clipboard.writeText(rest || m.content)}
-                            className="absolute -right-8 top-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-white/40 hover:text-white"
+                            className="absolute -right-9 top-0 flex size-8 items-center justify-center rounded-lg text-white/40 transition-opacity hover:text-white md:opacity-0 md:group-hover:opacity-100"
                             title="复制"
                           >
                             <Copy className="size-3.5" />
@@ -505,6 +537,9 @@ export function ChatPage() {
           setImages={setImages}
           speechSupported={speechSupported}
           listening={listening}
+          configs={configs}
+          configId={configId}
+          onConfigChange={handleConfigChange}
           onToggleVoice={toggleVoice}
           onSend={send}
           onStop={stop}

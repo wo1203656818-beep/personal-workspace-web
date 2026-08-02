@@ -122,6 +122,7 @@ export function GoalsPage() {
   const [cdColor, setCdColor] = useState('#6366f1')
   const [cdIsYearly, setCdIsYearly] = useState(false)
   const [cdOpen, setCdOpen] = useState(false)
+  const [editCountdown, setEditCountdown] = useState<Countdown | null>(null)
 
   // 庆祝动画
   const [celebrating, setCelebrating] = useState(false)
@@ -244,17 +245,26 @@ export function GoalsPage() {
 
   const saveCdMutation = useMutation({
     mutationFn: () =>
-      goalsApi.countdowns.create({
-        title: cdTitle,
-        date: cdDate,
-        note: cdNote || undefined,
-        color: cdColor,
-        isYearly: cdIsYearly,
-      }),
+      editCountdown
+        ? goalsApi.countdowns.update(editCountdown.id, {
+            title: cdTitle,
+            date: cdDate,
+            note: cdNote || undefined,
+            color: cdColor,
+            isYearly: cdIsYearly,
+          })
+        : goalsApi.countdowns.create({
+            title: cdTitle,
+            date: cdDate,
+            note: cdNote || undefined,
+            color: cdColor,
+            isYearly: cdIsYearly,
+          }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['countdowns'] })
-      toast.success('倒数日已创建')
+      toast.success(editCountdown ? '倒数日已更新' : '倒数日已创建')
       setCdOpen(false)
+      setEditCountdown(null)
       setCdTitle('')
       setCdDate('')
       setCdNote('')
@@ -272,6 +282,26 @@ export function GoalsPage() {
     },
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   })
+
+  const openEditCountdown = (cd: Countdown) => {
+    setEditCountdown(cd)
+    setCdTitle(cd.title)
+    setCdDate(cd.date)
+    setCdNote(cd.note ?? '')
+    setCdColor(cd.color ?? '#6366f1')
+    setCdIsYearly(!!cd.isYearly)
+    setCdOpen(true)
+  }
+
+  const openCreateCountdown = () => {
+    setEditCountdown(null)
+    setCdTitle('')
+    setCdDate('')
+    setCdNote('')
+    setCdColor('#6366f1')
+    setCdIsYearly(false)
+    setCdOpen(true)
+  }
 
   const resetGoalForm = () => {
     setCreateOpen(false)
@@ -367,30 +397,44 @@ export function GoalsPage() {
   const archivedGoals = goals?.filter((g) => g.status === 'archived') ?? []
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="page-layout">
       <CelebrationOverlay show={celebrating} onEnd={() => setCelebrating(false)} />
 
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-violet-500 to-purple-500 md:size-10">
             <Target className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">目标</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">目标</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">OKR 进度与倒数日</p>
           </div>
         </div>
         {/* 下一个倒计时小组件 */}
         {nextCountdown && (
-          <div className="hidden items-center gap-2 rounded-lg border bg-card/80 px-3 py-1.5 shadow-sm sm:flex">
-            <Clock className="size-4 text-indigo-500" />
-            <span className="text-xs text-muted-foreground">{nextCountdown.cd.title}</span>
-            <span className="text-sm font-bold" style={{ color: nextCountdown.cd.color ?? '#6366f1' }}>
-              {nextCountdown.days === 0 ? '今天！' : `${nextCountdown.days} 天`}
-            </span>
-          </div>
+          <>
+            <div className="page-header-right hidden sm:flex">
+              <div className="flex items-center gap-2 rounded-lg border bg-card/80 px-3 py-1.5 shadow-sm">
+                <Clock className="size-4 text-indigo-500" />
+                <span className="text-xs text-muted-foreground">{nextCountdown.cd.title}</span>
+                <span className="text-sm font-bold" style={{ color: nextCountdown.cd.color ?? '#6366f1' }}>
+                  {nextCountdown.days === 0 ? '今天！' : `${nextCountdown.days} 天`}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border bg-card/80 px-3 py-1.5 shadow-sm sm:hidden">
+              <Clock className="size-4 shrink-0 text-indigo-500" />
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                {nextCountdown.cd.title}
+              </span>
+              <span className="shrink-0 text-sm font-bold" style={{ color: nextCountdown.cd.color ?? '#6366f1' }}>
+                {nextCountdown.days === 0 ? '今天！' : `${nextCountdown.days} 天`}
+              </span>
+            </div>
+          </>
         )}
       </div>
+      <div className="page-content-wide">
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-4 md:p-6">
@@ -696,7 +740,7 @@ export function GoalsPage() {
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">{countdowns?.length ?? 0} 个倒数日</p>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={() => setCdOpen(true)} className="gap-1 rounded-lg">
+                  <Button size="sm" onClick={openCreateCountdown} className="gap-1 rounded-lg">
                     <Plus className="size-4" />新建倒数日
                   </Button>
                 </div>
@@ -763,7 +807,7 @@ export function GoalsPage() {
                   title="还没有倒数日"
                   description="添加一个重要的日子"
                   action={
-                    <Button size="sm" onClick={() => setCdOpen(true)} className="gap-1 rounded-lg">
+                    <Button size="sm" onClick={openCreateCountdown} className="gap-1 rounded-lg">
                       <Plus className="size-4" />添加第一个倒数日
                     </Button>
                   }
@@ -812,6 +856,14 @@ export function GoalsPage() {
                                 </p>
                               )}
                             </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 rounded-md md:opacity-0 md:group-hover:opacity-100 opacity-100"
+                              onClick={() => openEditCountdown(cd)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -887,7 +939,7 @@ export function GoalsPage() {
               <label className="text-xs font-medium text-muted-foreground">描述（可选）</label>
               <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">当前值</label>
                 <Input
@@ -946,11 +998,17 @@ export function GoalsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 新建倒数日对话框 */}
-      <Dialog open={cdOpen} onOpenChange={setCdOpen}>
+      {/* 新建/编辑倒数日对话框 */}
+      <Dialog
+        open={cdOpen}
+        onOpenChange={(o) => {
+          setCdOpen(o)
+          if (!o) setEditCountdown(null)
+        }}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>新建倒数日</DialogTitle>
+            <DialogTitle>{editCountdown ? '编辑倒数日' : '新建倒数日'}</DialogTitle>
             <DialogDescription>记录一个重要的日子</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1063,6 +1121,7 @@ export function GoalsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   )
 }

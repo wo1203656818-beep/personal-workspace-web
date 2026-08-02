@@ -20,17 +20,23 @@ export function PrioritySuggestionsCard({
   const loading = generateMutation.isPending
 
   return (
-    <div className="rounded-2xl border bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-3 md:p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
-          <Star className="size-4" />
-          AI 优先级建议
+    <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-blue-500/[0.04] to-sky-500/[0.03]" />
+      <div className="relative flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <Star className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-blue-600 dark:text-blue-400">AI 优先级建议</p>
+            <p className="text-xs text-muted-foreground">智能排序，先吃青蛙</p>
+          </div>
         </div>
         {suggestions.length > 0 && (
           <Button
             variant="ghost"
             size="icon"
-            className="size-7"
+            className="size-8"
             onClick={() => generateMutation.mutate()}
             disabled={loading}
             title="重新生成"
@@ -40,11 +46,11 @@ export function PrioritySuggestionsCard({
         )}
       </div>
       {loading && !generateMutation.data ? (
-        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="relative mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <RefreshCw className="size-3.5 animate-spin" /> 正在分析任务优先级...
         </div>
       ) : suggestions.length > 0 ? (
-        <div className="mt-2 space-y-2">
+        <div className="relative mt-3 space-y-2">
           {suggestions.map((s, idx) => {
             const task = tasks.find((t) => t.id === s.taskId)
             if (!task) return null
@@ -52,9 +58,9 @@ export function PrioritySuggestionsCard({
               <div
                 key={s.taskId}
                 onClick={() => onSelectTask(s.taskId)}
-                className="flex cursor-pointer items-start gap-2 rounded-xl bg-background/60 p-2 hover:bg-background"
+                className="flex cursor-pointer items-start gap-2 rounded-xl border bg-card/70 p-2 transition-all duration-200 hover:-translate-y-0.5 hover:bg-blue-500/5 hover:shadow-sm"
               >
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-xs font-medium text-amber-600 dark:text-amber-400">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-500/10 text-xs font-medium text-blue-600 dark:text-blue-400">
                   {idx + 1}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -66,11 +72,11 @@ export function PrioritySuggestionsCard({
           })}
         </div>
       ) : (
-        <div className="mt-2">
+        <div className="relative mt-3">
           <Button
             size="sm"
             variant="outline"
-            className="w-full gap-1"
+            className="w-full gap-1 border-blue-500/20 text-blue-600 hover:bg-blue-500/5 hover:text-blue-700"
             onClick={() => generateMutation.mutate()}
             disabled={loading}
           >

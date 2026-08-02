@@ -274,20 +274,20 @@ export function AnalysisPage() {
   const isEmpty = !!data?.stats && data.stats.totalTasks === 0
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-violet-500 to-fuchsia-500 md:size-10">
             <BarChart3 className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">数据分析</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">数据分析</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               AI 驱动的数据洞察与趋势分析
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="page-header-right">
           {/* 对比周期选择 */}
           {data && !isEmpty && (
             <Select value={comparePeriod} onValueChange={(v) => setComparePeriod(v as typeof comparePeriod)}>
@@ -314,19 +314,19 @@ export function AnalysisPage() {
             </SelectContent>
           </Select>
           {range === 'custom' && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Input
                 type="date"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="h-8 w-32 rounded-lg text-xs"
+                className="h-8 w-full rounded-lg text-xs sm:w-32"
               />
               <span className="text-xs text-muted-foreground">至</span>
               <Input
                 type="date"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="h-8 w-32 rounded-lg text-xs"
+                className="h-8 w-full rounded-lg text-xs sm:w-32"
               />
             </div>
           )}
@@ -372,8 +372,9 @@ export function AnalysisPage() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="space-y-6 p-4 md:p-6">
+      <div className="page-content-wide">
+        <ScrollArea className="flex-1">
+          <div className="space-y-6 p-4 md:p-6">
           {isFetching && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -729,6 +730,7 @@ export function AnalysisPage() {
           )}
         </div>
       </ScrollArea>
+      </div>
     </div>
   )
 }

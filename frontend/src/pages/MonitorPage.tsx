@@ -282,34 +282,35 @@ export function MonitorPage() {
   ]
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="page-layout">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-indigo-500 to-purple-500 md:size-10">
             <Radio className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">监控中心</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">监控中心</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               热榜选题与竞品动态 · AI 创作选题
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={handleRun} disabled={running} size="sm">
+        <div className="page-header-right">
+          <Button onClick={handleRun} disabled={running} size="sm" className="h-8 rounded-lg sm:h-9">
             {running ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-1 size-3.5 animate-spin sm:size-4" />
             ) : (
-              <Play className="mr-1 h-4 w-4" />
+              <Play className="mr-1 size-3.5 sm:size-4" />
             )}
             {running ? '运行中...' : '立即运行'}
           </Button>
-          <Button variant="outline" onClick={handlePush} disabled={pushing} size="sm">
-            <Send className="mr-1 h-4 w-4" /> 推送
+          <Button variant="outline" onClick={handlePush} disabled={pushing} size="sm" className="h-8 rounded-lg sm:h-9">
+            <Send className="mr-1 size-3.5 sm:size-4" /> 推送
           </Button>
         </div>
       </div>
+      <div className="page-content-wide">
 
       <ScrollArea className="flex-1">
         <div className="space-y-5 p-4 md:p-6">
@@ -441,14 +442,14 @@ export function MonitorPage() {
                     return (
                       <div
                         key={t.id}
-                        className="flex items-center gap-3 p-2.5 rounded-lg border bg-background text-sm"
+                        className="flex flex-wrap items-center gap-3 p-2.5 rounded-lg border bg-background text-sm"
                       >
                         <Switch
                           checked={t.enabled}
                           onCheckedChange={() => handleToggleEnabled(t)}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium">{t.label}</span>
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                               {t.type === 'hotlist'
@@ -501,14 +502,14 @@ export function MonitorPage() {
                     </Badge>
                   )}
                 </CardTitle>
-                <CardDescription className="flex items-center gap-2 mt-1">
+                <CardDescription className="flex flex-wrap items-center gap-2 mt-1">
                   {/* 日期快捷选择 */}
                   {dateShortcuts.map((d) => (
                     <button
                       key={d.value}
                       onClick={() => setSelectedDate(d.value)}
                       className={cn(
-                        'px-2 py-0.5 text-xs rounded-full border transition-colors',
+                        'shrink-0 px-2 py-0.5 text-xs rounded-full border transition-colors',
                         selectedDate === d.value
                           ? 'bg-primary text-primary-foreground border-primary'
                           : 'text-muted-foreground hover:bg-muted border-transparent',
@@ -521,7 +522,7 @@ export function MonitorPage() {
                     type="date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="px-2 py-0.5 text-xs border rounded-lg bg-background"
+                    className="min-w-0 max-w-[8.5rem] px-2 py-0.5 text-xs border rounded-lg bg-background"
                     max={today}
                   />
                 </CardDescription>
@@ -657,6 +658,7 @@ export function MonitorPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </div>
     </div>
   )
 }

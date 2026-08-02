@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { Env } from '../../types'
-import { getActiveConfig, CF_MODELS } from '../../ai-configs'
+import { getActiveConfig, getConfigById, CF_MODELS } from '../../ai-configs'
 import { TOOL_ACTION_MAP } from './tools'
 import { fetchWithTimeout } from '../../utils/fetch-timeout'
 
@@ -43,9 +43,14 @@ async function chatCompletion(
     onReasoning?: (t: string) => void
     images?: string[]
     deepThink?: boolean
+    configId?: string | null
   },
 ): Promise<ChatResult> {
-  const cfg = await getActiveConfig(c.env)
+  let cfg = await getActiveConfig(c.env)
+  if (opts.configId && opts.configId !== 'default') {
+    const picked = await getConfigById(c.env, opts.configId)
+    if (picked) cfg = picked
+  }
   if (!cfg) return chatCompletionCF(c, { model: CF_MODELS.DEFAULT }, messages, opts)
   if (cfg.type === 'openai') return chatCompletionOpenAI(cfg, messages, opts)
   return chatCompletionCF(c, cfg, messages, opts)

@@ -71,14 +71,22 @@ export function NavItem({ item, isActive }: { item: NavItemData; isActive: boole
   }
 
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem className="relative">
+      {isActive && (
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_10px] shadow-primary/40" />
+      )}
       <SidebarMenuButton
         asChild
         isActive={isActive}
-        className="h-10 gap-3 rounded-lg px-3 transition-all data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        className="h-10 gap-3 rounded-lg px-3 transition-all duration-200 ease-spring data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[active=true]:shadow-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:translate-x-0.5"
       >
         <Link to={item.href} onClick={() => setOpenMobile(false)}>
-          <item.icon className="size-[18px]" />
+          <item.icon
+            className={cn(
+              'size-[18px] transition-transform duration-200 ease-spring',
+              isActive && 'scale-105',
+            )}
+          />
           <span className="text-sm">{item.title}</span>
         </Link>
       </SidebarMenuButton>

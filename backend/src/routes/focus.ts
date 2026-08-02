@@ -64,12 +64,19 @@ focus.post('/', async (c) => {
     const db = drizzle(c.env.DB, { schema })
     const id = crypto.randomUUID()
     const completed = body?.completed !== false
+    const tags = Array.isArray(body?.tags)
+      ? body.tags
+          .map((t: unknown) => (typeof t === 'string' ? t.trim() : ''))
+          .filter(Boolean)
+          .join(',')
+      : null
     await db.insert(schema.focusSessions).values({
       id,
       taskId: typeof body?.taskId === 'string' && body.taskId ? body.taskId : null,
       taskTitle: typeof body?.taskTitle === 'string' ? body.taskTitle : null,
       minutes,
       completed,
+      tags,
       startedAt: typeof body?.startedAt === 'string' ? body.startedAt : nowBeijing(),
       endedAt: typeof body?.endedAt === 'string' ? body.endedAt : nowBeijing(),
     })
@@ -148,6 +155,165 @@ focus.get('/stats', async (c) => {
     })
   } catch (err) {
     console.error('Focus stats error:', err)
+    return c.json({ error: '服务器内部错误' }, 500)
+  }
+})
+
+// 专注日历（近 N 天每天专注分钟数，用于热力图）
+focus.get('/calendar', async (c) => {
+  try {
+    const db = drizzle(c.env.DB, { schema })
+    const days = Math.min(parseInt(c.req.query('days') || '365'), 365)
+    if (isNaN(days) || days < 1) return c.json({ error: 'days 参数无效' }, 400)
+    const today = todayCST()
+    const d = new Date(today + 'T00:00:00Z')
+    d.setUTCDate(d.getUTCDate() - (days - 1))
+    const fromDate = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+
+    const rows = await db
+      .select({
+        day: schema.focusSessions.startedAt,
+        minutes: schema.focusSessions.minutes,
+      })
+      .from(schema.focusSessions)
+      .where(
+        and(
+          gte(schema.focusSessions.startedAt, fromDate),
+          eq(schema.focusSessions.completed, true),
+        ),
+      )
+
+    const map: Record<string, number> = {}
+    for (const r of rows) {
+      const day = r.day.slice(0, 10)
+      map[day] = (map[day] || 0) + r.minutes
+    }
+
+    const result: { date: string; minutes: number }[] = []
+    for (let i = days - 1; i >= 0; i--) {
+      const dd = new Date(today + 'T00:00:00Z')
+      dd.setUTCDate(dd.getUTCDate() - i)
+      const dateStr = `${dd.getUTCFullYear()}-${String(dd.getUTCMonth() + 1).padStart(2, '0')}-${String(dd.getUTCDate()).padStart(2, '0')}`
+      result.push({ date: dateStr, minutes: map[dateStr] || 0 })
+    }
+
+    return c.json(result)
+  } catch (err) {
+    console.error('Focus calendar error:', err)
+    return c.json({ error: '服务器内部错误' }, 500)
+  }
+})
+
+// 专注成就徽章
+focus.get('/achievements', async (c) => {
+  try {
+    const db = drizzle(c.env.DB, { schema })
+    const today = todayCST()
+    const from = new Date(today + 'T00:00:00Z')
+    from.setUTCDate(from.getUTCDate() - 365)
+    const fromDate = `${from.getUTCFullYear()}-${String(from.getUTCMonth() + 1).padStart(2, '0')}-${String(from.getUTCDate()).padStart(2, '0')}`
+
+    const rows = await db
+      .select()
+      .from(schema.focusSessions)
+      .where(
+        and(
+          gte(schema.focusSessions.startedAt, fromDate),
+          eq(schema.focusSessions.completed, true),
+        ),
+      )
+      .orderBy(schema.focusSessions.startedAt)
+
+    const totalMinutes = rows.reduce((s, r) => s + r.minutes, 0)
+    const totalHours = Math.floor(totalMinutes / 60)
+    const totalSessions = rows.length
+    const deepSessions = rows.filter((r) => r.minutes >= 45).length
+
+    // 连续专注天数（从今天往回）
+    const doneDays = new Set(rows.map((r) => r.startedAt.slice(0, 10)))
+    const prevDate = (d: string) => {
+      const dd = new Date(d + 'T00:00:00Z')
+      dd.setUTCDate(dd.getUTCDate() - 1)
+      return `${dd.getUTCFullYear()}-${String(dd.getUTCMonth() + 1).padStart(2, '0')}-${String(dd.getUTCDate()).padStart(2, '0')}`
+    }
+    let streak = 0
+    let cursor = today
+    while (doneDays.has(cursor)) {
+      streak++
+      cursor = prevDate(cursor)
+    }
+
+    // 最佳连续
+    const sortedDays = [...doneDays].sort()
+    let bestStreak = 0
+    let run = 0
+    let prevDay: string | null = null
+    for (const day of sortedDays) {
+      if (prevDay && prevDate(day) === prevDay) run++
+      else run = 1
+      if (run > bestStreak) bestStreak = run
+      prevDay = day
+    }
+
+    // 今日是否完成
+    const doneToday = doneDays.has(today)
+
+    const badges = [
+      {
+        id: 'first', name: '初体验', icon: '🎯',
+        desc: '完成第一次专注', achieved: totalSessions >= 1,
+        progress: Math.min(totalSessions, 1), target: 1,
+      },
+      {
+        id: 'hours1', name: '专注一小时', icon: '⏱️',
+        desc: '累计专注 1 小时', achieved: totalMinutes >= 60,
+        progress: totalMinutes, target: 60,
+      },
+      {
+        id: 'hours10', name: '十小时骑士', icon: '🕐',
+        desc: '累计专注 10 小时', achieved: totalMinutes >= 600,
+        progress: totalMinutes, target: 600,
+      },
+      {
+        id: 'hours50', name: '五十小时大师', icon: '🏆',
+        desc: '累计专注 50 小时', achieved: totalMinutes >= 3000,
+        progress: totalMinutes, target: 3000,
+      },
+      {
+        id: 'sessions50', name: '番茄达人', icon: '🍅',
+        desc: '完成 50 个番茄', achieved: totalSessions >= 50,
+        progress: totalSessions, target: 50,
+      },
+      {
+        id: 'sessions200', name: '番茄之王', icon: '👑',
+        desc: '完成 200 个番茄', achieved: totalSessions >= 200,
+        progress: totalSessions, target: 200,
+      },
+      {
+        id: 'streak7', name: '一周不断', icon: '📅',
+        desc: '连续专注 7 天', achieved: bestStreak >= 7,
+        progress: bestStreak, target: 7,
+      },
+      {
+        id: 'streak30', name: '月月有约', icon: '🔥',
+        desc: '连续专注 30 天', achieved: bestStreak >= 30,
+        progress: bestStreak, target: 30,
+      },
+      {
+        id: 'deep10', name: '深度工作者', icon: '🧠',
+        desc: '完成 10 次 45 分钟以上深度专注', achieved: deepSessions >= 10,
+        progress: deepSessions, target: 10,
+      },
+      {
+        id: 'today', name: '今日专注', icon: '✅',
+        desc: '今天完成了专注', achieved: doneToday,
+        progress: doneToday ? 1 : 0, target: 1,
+      },
+    ]
+
+    return c.json({ badges })
+  } catch (err) {
+    console.error('Focus achievements error:', err)
     return c.json({ error: '服务器内部错误' }, 500)
   }
 })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -61,8 +61,6 @@ export function SettingsPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importJson, setImportJson] = useState('')
   const [importError, setImportError] = useState('')
-  const [animateIn, setAnimateIn] = useState(false)
-
   const SETTINGS_VERSION = '1.0.0'
 
   const { data: settings = {}, isLoading } = useQuery({
@@ -79,10 +77,6 @@ export function SettingsPage() {
     queryKey: ['imaStatus'],
     queryFn: imaApi.status,
   })
-
-  useEffect(() => {
-    setAnimateIn(true)
-  }, [])
 
   // 搜索过滤条件
   const searchKeywords = searchQuery.toLowerCase().trim()
@@ -144,15 +138,15 @@ export function SettingsPage() {
   }, [importJson, queryClient])
 
   return (
-    <div className={cn("mx-auto max-w-2xl space-y-6 p-4 md:p-6", animateIn && "animate-in fade-in duration-300")}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-slate-500 to-slate-400 md:size-10">
             <Monitor className="size-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight md:text-2xl">设置</h1>
+              <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">设置</h1>
               <Badge variant="outline" className="rounded-full px-2 text-[10px] font-mono">
                 v{SETTINGS_VERSION}
               </Badge>
@@ -162,16 +156,17 @@ export function SettingsPage() {
         </div>
       </div>
 
-      {/* 搜索过滤栏 */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="搜索设置..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-10 rounded-xl pl-9 text-sm"
-        />
-      </div>
+      <div className="page-content-wide">
+        {/* 搜索过滤栏 */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索设置..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-10 rounded-xl pl-9 text-sm"
+          />
+        </div>
 
       {isLoading ? (
         <SettingsSkeleton />
@@ -578,6 +573,7 @@ export function SettingsPage() {
           </TabsContent>
         </Tabs>
       )}
+      </div>
     </div>
   )
 }

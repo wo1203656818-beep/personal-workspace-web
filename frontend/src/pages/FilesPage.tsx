@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Upload, Trash2, Copy, File, FileImage, FileText, FileArchive, Film, Loader2, Search, X, HardDrive, Pencil, CheckSquare, Square } from 'lucide-react'
+import { FolderOpen, Upload, Trash2, Copy, File, FileImage, FileText, FileArchive, Film, Loader2, Search, X, HardDrive, Pencil, CheckSquare, Square, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { filesApi, API_BASE, type R2FileItem } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -159,6 +159,19 @@ export function FilesPage() {
     toast.success('链接已复制')
   }
 
+  const downloadFile = async (key: string) => {
+    try {
+      const a = document.createElement('a')
+      a.href = `${API_BASE}/files/${encodeURIComponent(key)}`
+      a.download = key.split('/').pop() || key
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    } catch {
+      toast.error('下载失败')
+    }
+  }
+
   const items = filesData?.pages.flatMap((p) => p.items) ?? []
 
   const totalStorage = useMemo(() => {
@@ -201,36 +214,37 @@ export function FilesPage() {
   }, [items, searchQuery, fileTypeFilter])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-cyan-500 text-white md:size-10">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
+          <div className="icon-badge size-9 bg-gradient-to-br from-sky-500 to-cyan-500 md:size-10">
             <FolderOpen className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">文件管理</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">文件管理</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">浏览和管理 R2 存储文件</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="page-header-right">
           <div className="hidden items-center gap-1.5 text-xs text-muted-foreground md:flex">
             <HardDrive className="size-3.5" />
             <span>已用 {formatSize(totalStorage)}</span>
           </div>
           <input ref={fileRef} type="file" className="hidden" onChange={handleUpload} />
-          <Button size="sm" onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-1.5 rounded-lg">
-            {uploading ? <><Loader2 className="size-4 animate-spin" /> 上传中...</> : <><Upload className="size-4" /> 上传</>}
+          <Button size="sm" onClick={() => fileRef.current?.click()} disabled={uploading} className="h-8 gap-1.5 rounded-lg sm:h-9">
+            {uploading ? <><Loader2 className="size-3.5 animate-spin sm:size-4" /> 上传中...</> : <><Upload className="size-3.5 sm:size-4" /> 上传</>}
           </Button>
         </div>
       </div>
 
-      <ScrollArea
-        className="flex-1"
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <div className="relative p-4 md:p-6">
+      <div className="page-content-wide">
+        <ScrollArea
+          className="flex-1"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="relative p-4 md:p-6">
           {dragging && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-primary/50 bg-card p-8">
@@ -261,8 +275,8 @@ export function FilesPage() {
               {/* Search & Filter */}
               <Card className="mb-4 border-border/60">
                 <CardContent className="p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative flex-1 min-w-[200px]">
                       <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         value={searchQuery}
@@ -279,7 +293,7 @@ export function FilesPage() {
                         </button>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {(['all', 'images', 'documents', 'archives', 'others'] as const).map((t) => (
                         <button
                           key={t}
@@ -308,8 +322,8 @@ export function FilesPage() {
                   <div className="space-y-2">
                     {/* 批量操作栏 */}
                     {selectedKeys.size > 0 && (
-                      <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
-                        <button onClick={() => setSelectedKeys(new Set())} className="text-xs text-muted-foreground hover:text-foreground">
+                      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
+                      <button onClick={() => setSelectedKeys(new Set())} className="text-xs text-muted-foreground hover:text-foreground">
                           <Square className="size-4" />
                         </button>
                         <span className="text-xs text-muted-foreground">已选 {selectedKeys.size} 项</span>
@@ -347,15 +361,18 @@ export function FilesPage() {
                         </div>
                         <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setPreviewFile(file)}>
                           <p className="truncate text-sm font-medium">{file.key}</p>
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>{formatSize(file.size)}</span>
-                            <span>·</span>
-                            <span>{file.contentType}</span>
-                            <span>·</span>
-                            <span>{formatDistanceToNow(new Date(file.uploaded), { addSuffix: true, locale: zhCN })}</span>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                            <span className="shrink-0">{formatSize(file.size)}</span>
+                            <span className="shrink-0">·</span>
+                            <span className="max-w-[10rem] truncate">{file.contentType}</span>
+                            <span className="shrink-0">·</span>
+                            <span className="shrink-0">{formatDistanceToNow(new Date(file.uploaded), { addSuffix: true, locale: zhCN })}</span>
                           </div>
                         </div>
                         <div className="flex gap-1 md:opacity-0 md:transition-all md:group-hover:opacity-100">
+                          <Button variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => downloadFile(file.key)} title="下载">
+                            <Download className="size-3.5" />
+                          </Button>
                           <Button variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => copyUrl(file.key)} title="复制链接">
                             <Copy className="size-3.5" />
                           </Button>
@@ -395,6 +412,7 @@ export function FilesPage() {
           )}
         </div>
       </ScrollArea>
+      </div>
 
       <Dialog open={!!previewFile} onOpenChange={(o) => !o && setPreviewFile(null)}>
         <DialogContent className="sm:max-w-2xl">
@@ -407,6 +425,18 @@ export function FilesPage() {
                 src={`${API_BASE}/files/${encodeURIComponent(previewFile.key)}`}
                 alt={previewFile.key}
                 className="max-h-[60vh] w-full rounded-lg object-contain bg-muted"
+              />
+            ) : previewFile?.contentType?.startsWith('video/') ? (
+              <video
+                src={`${API_BASE}/files/${encodeURIComponent(previewFile.key)}`}
+                controls
+                className="max-h-[60vh] w-full rounded-lg bg-muted"
+              />
+            ) : previewFile?.contentType === 'application/pdf' ? (
+              <iframe
+                src={`${API_BASE}/files/${encodeURIComponent(previewFile.key)}`}
+                className="h-[60vh] w-full rounded-lg bg-muted"
+                title={previewFile.key}
               />
             ) : (
               <div className="flex flex-col items-center py-8 text-center">
@@ -423,6 +453,9 @@ export function FilesPage() {
           <DialogFooter>
             <Button size="sm" variant="outline" onClick={() => { if (previewFile) copyUrl(previewFile.key) }} className="gap-1.5">
               <Copy className="size-3.5" /> 复制链接
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { if (previewFile) downloadFile(previewFile.key) }} className="gap-1.5">
+              <Download className="size-3.5" /> 下载
             </Button>
             <Button size="sm" onClick={() => setPreviewFile(null)}>关闭</Button>
           </DialogFooter>

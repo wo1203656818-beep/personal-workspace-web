@@ -53,13 +53,15 @@ export function LoginPage() {
 
         {/* Login Card */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete="on">
             <div className="space-y-2">
               <Label htmlFor="password" className="text-sm text-white/80">密码</Label>
               <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-white/40" />
                 <Input
                   id="password"
+                  name="password"
+                  autoComplete="current-password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="请输入密码"
                   value={password}

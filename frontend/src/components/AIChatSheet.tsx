@@ -1,6 +1,26 @@
 import { Suspense, useState, useRef, useEffect } from 'react'
 import { Sparkles, Plus, History, X, SlidersHorizontal, Copy, RefreshCw, Pencil, Trash2, Lightbulb, ListChecks, PenLine, MessageSquareQuote } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { copyChatAsMarkdown, downloadChatMarkdown, exportChatPdf } from '@/lib/chat-export'
 import { cn } from '@/lib/utils'
@@ -28,7 +48,7 @@ const ChatMarkdown = lazyImport(async () => {
     ])
   return {
     default: ({ content }: { content: string }) => (
-      <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-foreground prose-headings:font-semibold prose-p:text-muted-foreground prose-li:text-muted-foreground prose-strong:text-foreground prose-code:text-foreground/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-border/50 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-muted-foreground [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px]">
+      <div className="prose-invert max-w-none text-[14px] leading-relaxed [overflow-wrap:anywhere] prose-headings:text-foreground prose-headings:font-semibold prose-p:text-muted-foreground prose-li:text-muted-foreground prose-strong:text-foreground prose-code:text-foreground/80 prose-a:text-primary/80 prose-pre:rounded-xl prose-pre:bg-black/40 prose-pre:border prose-pre:border-border/50 [&_p]:text-[14px] [&_li]:text-[14px] [&_td]:text-[13px] [&_th]:text-[13px] [&_blockquote]:text-muted-foreground [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_pre]:text-[13px] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight]}
@@ -56,6 +76,9 @@ function BuiltinAIChat() {
   )
   const [images, setImages] = useState<{ id: string; dataUrl: string; name: string }[]>([])
   const [currentSessionTitle, setCurrentSessionTitle] = useState('')
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [renameTitle, setRenameTitle] = useState('')
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false)
 
   const customPromptRef = useRef<string>(customPrompt)
   customPromptRef.current = customPrompt
@@ -122,7 +145,7 @@ function BuiltinAIChat() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
+        <Button variant="ghost" size="icon" className="size-9 sm:size-8">
           <Sparkles className="size-4" />
           <span className="sr-only">AI 助手</span>
         </Button>
@@ -140,7 +163,7 @@ function BuiltinAIChat() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              className="size-9 text-muted-foreground hover:text-foreground sm:size-7"
               title="聊天历史"
               onClick={() => {
                 setHistoryOpen((v) => !v)
@@ -152,7 +175,7 @@ function BuiltinAIChat() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                className="size-9 text-muted-foreground hover:text-foreground sm:size-7"
                 title="更多"
                 onClick={() => setExportOpen((v) => !v)}
               >
@@ -217,11 +240,9 @@ function BuiltinAIChat() {
                     type="button"
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground"
                     onClick={() => {
-                      const newTitle = prompt('输入新标题:', currentSessionTitle)
-                      if (newTitle && newTitle.trim() && sessionId) {
-                        aiApi.updateChatSession(sessionId, { title: newTitle.trim() })
-                        setExportOpen(false)
-                      }
+                      setRenameTitle(currentSessionTitle)
+                      setRenameDialogOpen(true)
+                      setExportOpen(false)
                     }}
                   >
                     <Pencil className="size-3.5" /> 重命名当前对话
@@ -231,20 +252,7 @@ function BuiltinAIChat() {
                     type="button"
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-400/70 transition-colors hover:bg-muted/50 hover:text-red-400"
                     onClick={() => {
-                      if (confirm('确定删除所有会话？此操作不可恢复。')) {
-                        // Batch delete all sessions one by one
-                        const deleteAll = async () => {
-                          const allSessions = [...sessions]
-                          for (const s of allSessions) {
-                            try {
-                              await aiApi.deleteChatSession(s.id)
-                            } catch {}
-                          }
-                          newChat(abortRef)
-                          toast.success('已删除所有会话')
-                        }
-                        deleteAll()
-                      }
+                      setDeleteAllDialogOpen(true)
                       setExportOpen(false)
                     }}
                   >
@@ -256,7 +264,7 @@ function BuiltinAIChat() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              className="size-9 text-muted-foreground hover:text-foreground sm:size-7"
               title="关闭"
               onClick={() => setOpen(false)}
             >
@@ -342,7 +350,7 @@ function BuiltinAIChat() {
                             ) : null}
                             <button
                               onClick={() => navigator.clipboard.writeText(rest || m.content)}
-                              className="absolute -right-8 top-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-muted-foreground/60 hover:text-foreground"
+                              className="absolute -right-9 top-0 flex size-8 items-center justify-center rounded-lg text-muted-foreground/60 transition-opacity hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
                               title="复制"
                             >
                               <Copy className="size-3.5" />
@@ -397,6 +405,80 @@ function BuiltinAIChat() {
         />
       </SheetContent>
 
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent className="border-white/10 bg-[#1a1a1a]">
+          <DialogHeader>
+            <DialogTitle className="text-white/90">重命名对话</DialogTitle>
+            <DialogDescription className="text-white/40">
+              输入新的对话标题
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameTitle}
+            onChange={(e) => setRenameTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (renameTitle.trim() && sessionId) {
+                  aiApi.updateChatSession(sessionId, { title: renameTitle.trim() })
+                  setRenameDialogOpen(false)
+                  toast.success('已重命名')
+                }
+              }
+            }}
+            placeholder="输入新标题"
+            className="border-white/10 bg-white/5 text-white placeholder:text-white/30"
+          />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" className="text-white/60">
+                取消
+              </Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (renameTitle.trim() && sessionId) {
+                  aiApi.updateChatSession(sessionId, { title: renameTitle.trim() })
+                  setRenameDialogOpen(false)
+                  toast.success('已重命名')
+                }
+              }}
+            >
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteAllDialogOpen} onOpenChange={setDeleteAllDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除所有会话</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定删除所有会话？此操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                const allSessions = [...sessions]
+                for (const s of allSessions) {
+                  try {
+                    await aiApi.deleteChatSession(s.id)
+                  } catch {}
+                }
+                newChat(abortRef)
+                setDeleteAllDialogOpen(false)
+                toast.success('已删除所有会话')
+              }}
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <ChatSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -412,7 +494,7 @@ function LobeChatFrame({ url }: { url: string }) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
+        <Button variant="ghost" size="icon" className="size-9 sm:size-8">
           <Sparkles className="size-4" />
           <span className="sr-only">AI 助手</span>
         </Button>

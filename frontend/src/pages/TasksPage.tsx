@@ -16,6 +16,10 @@ import { AllView } from '@/components/tasks/AllView'
 import { TodayPanel } from '@/components/tasks/TodayPanel'
 import { ManageListDialog } from '@/components/tasks/ManageListDialog'
 import { usePageTitle } from '@/hooks/use-page-title'
+import { TaskFilterBar } from '@/components/tasks/TaskFilterBar'
+import { TaskBoardView } from '@/components/tasks/TaskBoardView'
+import { TaskMatrixView } from '@/components/tasks/TaskMatrixView'
+import { applyTaskFilter, DEFAULT_TASK_FILTER, type TaskFilter, type TaskView } from '@/lib/task-filters'
 
 export function TasksPage() {
   usePageTitle('任务')
@@ -56,6 +60,9 @@ export function TasksPage() {
   } | null>(null)
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(feedbackTimerRef.current), [])
+
+  const [taskView, setTaskView] = useState<TaskView>('list')
+  const [filter, setFilter] = useState<TaskFilter>(DEFAULT_TASK_FILTER)
 
   const syncMsTodoMutation = useMutation({
     mutationFn: () => settingsApi.msTodoSync(),
@@ -119,6 +126,8 @@ export function TasksPage() {
     queryFn: () => tasksApi.list(),
     staleTime: STALE_TIME,
   })
+
+  const filteredTasks = useMemo(() => applyTaskFilter(tasks, filter), [tasks, filter])
 
   const { data: lists = [] } = useQuery({
     queryKey: ['taskLists'],
@@ -268,10 +277,10 @@ export function TasksPage() {
   }, [])
 
   const allVisibleTasks = useMemo(() => {
-    const active = tasks.filter((t) => !t.isCompleted)
-    const completed = tasks.filter((t) => t.isCompleted)
+    const active = filteredTasks.filter((t) => !t.isCompleted)
+    const completed = filteredTasks.filter((t) => t.isCompleted)
     return [...active, ...(showCompleted ? completed : [])]
-  }, [tasks, showCompleted])
+  }, [filteredTasks, showCompleted])
 
   const allSelected =
     allVisibleTasks.length > 0 && allVisibleTasks.every((t) => selectedIds.has(t.id))
@@ -414,7 +423,7 @@ export function TasksPage() {
   const completedCount = useMemo(() => tasks.filter((t) => t.isCompleted).length, [tasks])
 
   const viewProps = {
-    tasks,
+    tasks: filteredTasks,
     showCompleted,
     expandedTaskIds,
     onToggleExpand: toggleExpand,
@@ -428,7 +437,7 @@ export function TasksPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="page-layout">
       <TasksHeader
         pageTitle="所有任务"
         completedCount={completedCount}
@@ -441,45 +450,79 @@ export function TasksPage() {
         onShowCompletedChange={setShowCompleted}
       />
 
-      <NewTaskInput
-        ref={newTaskInputRef}
-        value={newTaskTitle}
-        onChange={setNewTaskTitle}
-        onSubmit={() => createMutation.mutate(newTaskTitle.trim())}
-        lists={lists}
-        selectedListId={newTaskListId}
-        onSelectList={handleSelectList}
-        suggestedList={suggestedList}
-        onAcceptSuggestion={() => {
-          if (suggestedList) {
-            setNewTaskListId(suggestedList.listId)
-            setSuggestedList(null)
-          }
-        }}
-      />
+      <div className="page-content overflow-y-auto">
+        <NewTaskInput
+          ref={newTaskInputRef}
+          value={newTaskTitle}
+          onChange={setNewTaskTitle}
+          onSubmit={() => createMutation.mutate(newTaskTitle.trim())}
+          lists={lists}
+          selectedListId={newTaskListId}
+          onSelectList={handleSelectList}
+          suggestedList={suggestedList}
+          onAcceptSuggestion={() => {
+            if (suggestedList) {
+              setNewTaskListId(suggestedList.listId)
+              setSuggestedList(null)
+            }
+          }}
+        />
 
-      <BatchActionBar
-        selectedCount={selectedIds.size}
-        lists={lists}
-        disabled={batchPending}
-        onComplete={batchComplete}
-        onMarkImportant={batchMarkImportant}
-        onAddToMyDay={batchAddToMyDay}
-        onMoveToList={batchMoveToList}
-        onDelete={batchDelete}
-        onCancel={() => setSelectedIds(new Set())}
-      />
+        <BatchActionBar
+          selectedCount={selectedIds.size}
+          lists={lists}
+          disabled={batchPending}
+          onComplete={batchComplete}
+          onMarkImportant={batchMarkImportant}
+          onAddToMyDay={batchAddToMyDay}
+          onMoveToList={batchMoveToList}
+          onDelete={batchDelete}
+          onCancel={() => setSelectedIds(new Set())}
+        />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="px-2 pb-24 pt-2 md:px-4 md:pb-2">
+        <div className="pb-20 pt-2 md:pb-2">
           {isLoading ? (
             <PageSkeleton />
           ) : (
             <>
-              <TodayPanel tasks={tasks} onSelectTask={setSelectedTaskId} />
-              <div className="mt-2">
-                <AllView {...viewProps} />
-              </div>
+              <TaskFilterBar
+                filter={filter}
+                onChange={setFilter}
+                lists={lists}
+                view={taskView}
+                onViewChange={setTaskView}
+                totalCount={tasks.length}
+                filteredCount={filteredTasks.length}
+              />
+              {taskView === 'board' ? (
+                <TaskBoardView
+                  tasks={filteredTasks}
+                  lists={lists}
+                  expandedTaskIds={expandedTaskIds}
+                  onToggleExpand={toggleExpand}
+                  onSelectTask={setSelectedTaskId}
+                  onDeleteTask={setDeleteConfirmId}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                />
+              ) : taskView === 'matrix' ? (
+                <TaskMatrixView
+                  tasks={filteredTasks}
+                  expandedTaskIds={expandedTaskIds}
+                  onToggleExpand={toggleExpand}
+                  onSelectTask={setSelectedTaskId}
+                  onDeleteTask={setDeleteConfirmId}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                />
+              ) : (
+                <>
+                  <TodayPanel tasks={filteredTasks} onSelectTask={setSelectedTaskId} />
+                  <div className="mt-2">
+                    <AllView {...viewProps} />
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

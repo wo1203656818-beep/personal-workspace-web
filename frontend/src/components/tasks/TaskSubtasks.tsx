@@ -126,7 +126,7 @@ export function TaskSubtasks({
               />
               <span
                 className={cn(
-                  'flex-1 text-sm truncate',
+                  'min-w-0 flex-1 truncate text-sm',
                   st.isCompleted && 'line-through text-muted-foreground',
                 )}
               >

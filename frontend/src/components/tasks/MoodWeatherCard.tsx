@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { moodApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { Sun, Cloud, CloudRain, CloudLightning, Snowflake } from 'lucide-react'
 
 const WEATHERS = [
@@ -78,13 +79,16 @@ export function MoodWeatherCard() {
   if (todayMood) {
     const weather = WEATHERS.find((w) => w.value === todayMood.weather)
     return (
-      <div className={`rounded-xl border p-4 ${weather?.bg || ''}`}>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{weather?.emoji}</span>
-          <div>
+      <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-yellow-500/[0.05] to-amber-500/[0.03]" />
+        <div className="relative flex items-center gap-3">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+            <span className="text-2xl">{weather?.emoji}</span>
+          </div>
+          <div className="min-w-0">
             <p className="text-sm font-medium">今天的心情：{weather?.label}</p>
             {todayMood.note && (
-              <p className="text-xs text-muted-foreground mt-0.5">{todayMood.note}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{todayMood.note}</p>
             )}
           </div>
         </div>
@@ -93,15 +97,26 @@ export function MoodWeatherCard() {
   }
 
   return (
-    <div className="rounded-xl border p-4 space-y-3">
-      <p className="text-sm font-medium text-muted-foreground">今天心情怎么样？</p>
-      <div className="flex gap-2">
+    <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-yellow-500/[0.05] to-amber-500/[0.03]" />
+      <div className="relative flex items-center gap-2">
+        <div className="flex size-8 items-center justify-center rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+          <Sun className="size-4" />
+        </div>
+        <p className="text-sm font-medium">今天心情怎么样？</p>
+      </div>
+      <div className="relative mt-3 flex flex-wrap gap-2">
         {WEATHERS.map((w) => (
           <Button
             key={w.value}
             variant={selectedWeather === w.value ? 'default' : 'outline'}
             size="sm"
-            className={`flex-1 flex-col gap-1 h-auto py-3 ${selectedWeather === w.value ? '' : w.bg}`}
+            className={cn(
+              'h-auto min-w-[3.5rem] flex-1 flex-col gap-1 rounded-lg py-2 sm:py-3',
+              selectedWeather === w.value
+                ? ''
+                : 'border-yellow-500/10 bg-yellow-500/5 text-foreground hover:bg-yellow-500/10 hover:text-yellow-700'
+            )}
             onClick={() => setSelectedWeather(w.value)}
           >
             <span className="text-lg">{w.emoji}</span>
@@ -110,7 +125,7 @@ export function MoodWeatherCard() {
         ))}
       </div>
       {selectedWeather && (
-        <div className="space-y-2">
+        <div className="relative mt-3 space-y-2">
           <input
             type="text"
             placeholder="一句话记录原因（可选）"

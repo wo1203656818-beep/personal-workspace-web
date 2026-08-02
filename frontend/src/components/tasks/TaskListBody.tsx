@@ -125,7 +125,7 @@ export function TaskListBody({
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="tasks">
           {(provided) => (
-            <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-1">
+            <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-1 stagger-container">
               {activeTasks.map((task, index) => (
                 <Draggable key={task.id} draggableId={task.id} index={index}>
                   {(prov) => (

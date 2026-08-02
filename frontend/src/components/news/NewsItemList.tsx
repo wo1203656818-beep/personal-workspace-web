@@ -11,12 +11,17 @@ import {
   ChevronUp,
   Sparkles,
   RefreshCw,
+  CheckCheck,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
+import { useState } from 'react'
 
 interface FeedItem {
   id: string
@@ -51,6 +56,7 @@ export function NewsItemList({
   onSave,
   compactView = false,
   readItems,
+  onToggleRead,
 }: {
   items: FeedItem[]
   isLoading: boolean
@@ -67,7 +73,9 @@ export function NewsItemList({
   onSave: (item: FeedItem) => void
   compactView?: boolean
   readItems?: Set<string>
+  onToggleRead?: (id: string) => void
 }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -159,6 +167,24 @@ export function NewsItemList({
                       {item.aiReason && (
                         <p className="text-muted-foreground italic">{item.aiReason}</p>
                       )}
+                      {item.aiSummary && (
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.aiSummary as string)
+                            setCopiedId(item.id)
+                            toast.success('摘要已复制')
+                            setTimeout(() => setCopiedId(null), 1500)
+                          }}
+                          className="inline-flex items-center gap-1 text-[10px] text-blue-500 hover:text-blue-600"
+                        >
+                          {copiedId === item.id ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          {copiedId === item.id ? '已复制' : '复制摘要'}
+                        </button>
+                      )}
                     </div>
                   )}
                   {!compactView && (
@@ -237,6 +263,18 @@ export function NewsItemList({
                   >
                     <Bookmark className="w-4 h-4" />
                   </button>
+                  {onToggleRead && (
+                    <button
+                      onClick={() => onToggleRead(item.id)}
+                      className={cn(
+                        'p-1.5 rounded hover:bg-muted',
+                        isRead ? 'text-emerald-500' : 'text-muted-foreground',
+                      )}
+                      title={isRead ? '标记为未读' : '标记为已读'}
+                    >
+                      <CheckCheck className="w-4 h-4" />
+                    </button>
+                  )}
                   <a
                     href={item.url}
                     target="_blank"

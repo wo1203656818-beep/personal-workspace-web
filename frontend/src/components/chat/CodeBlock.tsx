@@ -17,11 +17,11 @@ export function CodeBlock({ children }: { children?: React.ReactNode }) {
       <button
         type="button"
         onClick={copy}
-        className="absolute right-2 top-2 z-10 rounded bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+        className="absolute right-2 top-2 z-10 rounded bg-background/80 px-2 py-1 text-[10px] text-muted-foreground opacity-100 transition-opacity hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
       >
         {copied ? '已复制' : '复制'}
       </button>
-      <pre ref={ref}>{children}</pre>
+      <pre ref={ref} className="max-w-full overflow-x-auto">{children}</pre>
     </div>
   )
 }

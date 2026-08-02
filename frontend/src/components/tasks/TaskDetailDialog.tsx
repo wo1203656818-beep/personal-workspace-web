@@ -62,11 +62,12 @@ export function TaskDetailDialog({
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [reminderPickerOpen, setReminderPickerOpen] = useState(false)
   const [recurrencePickerOpen, setRecurrencePickerOpen] = useState(false)
-  const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly' | 'monthly'>(
-    'none',
-  )
+  const [recurrenceType, setRecurrenceType] = useState<
+    'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'every'
+  >('none')
   const [weeklyDays, setWeeklyDays] = useState<number[]>([])
   const [monthlyDay, setMonthlyDay] = useState<number>(1)
+  const [everyDays, setEveryDays] = useState<number>(1)
   const [noteDraft, setNoteDraft] = useState('')
   const [insertAtPosition, setInsertAtPosition] = useState<number | null>(null)
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false)
@@ -113,6 +114,7 @@ export function TaskDetailDialog({
       setRecurrenceType(r.type)
       setWeeklyDays(r.days || [])
       setMonthlyDay(r.dayOfMonth || 1)
+      setEveryDays(r.everyDays || 1)
     }
   }, [task?.id, task?.recurrence])
 
@@ -531,6 +533,8 @@ export function TaskDetailDialog({
           onWeeklyDaysChange={setWeeklyDays}
           monthlyDay={monthlyDay}
           onMonthlyDayChange={setMonthlyDay}
+          everyDays={everyDays}
+          onEveryDaysChange={setEveryDays}
           onMutate={(id, data) => updateDetailMutation.mutate({ id, data })}
           taskId={task.id}
         />

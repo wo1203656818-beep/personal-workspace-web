@@ -40,7 +40,7 @@ export function AIQaPanel({ open, onOpenChange }: AIQaPanelProps) {
           <SheetClose />
         </SheetHeader>
 
-        <div className="flex h-[calc(100%-60px)] flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <ScrollArea className="flex-1 pr-4">
             {!submittedQuestion ? (
               <p className="text-sm text-muted-foreground">输入问题，AI 将从你的笔记和知识库中寻找答案</p>
@@ -82,7 +82,7 @@ export function AIQaPanel({ open, onOpenChange }: AIQaPanelProps) {
               placeholder="输入你的问题..."
               onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
             />
-            <Button size="icon" onClick={handleSubmit} disabled={isLoading || !question.trim()}>
+            <Button size="icon" className="size-10 sm:size-9" onClick={handleSubmit} disabled={isLoading || !question.trim()}>
               <Send className="size-4" />
             </Button>
           </div>

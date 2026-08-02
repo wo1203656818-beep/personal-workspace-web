@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Flame, Loader2, Plus, Check, Trash2, Pencil, CheckCheck, Target,
   Search, ArrowUpDown, Archive, Trophy, Percent, Brain, RefreshCw,
+  BarChart3, Medal, TrendingDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { habitsApi, type Habit } from '@/lib/api'
+import { habitsApi, type Habit, type HabitBadge } from '@/lib/api'
 import { ActivityCalendar } from 'react-activity-calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,6 +88,13 @@ export function HabitsPage() {
   const [icon, setIcon] = useState(HABIT_ICONS[0])
   const [color, setColor] = useState(HABIT_COLORS[0].value)
   const [description, setDescription] = useState('')
+  const [isGood, setIsGood] = useState(true)
+  const [frequency, setFrequency] = useState<string | null>(null)
+  const [frequencyDays, setFrequencyDays] = useState<number[]>([])
+  const [targetPerWeek, setTargetPerWeek] = useState<string>('')
+
+  // 习惯详情统计
+  const [statsHabit, setStatsHabit] = useState<Habit | null>(null)
 
   // 搜索、排序、归档
   const [searchQuery, setSearchQuery] = useState('')
@@ -116,6 +131,17 @@ export function HabitsPage() {
   const { data: correlation, isLoading: correlationLoading, refetch: refetchCorrelation } = useQuery({
     queryKey: ['habits', 'correlation'],
     queryFn: habitsApi.correlation,
+  })
+
+  const { data: achievements } = useQuery({
+    queryKey: ['habits', 'achievements'],
+    queryFn: habitsApi.achievements,
+  })
+
+  const { data: stats, isLoading: statsLoading } = useQuery({
+    queryKey: ['habits', 'stats', statsHabit?.id],
+    queryFn: () => habitsApi.stats(statsHabit!.id),
+    enabled: !!statsHabit,
   })
 
   const heatData: HeatItem[] = useMemo(
@@ -165,26 +191,37 @@ export function HabitsPage() {
     return filtered
   }, [habits, searchQuery, sortBy, sortOrder, archivedIds, showArchived])
 
-  // 今日未打卡的习惯（用于快速打卡区）
+  // 今日未打卡的好习惯（用于快速打卡区；坏习惯不含在内）
   const todayPending = useMemo(
-    () => (habits ?? []).filter((h) => !h.doneToday && !archivedIds.has(h.id)),
+    () =>
+      (habits ?? []).filter(
+        (h) => h.isGood !== false && !h.doneToday && !archivedIds.has(h.id),
+      ),
     [habits, archivedIds],
   )
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      editing
-        ? habitsApi.update(editing.id, { name, icon, color, description })
-        : habitsApi.create({ name, icon, color, description }),
+    mutationFn: () => {
+      const freq = frequency ? `weekly:${frequencyDays.join(',')}` : null
+      const target = targetPerWeek.trim() ? parseInt(targetPerWeek, 10) : null
+      const data = {
+        name,
+        icon,
+        color,
+        description,
+        isGood,
+        frequency: freq,
+        targetPerWeek: target && target > 0 ? target : null,
+      }
+      return editing ? habitsApi.update(editing.id, data) : habitsApi.create(data)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
+      queryClient.invalidateQueries({ queryKey: ['habits', 'achievements'] })
       toast.success(editing ? '习惯已更新' : '习惯已创建')
       setCreateOpen(false)
       setEditing(null)
-      setName('')
-      setIcon(HABIT_ICONS[0])
-      setColor(HABIT_COLORS[0].value)
-      setDescription('')
+      resetForm()
     },
     onError: (err: Error) => toast.error(`保存失败: ${err.message}`),
   })
@@ -198,9 +235,11 @@ export function HabitsPage() {
     onSuccess: (data, { habitId }) => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
       queryClient.invalidateQueries({ queryKey: ['habits', 'calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['habits', 'achievements'] })
+      queryClient.invalidateQueries({ queryKey: ['habits', 'stats'] })
       const habit = habits?.find((h) => h.id === habitId)
       if (data.done) {
-        toast.success(habit ? `「${habit.name}」已打卡` : '已打卡')
+        toast.success(habit ? `「${habit.name}」${habit.isGood === false ? '已记录' : '已打卡'}` : '已打卡')
       }
     },
     onError: (err: Error) => toast.error(`操作失败: ${err.message}`),
@@ -214,6 +253,7 @@ export function HabitsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['habits'] })
       queryClient.invalidateQueries({ queryKey: ['habits', 'calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['habits', 'achievements'] })
       toast.success('习惯已删除')
       setDeleting(null)
     },
@@ -222,11 +262,30 @@ export function HabitsPage() {
 
   const openCreate = () => {
     setEditing(null)
+    resetForm()
+    setCreateOpen(true)
+  }
+
+  const resetForm = () => {
     setName('')
     setIcon(HABIT_ICONS[0])
     setColor(HABIT_COLORS[0].value)
     setDescription('')
-    setCreateOpen(true)
+    setIsGood(true)
+    setFrequency(null)
+    setFrequencyDays([])
+    setTargetPerWeek('')
+  }
+
+  const parseFrequency = (habit: Habit) => {
+    const m = habit.frequency && /^weekly:([\d,]+)$/.exec(habit.frequency)
+    if (m) {
+      setFrequency('weekly')
+      setFrequencyDays(m[1].split(',').map(Number))
+    } else {
+      setFrequency(null)
+      setFrequencyDays([])
+    }
   }
 
   const openEdit = (habit: Habit) => {
@@ -235,7 +294,16 @@ export function HabitsPage() {
     setIcon(habit.icon ?? HABIT_ICONS[0])
     setColor(habit.color ?? HABIT_COLORS[0].value)
     setDescription(habit.description ?? '')
+    setIsGood(habit.isGood !== false)
+    parseFrequency(habit)
+    setTargetPerWeek(habit.targetPerWeek ? String(habit.targetPerWeek) : '')
     setCreateOpen(true)
+  }
+
+  const toggleFrequencyDay = (day: number) => {
+    setFrequencyDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort(),
+    )
   }
 
   const toggleSort = (field: typeof sortBy) => {
@@ -260,24 +328,27 @@ export function HabitsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
-        <div className="flex items-center gap-3">
+    <div className="page-layout">
+      <div className="page-header">
+        <div className="page-header-left">
           <div className="icon-badge size-9 bg-gradient-to-br from-orange-500 to-red-500 md:size-10">
             <Flame className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">习惯打卡</h1>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl md:text-2xl">习惯打卡</h1>
             <p className="mt-0.5 text-xs text-muted-foreground md:text-sm">
               每天一点点，坚持看得见
             </p>
           </div>
         </div>
-        <Button size="sm" onClick={openCreate} className="gap-1 rounded-lg">
-          <Plus className="size-4" />
-          新建习惯
-        </Button>
+        <div className="page-header-right">
+          <Button size="sm" onClick={openCreate} className="h-8 gap-1 rounded-lg sm:h-9">
+            <Plus className="size-3.5 sm:size-4" />
+            新建习惯
+          </Button>
+        </div>
       </div>
+      <div className="page-content-wide">
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-4 md:p-6">
@@ -304,7 +375,7 @@ export function HabitsPage() {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <StatCard
                   label="习惯总数"
-                  value={habits.length - archivedIds.size}
+                  value={habits.filter((h) => !archivedIds.has(h.id)).length}
                   icon={Target}
                   color="text-indigo-500"
                   bg="bg-indigo-500/10"
@@ -328,7 +399,7 @@ export function HabitsPage() {
                 />
                 <StatCard
                   label="最高连续"
-                  value={Math.max(0, ...habits.map((h) => h.streak))}
+                  value={Math.max(0, ...habits.map((h) => h.bestStreak))}
                   icon={Flame}
                   color="text-rose-500"
                   bg="bg-rose-500/10"
@@ -443,6 +514,29 @@ export function HabitsPage() {
                 </CardContent>
               </Card>
 
+              {/* 成就徽章 */}
+              <Card className="overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <div className="flex size-6 items-center justify-center rounded-md bg-amber-500/10">
+                      <Medal className="size-3.5 text-amber-500" />
+                    </div>
+                    成就徽章
+                    <span className="text-xs">
+                      {achievements?.badges.filter((b) => b.achieved).length ?? 0}/
+                      {achievements?.badges.length ?? 0}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    {(achievements?.badges ?? []).map((badge) => (
+                      <AchievementBadge key={badge.id} badge={badge} />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* 快速打卡区 */}
               {todayPending.length > 0 && (
                 <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
@@ -484,7 +578,7 @@ export function HabitsPage() {
                     className="h-9 rounded-lg pl-9"
                   />
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   {(['name', 'streak', 'created'] as const).map((field) => (
                     <Button
                       key={field}
@@ -516,7 +610,9 @@ export function HabitsPage() {
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {visibleHabits.map((habit) => (
+                  {visibleHabits.map((habit) => {
+                    const negative = habit.isGood === false
+                    return (
                     <Card
                       key={habit.id}
                       className="group overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
@@ -525,33 +621,59 @@ export function HabitsPage() {
                         <div
                           className="absolute inset-x-0 top-0 h-1"
                           style={{
-                            background: `linear-gradient(90deg, ${habit.color ?? '#7C3AED'}, transparent)`,
+                            background: `linear-gradient(90deg, ${habit.color ?? (negative ? '#F43F5E' : '#7C3AED')}, transparent)`,
                           }}
                         />
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex min-w-0 items-center gap-3">
                             <div
                               className="flex size-10 shrink-0 items-center justify-center rounded-xl text-xl"
-                              style={{ background: `${habit.color ?? '#7C3AED'}1a` }}
+                              style={{ background: `${habit.color ?? (negative ? '#F43F5E' : '#7C3AED')}1a` }}
                             >
                               {habit.icon ?? '✨'}
                             </div>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold">
+                                {negative && (
+                                  <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-rose-500/10 px-1 py-0.5 text-[10px] text-rose-500">
+                                    <TrendingDown className="size-2.5" />
+                                    坏
+                                  </span>
+                                )}
                                 {habit.name}
-                                <StreakBadge streak={habit.streak} />
+                                <StreakBadge streak={negative ? 0 : habit.streak} />
                               </p>
                               <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                                <Flame className="size-3.5 text-orange-500" />
-                                <span className="font-medium text-foreground">{habit.streak}</span>
-                                天连续 · 共 {habit.total} 次
-                                {habit.streak >= 7 && (
-                                  <Trophy className="ml-1 size-3 text-amber-500" />
+                                {negative ? (
+                                  <>
+                                    <span className="font-medium text-rose-500">{habit.total}</span>
+                                    次发生{habit.weekDone > 0 && (
+                                      <> · 本周 <span className="font-medium text-rose-500">{habit.weekDone}</span> 次</>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Flame className="size-3.5 text-orange-500" />
+                                    <span className="font-medium text-foreground">{habit.streak}</span>
+                                    天连续 · 共 {habit.total} 次
+                                    {habit.streak >= 7 && (
+                                      <Trophy className="ml-1 size-3 text-amber-500" />
+                                    )}
+                                  </>
                                 )}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 rounded-md"
+                              title="查看统计"
+                              onClick={() => setStatsHabit(habit)}
+                            >
+                              <BarChart3 className="size-3.5" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -585,13 +707,34 @@ export function HabitsPage() {
                           </p>
                         )}
 
+                        {!negative && habit.weekTarget > 0 && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${Math.min(100, (habit.weekDone / habit.weekTarget) * 100)}%`,
+                                  background: habit.color ?? '#7C3AED',
+                                }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">
+                              本周 {habit.weekDone}/{habit.weekTarget}
+                            </span>
+                          </div>
+                        )}
+
                         <div className="mt-3 flex items-center gap-2">
                           <Button
                             size="sm"
                             variant={habit.doneToday ? 'default' : 'outline'}
                             className={cn(
                               'flex-1 gap-1.5 rounded-lg',
-                              habit.doneToday && 'bg-emerald-600 hover:bg-emerald-700',
+                              negative
+                                ? habit.doneToday
+                                  ? 'bg-rose-600 hover:bg-rose-700'
+                                  : 'border-rose-500/40 text-rose-500 hover:bg-rose-500/10'
+                                : habit.doneToday && 'bg-emerald-600 hover:bg-emerald-700',
                             )}
                             onClick={() => {
                               if (habit.doneToday) {
@@ -610,13 +753,19 @@ export function HabitsPage() {
                             ) : (
                               <CheckCheck className="size-4" />
                             )}
-                            {habit.doneToday ? '今日已完成' : '打卡'}
+                            {negative
+                              ? habit.doneToday
+                                ? '今日已发生'
+                                : '标记发生'
+                              : habit.doneToday
+                                ? '今日已完成'
+                                : '打卡'}
                           </Button>
-                          
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </>
@@ -642,6 +791,40 @@ export function HabitsPage() {
                 placeholder="如：阅读 30 分钟"
                 maxLength={30}
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">类型</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsGood(true)}
+                  className={cn(
+                    'flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
+                    isGood
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  <Check className="size-4" /> 好习惯
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsGood(false)}
+                  className={cn(
+                    'flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
+                    !isGood
+                      ? 'border-rose-500 bg-rose-500/10 text-rose-500'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  <TrendingDown className="size-4" /> 坏习惯
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {isGood
+                  ? '好习惯：每天坚持去做，打卡记录执行'
+                  : '坏习惯：想要戒除的行为，标记"发生"记录频率'}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">图标</label>
@@ -680,6 +863,77 @@ export function HabitsPage() {
                   />
                 ))}
               </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">频率</label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFrequency(null)}
+                  className={cn(
+                    'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                    !frequency
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  每天
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFrequency('weekly')
+                    if (frequencyDays.length === 0) setFrequencyDays([1, 3, 5])
+                  }}
+                  className={cn(
+                    'rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                    frequency === 'weekly'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  指定星期
+                </button>
+              </div>
+              {frequency === 'weekly' && (
+                <div className="flex flex-wrap gap-1.5">
+                  {['日', '一', '二', '三', '四', '五', '六'].map((d, i) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => toggleFrequencyDay(i)}
+                      className={cn(
+                        'flex size-8 items-center justify-center rounded-lg border text-xs transition-colors',
+                        frequencyDays.includes(i)
+                          ? 'border-primary bg-primary/10 font-medium text-primary'
+                          : 'border-border text-muted-foreground hover:bg-muted',
+                      )}
+                    >
+                      周{d}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                每周目标次数（可选）
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={28}
+                value={targetPerWeek}
+                onChange={(e) => setTargetPerWeek(e.target.value)}
+                placeholder={
+                  isGood ? '如：5（每周完成 5 次达标）' : '如：2（每周最多允许发生 2 次）'
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {isGood
+                  ? '不填则按频率计算：每天=7，指定星期=所选天数'
+                  : '坏习惯的目标是减少发生：设置上限后，超过即为偏离目标'}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">描述（可选）</label>
@@ -800,6 +1054,148 @@ export function HabitsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* 习惯详情统计抽屉 */}
+      <Sheet open={!!statsHabit} onOpenChange={(o) => !o && setStatsHabit(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <span className="text-xl">{statsHabit?.icon ?? '✨'}</span>
+              <span>{statsHabit?.name}</span>
+            </SheetTitle>
+            <SheetDescription>
+              统计最近一年打卡数据{statsHabit?.isGood === false ? '（坏习惯：标记发生次数）' : ''}
+            </SheetDescription>
+          </SheetHeader>
+          {statsLoading || !stats ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="mt-4 space-y-5">
+              <div className="grid grid-cols-3 gap-2">
+                <MiniStat label="当前连续" value={`${stats.streak}天`} />
+                <MiniStat label="最佳连续" value={`${stats.bestStreak}天`} />
+                <MiniStat label="总打卡" value={`${stats.total}次`} />
+              </div>
+
+              {/* 星期分布 */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">星期偏好</p>
+                <div className="flex h-20 items-end gap-1.5">
+                  {stats.weekdayCount.map((count, i) => {
+                    const max = Math.max(1, ...stats.weekdayCount)
+                    const height = (count / max) * 100
+                    const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+                    const isToday = i === new Date().getDay()
+                    return (
+                      <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">{count}</span>
+                        <div className="w-full rounded-t-md bg-primary/70" style={{ height: `${Math.max(height, count > 0 ? 8 : 2)}%` }} />
+                        <span className={cn('text-[10px]', isToday && 'font-bold text-primary')}>
+                          {weekdays[i]}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* 近8周完成率 */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  近 8 周完成率
+                </p>
+                <div className="space-y-1.5">
+                  {[...stats.weekly].reverse().map((w) => {
+                    const pct = w.rate == null ? 0 : Math.round(w.rate * 100)
+                    return (
+                      <div key={w.week} className="flex items-center gap-2 text-xs">
+                        <span className="w-16 shrink-0 text-muted-foreground">
+                          {w.week.slice(5).replace('-', '/')}
+                        </span>
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(100, pct)}%`,
+                              background:
+                                statsHabit?.isGood === false
+                                  ? pct > (w.target > 0 ? (w.done / w.target) * 100 : 100)
+                                    ? '#f43f5e'
+                                    : '#f97316'
+                                  : '#10b981',
+                            }}
+                          />
+                        </div>
+                        <span className="w-12 shrink-0 text-right text-muted-foreground">
+                          {statsHabit?.isGood === false ? `${w.done}次` : `${pct}%`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* 近60天 */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">近 60 天</p>
+                <div className="grid grid-cols-15 gap-1">
+                  {stats.recent.map((d) => (
+                    <div
+                      key={d.date}
+                      title={`${d.date} ${d.done ? '已完成' : '未完成'}`}
+                      className={cn(
+                        'aspect-square rounded-sm',
+                        d.done
+                          ? statsHabit?.isGood === false
+                            ? 'bg-rose-500'
+                            : 'bg-emerald-500'
+                          : 'bg-muted',
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-card/50 p-3 text-center">
+      <p className="text-lg font-bold">{value}</p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
+    </div>
+  )
+}
+
+function AchievementBadge({ badge }: { badge: HabitBadge }) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col items-center gap-1.5 rounded-xl border p-3 text-center transition-all',
+        badge.achieved
+          ? 'border-amber-500/40 bg-amber-500/5'
+          : 'border-border opacity-50 grayscale',
+      )}
+    >
+      <span className="text-2xl">{badge.icon}</span>
+      <p className="text-xs font-semibold">{badge.name}</p>
+      <p className="text-[10px] leading-tight text-muted-foreground">{badge.desc}</p>
+      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-amber-500 transition-all"
+          style={{ width: `${Math.min(100, (badge.progress / badge.target) * 100)}%` }}
+        />
+      </div>
+      <p className="text-[10px] text-muted-foreground">
+        {Math.min(badge.progress, badge.target)}/{badge.target}
+      </p>
     </div>
   )
 }

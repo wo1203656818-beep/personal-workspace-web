@@ -25,13 +25,15 @@ export function TodayPanel({
   const [open, setOpen] = useState(false)
 
   return (
-    <div className="rounded-xl border bg-card/60">
+    <div className="rounded-xl border bg-card p-4 hover-lift">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-accent/40"
+        className="flex w-full items-center gap-2 rounded-lg px-1 py-2 text-left transition-colors hover:bg-accent/40"
       >
-        <LayoutGrid className="size-4 text-primary/70" />
+        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <LayoutGrid className="size-4" />
+        </div>
         <span className="text-sm font-medium">今日概览</span>
         <span className="text-xs text-muted-foreground">心情 · 简报 · 建议</span>
         <ChevronDown
@@ -40,7 +42,7 @@ export function TodayPanel({
       </button>
 
       {open && (
-        <div className="grid gap-3 border-t p-3 md:grid-cols-2">
+        <div className="grid gap-3 border-t pt-3 sm:gap-4 sm:pt-4 md:grid-cols-2">
           <MoodWeatherCard />
           <MoodHistory />
           <QuickActionPool />

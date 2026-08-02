@@ -33,6 +33,7 @@ import {
   MoreHorizontal,
   MessageSquare,
   CalendarDays,
+  X,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -48,6 +49,7 @@ import {
   SidebarRail,
   SidebarGroup,
   SidebarGroupLabel,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import {
   DropdownMenu,
@@ -67,6 +69,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 
 import { useAuth } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
@@ -144,6 +147,7 @@ export function AppLayout() {
   const { logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const queryClient = useQueryClient()
+  const { setOpenMobile } = useSidebar()
   const [commandOpen, setCommandOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
@@ -212,20 +216,32 @@ export function AppLayout() {
     <SidebarProvider>
       <div className="flex h-screen w-full overflow-hidden">
         <Sidebar>
-          <SidebarHeader className="pb-2">
+          <SidebarHeader className="pb-2 relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-b from-sidebar-accent/30 to-transparent pointer-events-none" />
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton size="lg" asChild>
-                  <Link to="/">
-                    <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                      <LayoutDashboard className="size-5" />
-                    </div>
-                    <div className="flex flex-col gap-0.5 leading-none">
-                      <span className="font-semibold text-sm">工作台</span>
-                      <span className="text-[10px] text-muted-foreground">Personal Workspace</span>
-                    </div>
-                  </Link>
-                </SidebarMenuButton>
+                <div className="flex items-center gap-1 pr-1">
+                  <SidebarMenuButton size="lg" asChild className="flex-1">
+                    <Link to="/">
+                      <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
+                        <LayoutDashboard className="size-5" />
+                      </div>
+                      <div className="flex flex-col gap-0.5 leading-none">
+                        <span className="font-semibold text-sm">工作台</span>
+                        <span className="text-[10px] text-muted-foreground">Personal Workspace</span>
+                      </div>
+                    </Link>
+                  </SidebarMenuButton>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 md:hidden"
+                    onClick={() => setOpenMobile(false)}
+                    aria-label="关闭菜单"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarHeader>
@@ -350,8 +366,8 @@ export function AppLayout() {
               onDismiss={() => setSyncWarningDismissed(true)}
             />
           )}
-          <div className="flex-1 overflow-auto pb-16 md:pb-0">
-            <div className="page-enter">
+          <div className="flex-1 overflow-auto">
+            <div key={location.pathname} className="page-enter h-full pb-16 md:pb-0">
               <Outlet />
             </div>
           </div>

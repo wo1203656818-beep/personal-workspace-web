@@ -20,10 +20,19 @@ export interface CalendarHabit {
   habitName: string
 }
 
+export interface CalendarMood {
+  weather: string
+  note: string | null
+}
+
 export interface CalendarDay {
   tasks: CalendarTask[]
   journals: CalendarJournal[]
   habits: CalendarHabit[]
+  focusMinutes: number
+  focusCount: number
+  moods: CalendarMood[]
+  hasDigest: boolean
 }
 
 export interface CalendarMonthData {

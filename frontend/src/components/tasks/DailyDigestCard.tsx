@@ -22,18 +22,24 @@ export function DailyDigestCard() {
   })
 
   return (
-    <div className="rounded-2xl border bg-gradient-to-r from-blue-500/5 to-violet-500/5 p-3 md:p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
-          <Sparkles className="size-4" />
-          今日简报
+    <div className="relative overflow-hidden rounded-xl border bg-card p-3 hover-lift sm:p-4">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-indigo-500/[0.04] to-violet-500/[0.04]" />
+      <div className="relative flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+            <Sparkles className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">今日简报</p>
+            <p className="text-xs text-muted-foreground">AI 一键总结今日动态</p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {digest && (
             <Button
               variant="ghost"
               size="icon"
-              className="size-7"
+              className="size-8"
               onClick={() => generateMutation.mutate()}
               disabled={generateMutation.isPending}
               title="重新生成"
@@ -44,7 +50,7 @@ export function DailyDigestCard() {
             </Button>
           )}
           {digest && (
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => setExpanded(!expanded)}>
+            <Button variant="ghost" size="icon" className="size-8" onClick={() => setExpanded(!expanded)}>
               {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
             </Button>
           )}
@@ -52,16 +58,16 @@ export function DailyDigestCard() {
       </div>
       {digest ? (
         expanded && (
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+          <p className="relative mt-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
             {digest}
           </p>
         )
       ) : (
-        <div className="mt-2">
+        <div className="relative mt-3">
           <Button
             size="sm"
             variant="outline"
-            className="w-full gap-1"
+            className="w-full gap-1 border-indigo-500/20 text-indigo-600 hover:bg-indigo-500/5 hover:text-indigo-700"
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending}
           >
